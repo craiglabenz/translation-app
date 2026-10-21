@@ -8,9 +8,9 @@ void main() {
     tearDown(() async => GetIt.I.reset());
 
     test(
-      'configureDependencies with AuthPolicy.none configures no-auth environment',
+      'configureDependencies defaults to AuthPolicy.none and launches HomeRoute',
       () {
-        configureDependencies(authPolicy: const AuthPolicy.none());
+        configureDependencies();
 
         final policy = GetIt.I<AuthPolicy>();
         expect(policy.isEnabled, isFalse);
@@ -25,9 +25,9 @@ void main() {
     );
 
     test(
-      'configureDependencies defaults to AuthPolicy.serverpod',
+      'configureDependencies with AuthPolicy.serverpod starts on LoginRoute',
       () {
-        configureDependencies();
+        configureDependencies(authPolicy: const AuthPolicy.serverpod());
 
         final policy = GetIt.I<AuthPolicy>();
         expect(policy.isEnabled, isTrue);

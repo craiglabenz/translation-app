@@ -25,23 +25,29 @@ $AuthStateCopyWith<AuthState> get copyWith => _$AuthStateCopyWithImpl<AuthState>
 
 @override
 void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+  final _this = this as AuthState;
   properties
     ..add(DiagnosticsProperty('type', 'AuthState'))
-    ..add(DiagnosticsProperty('user', user));
+    ..add(DiagnosticsProperty('user', _this.user));
 }
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is AuthState&&(identical(other.user, user) || other.user == user));
+  final _this = this as AuthState;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is AuthState&&(identical(other.user, _this.user) || other.user == _this.user));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,user);
+int get hashCode {
+  final _this = this as AuthState;
+  return Object.hash(runtimeType,_this.user);
+}
 
 @override
 String toString({ DiagnosticLevel minLevel = DiagnosticLevel.info }) {
-  return 'AuthState(user: $user)';
+  final _this = this as AuthState;
+  return 'AuthState(user: ${_this.user})';
 }
 
 
@@ -239,23 +245,25 @@ _$AuthStateCopyWith<_AuthState> get copyWith => __$AuthStateCopyWithImpl<_AuthSt
 
 @override
 void debugFillProperties(DiagnosticPropertiesBuilder properties) {
-  properties
+    properties
     ..add(DiagnosticsProperty('type', 'AuthState'))
     ..add(DiagnosticsProperty('user', user));
 }
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _AuthState&&(identical(other.user, user) || other.user == user));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AuthState&&(identical(other.user, user) || other.user == user));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,user);
+int get hashCode {
+    return Object.hash(runtimeType,user);
+}
 
 @override
 String toString({ DiagnosticLevel minLevel = DiagnosticLevel.info }) {
-  return 'AuthState(user: $user)';
+    return 'AuthState(user: $user)';
 }
 
 

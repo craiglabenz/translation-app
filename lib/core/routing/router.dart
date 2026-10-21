@@ -1,6 +1,9 @@
 import 'package:injectable/injectable.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:translation_app/core/auth/auth.dart';
+import 'package:translation_app/features/conversation/widgets/active_chat_view.dart';
+import 'package:translation_app/features/history/history_screen.dart';
+import 'package:translation_app/features/settings/settings_screen.dart';
 
 import '../../screens/screens.dart';
 import 'routing.dart';
@@ -32,6 +35,13 @@ class AppRouter {
     builder: (context, route) => switch (route) {
       LoginRoute() => const LoginScreen(),
       HomeRoute() => const HomeScreen(),
+      ChatRoute(:final conversationId, :final autoStartListening) =>
+        ActiveChatView(
+          conversationId: conversationId,
+          autoStartListening: autoStartListening,
+        ),
+      HistoryRoute() => const HistoryScreen(),
+      SettingsRoute() => const SettingsScreen(),
     },
     guards: [
       (current, proposed) {

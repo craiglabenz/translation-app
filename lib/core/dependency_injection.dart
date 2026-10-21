@@ -1,6 +1,23 @@
+import 'dart:io';
+
+import 'package:data_layer/data_layer.dart';
 import 'package:get_it/get_it.dart';
 import 'package:injectable/injectable.dart';
+import 'package:translation_app/core/ai/local_translation_engine.dart';
+import 'package:translation_app/core/ai/model_manager.dart';
+import 'package:translation_app/core/ai/translation_engine.dart';
+import 'package:translation_app/core/audio/native_audio_service.dart';
 import 'package:translation_app/core/auth/auth.dart';
+import 'package:translation_app/core/data/models/app_settings.dart';
+import 'package:translation_app/core/data/models/conversation.dart';
+import 'package:translation_app/core/data/models/exchange_rate_cache.dart';
+import 'package:translation_app/core/data/models/message.dart';
+import 'package:translation_app/core/data/repositories/conversation_repository.dart';
+import 'package:translation_app/core/data/repositories/settings_repository.dart';
+import 'package:translation_app/core/data/sources/frankfurter_api_source.dart';
+import 'package:translation_app/core/data/sources/hive_sources.dart';
+import 'package:translation_app/features/conversation/bloc/active_conversation_bloc.dart';
+import 'package:translation_app/features/settings/bloc/settings_bloc.dart';
 
 import 'dependency_injection.config.dart';
 
@@ -12,8 +29,111 @@ final getIt = GetIt.instance;
   asExtension: true, // default
 )
 void configureDependencies({
-  AuthPolicy authPolicy = const AuthPolicy.serverpod(),
+  AuthPolicy authPolicy = const AuthPolicy.none(),
+  bool? useInMemoryStorage,
 }) {
   AuthModule.policy = authPolicy;
   getIt.init();
+
+  final inMemory =
+      useInMemoryStorage ?? Platform.environment.containsKey('FLUTTER_TEST');
+
+  if (!getIt.isRegistered<SettingsRepository>()) {
+    late final Source<AppSettings> settingsSource;
+    late final Source<ExchangeRateCache> localRateSource;
+    late final Source<Conversation> conversationSource;
+    late final Source<Message> messageSource;
+
+    if (inMemory) {
+      settingsSource = LocalMemorySource<AppSettings>(
+        bindings: AppSettings.bindings,
+      );
+      localRateSource = LocalMemorySource<ExchangeRateCache>(
+        bindings: ExchangeRateCache.bindings,
+      );
+      conversationSource = LocalMemorySource<Conversation>(
+        bindings: Conversation.bindings,
+      );
+      messageSource = LocalMemorySource<Message>(
+        bindings: Message.bindings,
+      );
+    } else {
+      final hiveInitializer = AppHiveInitializer();
+      getIt.registerSingleton<AppHiveInitializer>(hiveInitializer);
+      settingsSource = HiveSources.createSettingsSource(hiveInitializer);
+      localRateSource = HiveSources.createExchangeRateSource(hiveInitializer);
+      conversationSource = HiveSources.createConversationSource(
+        hiveInitializer,
+      );
+      messageSource = HiveSources.createMessageSource(hiveInitializer);
+    }
+
+    final Source<ExchangeRateCache> remoteRateSource = inMemory
+        ? RemoteMemorySource<ExchangeRateCache>(
+            bindings: ExchangeRateCache.bindings,
+          )
+        : FrankfurterApiSource();
+
+    getIt
+      ..registerLazySingleton<SettingsRepository>(
+        () => SettingsRepository(
+          settingsSource: settingsSource,
+          localExchangeRateSource: localRateSource,
+          remoteExchangeRateSource: remoteRateSource,
+        ),
+        dispose: (repo) => repo.close(),
+      )
+      ..registerLazySingleton<ConversationRepository>(
+        () => ConversationRepository(
+          conversationSource: conversationSource,
+          messageSource: messageSource,
+        ),
+        dispose: (repo) => repo.close(),
+      );
+  }
+
+  if (!getIt.isRegistered<ModelManager>()) {
+    getIt.registerLazySingleton<ModelManager>(
+      () => ModelManager(
+        initialInstalled: inMemory,
+        isInstalledCheck: inMemory ? () async => true : null,
+      ),
+      dispose: (manager) => manager.close(),
+    );
+  }
+
+  if (!getIt.isRegistered<TranslationEngine>()) {
+    getIt.registerLazySingleton<TranslationEngine>(
+      () => LocalTranslationEngine(modelManager: getIt<ModelManager>()),
+      dispose: (engine) => engine.dispose(),
+    );
+  }
+
+  if (!getIt.isRegistered<NativeAudioService>()) {
+    getIt.registerLazySingleton<NativeAudioService>(
+      NativeAudioService.new,
+      dispose: (service) => service.dispose(),
+    );
+  }
+
+  if (!getIt.isRegistered<SettingsBloc>()) {
+    getIt.registerLazySingleton<SettingsBloc>(
+      () => SettingsBloc(
+        settingsRepository: getIt<SettingsRepository>(),
+        modelManager: getIt<ModelManager>(),
+      ),
+      dispose: (bloc) => bloc.close(),
+    );
+  }
+
+  if (!getIt.isRegistered<ActiveConversationBloc>()) {
+    getIt.registerFactory<ActiveConversationBloc>(
+      () => ActiveConversationBloc(
+        conversationRepository: getIt<ConversationRepository>(),
+        settingsRepository: getIt<SettingsRepository>(),
+        translationEngine: getIt<TranslationEngine>(),
+        audioService: getIt<NativeAudioService>(),
+      ),
+    );
+  }
 }

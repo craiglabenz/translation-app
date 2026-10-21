@@ -15,7 +15,12 @@ void main() {
       await tester.pumpWidget(const MyApp());
       await tester.pumpAndSettle();
 
-      expect(find.text("You're logged in!"), findsOneWidget);
+      expect(find.text('Tap to Translate'), findsOneWidget);
+      expect(find.text('Recent Conversations'), findsOneWidget);
+      expect(
+        find.text('English (USD) ⇄ Spanish (EUR)'),
+        findsOneWidget,
+      );
     });
   });
 }

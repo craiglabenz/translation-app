@@ -26,16 +26,21 @@ $UserCopyWith<User> get copyWith => _$UserCopyWithImpl<User>(this as User, _$ide
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is User&&(identical(other.id, id) || other.id == id)&&(identical(other.isAnonymous, isAnonymous) || other.isAnonymous == isAnonymous));
+  final _this = this as User;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is User&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.isAnonymous, _this.isAnonymous) || other.isAnonymous == _this.isAnonymous));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,isAnonymous);
+int get hashCode {
+  final _this = this as User;
+  return Object.hash(runtimeType,_this.id,_this.isAnonymous);
+}
 
 @override
 String toString() {
-  return 'User(id: $id, isAnonymous: $isAnonymous)';
+  final _this = this as User;
+  return 'User(id: ${_this.id}, isAnonymous: ${_this.isAnonymous})';
 }
 
 
@@ -224,16 +229,18 @@ _$UserCopyWith<_User> get copyWith => __$UserCopyWithImpl<_User>(this, _$identit
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _User&&(identical(other.id, id) || other.id == id)&&(identical(other.isAnonymous, isAnonymous) || other.isAnonymous == isAnonymous));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _User&&(identical(other.id, id) || other.id == id)&&(identical(other.isAnonymous, isAnonymous) || other.isAnonymous == isAnonymous));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,isAnonymous);
+int get hashCode {
+    return Object.hash(runtimeType,id,isAnonymous);
+}
 
 @override
 String toString() {
-  return 'User(id: $id, isAnonymous: $isAnonymous)';
+    return 'User(id: $id, isAnonymous: $isAnonymous)';
 }
 
 

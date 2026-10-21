@@ -9,6 +9,7 @@
 // coverage:ignore-file
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
+
 import 'package:get_it/get_it.dart' as _i174;
 import 'package:injectable/injectable.dart' as _i526;
 
@@ -31,12 +32,12 @@ extension GetItInjectableX on _i174.GetIt {
     final authModule = _$AuthModule();
     gh.singleton<_i93.ServerpodService>(() => _i93.ServerpodService());
     gh.lazySingleton<_i427.AuthPolicy>(() => authModule.authPolicy);
-    gh.factory<_i743.KaiselRedirector>(
-      () => _i743.KaiselRedirector.fromPolicy(gh<_i930.AuthPolicy>()),
-    );
     gh.singleton<_i161.AuthCubit>(
       () =>
           _i161.AuthCubit(gh<_i427.AuthPolicy>(), gh<_i93.ServerpodService>()),
+    );
+    gh.factory<_i743.KaiselRedirector>(
+      () => _i743.KaiselRedirector.fromPolicy(gh<_i930.AuthPolicy>()),
     );
     gh.lazySingleton<_i823.AppRouter>(
       () => _i823.AppRouter(
