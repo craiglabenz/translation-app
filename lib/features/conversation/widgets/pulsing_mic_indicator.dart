@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flow_ui/flow_ui.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:translation_app/core/logging/app_logger.dart';
 import 'package:translation_app/core/theme/tokens.dart';
 
 /// Bottom voice control bar for [FlowChatView.composer].
@@ -19,10 +20,20 @@ class PulsingMicIndicator extends StatelessWidget {
     super.key,
   });
 
+  static final _log = AppLogger.of('PulsingMicIndicator');
+
   final bool isListening;
   final bool isLoading;
   final double amplitude;
   final VoidCallback onToggleListening;
+
+  void _handleTap(String source) {
+    _log.info(
+      'PulsingMicIndicator tapped via $source '
+      '(current isListening=$isListening, isLoading=$isLoading)',
+    );
+    onToggleListening();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -67,7 +78,7 @@ class PulsingMicIndicator extends StatelessWidget {
             label: isListening ? 'Pause microphone' : 'Resume listening',
             child: GestureDetector(
               key: const ValueKey('mic_toggle_button'),
-              onTap: onToggleListening,
+              onTap: () => _handleTap('mic_icon_button'),
               child: SizedBox(
                 width: 64,
                 height: 64,
@@ -129,7 +140,7 @@ class PulsingMicIndicator extends StatelessWidget {
           const SizedBox(width: 8),
           TextButton.icon(
             key: const ValueKey('mic_action_text_button'),
-            onPressed: onToggleListening,
+            onPressed: () => _handleTap('mic_action_text_button'),
             icon: Icon(
               isListening ? Icons.stop_circle_outlined : Icons.play_arrow_rounded,
               size: 18,

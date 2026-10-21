@@ -5,7 +5,9 @@ import 'package:flow_ui/flow_ui.dart';
 import 'package:get_it/get_it.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:translation_app/core/ai/model_manager.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
+import 'package:translation_app/core/logging/app_logger.dart';
 import 'package:translation_app/core/routing/routing.dart';
 import 'package:translation_app/core/theme/tokens.dart';
 import 'package:translation_app/features/conversation/bloc/active_conversation_bloc.dart';
@@ -35,6 +37,8 @@ class ActiveChatView extends StatefulWidget {
 }
 
 class _ActiveChatViewState extends State<ActiveChatView> {
+  static final _log = AppLogger.of('ActiveChatView');
+
   late final ActiveConversationBloc _conversationBloc;
   late final SettingsBloc _settingsBloc;
   late final bool _ownsConversationBloc;
@@ -43,6 +47,10 @@ class _ActiveChatViewState extends State<ActiveChatView> {
   @override
   void initState() {
     super.initState();
+    _log.info(
+      'ActiveChatView.initState(conversationId=${widget.conversationId}, '
+      'autoStartListening=${widget.autoStartListening})',
+    );
     _ownsConversationBloc = widget.conversationBloc == null;
     _conversationBloc =
         widget.conversationBloc ?? GetIt.I<ActiveConversationBloc>();
@@ -58,6 +66,7 @@ class _ActiveChatViewState extends State<ActiveChatView> {
 
   @override
   void dispose() {
+    _log.info('ActiveChatView.dispose()');
     _scrollController.dispose();
     if (_ownsConversationBloc) {
       unawaited(_conversationBloc.close());
@@ -66,6 +75,7 @@ class _ActiveChatViewState extends State<ActiveChatView> {
   }
 
   Future<void> _handleBack() async {
+    _log.info('ActiveChatView._handleBack() tapped.');
     await _conversationBloc.stopListening();
     if (!mounted) return;
     final scope = RouterScope.maybeOf<AppRoute>(context);
@@ -86,6 +96,7 @@ class _ActiveChatViewState extends State<ActiveChatView> {
   }
 
   void _openSettings() {
+    _log.info('ActiveChatView._openSettings() tapped.');
     final scope = RouterScope.maybeOf<AppRoute>(context);
     if (scope != null) {
       unawaited(scope.router.push(const SettingsRoute()));
@@ -179,6 +190,58 @@ class _ActiveChatViewState extends State<ActiveChatView> {
               body: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  BlocSignalBuilder<ModelManager, ModelDownloadState>(
+                    bloc: _settingsBloc.modelManager,
+                    builder: (context, modelState) {
+                      if (!modelState.isDownloading) {
+                        return const SizedBox.shrink();
+                      }
+                      return Container(
+                        key: const ValueKey('chat_model_download_banner'),
+                        margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colors.surfaceContainerLow,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: colors.outline),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.cloud_download_rounded,
+                                  size: 18,
+                                  color: colors.primary,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Downloading Gemma 4 E2B model '
+                                    '(${(modelState.progress * 100).toStringAsFixed(0)}%)… '
+                                    'Microphone is active and buffering speech.',
+                                    style: typography.bodySmall.copyWith(
+                                      color: colors.onSurface,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            LinearProgressIndicator(
+                              value: modelState.progress.clamp(0.02, 1.0),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                   if (state.error != null)
                     Container(
                       key: const ValueKey('chat_error_banner'),

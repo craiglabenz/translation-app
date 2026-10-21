@@ -5,6 +5,7 @@ import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
 import 'package:translation_app/core/ai/prompt_templates.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
+import 'package:translation_app/core/logging/app_logger.dart';
 
 /// Signature for executing multimodal audio + prompt inference.
 typedef AudioInferenceRunner =
@@ -20,6 +21,8 @@ class LocalTranslationEngine implements TranslationEngine {
     this._inferenceRunner,
   });
 
+  static final _log = AppLogger.of('LocalTranslationEngine');
+
   final ModelManager _modelManager;
   final AudioInferenceRunner? _inferenceRunner;
 
@@ -30,28 +33,44 @@ class LocalTranslationEngine implements TranslationEngine {
 
   @override
   Future<void> initialize() async {
-    if (_initialized) return;
+    if (_initialized && (_model == null || !_model!.isClosed)) {
+      _log.info('initialize(): already initialized.');
+      return;
+    }
     if (_inferenceRunner != null) {
+      _log.info('initialize(): custom inferenceRunner attached -> initialized=true.');
       _initialized = true;
       return;
     }
 
+    _log.info('initialize(): ensuring Gemma 4 E2B model is downloaded and ready...');
     final ready = await _modelManager.ensureModelDownloaded();
     if (!ready) {
-      throw StateError(
-        _modelManager.stateValue.error ??
-            'Gemma 4 E2B model is not installed on device.',
-      );
+      final errMsg =
+          _modelManager.stateValue.error ??
+          'Gemma 4 E2B model is not installed on device.';
+      _log.severe('initialize(): model is not ready -> $errMsg');
+      throw StateError(errMsg);
     }
 
     try {
+      _log.info(
+        'initialize(): calling FlutterEdgeAi.getActiveModel(maxTokens=4096, supportAudio=true, preferredBackend=gpu)...',
+      );
+      final stopwatch = Stopwatch()..start();
       _model = await FlutterEdgeAi.getActiveModel(
         maxTokens: 4096,
         supportAudio: true,
         preferredBackend: PreferredBackend.gpu,
       );
+      stopwatch.stop();
       _initialized = true;
-    } on Object catch (e) {
+      _log.info(
+        'initialize(): Gemma 4 LiteRT-LM model loaded in ${stopwatch.elapsedMilliseconds}ms '
+        '(activeBackend=${_model?.activeBackend}, activeAudioBackend=${_model?.activeAudioBackend}).',
+      );
+    } on Object catch (e, st) {
+      _log.severe('initialize(): Failed to load Gemma 4 LiteRT-LM model', e, st);
       throw StateError('Failed to initialize Gemma 4 LiteRT-LM engine: $e');
     }
   }
@@ -69,7 +88,14 @@ class LocalTranslationEngine implements TranslationEngine {
       throw ArgumentError('Audio chunk cannot be empty.');
     }
 
-    if (!_initialized) {
+    final durationSec = (audioWavChunk.length / 16000.0).toStringAsFixed(2);
+    _log.info(
+      'translateAudioChunk() started: samples=${audioWavChunk.length} (~${durationSec}s @ 16kHz), '
+      'pair=$baseLanguage <-> $targetLanguage, '
+      'currency=1 $targetCurrency -> ${exchangeRate.toStringAsFixed(4)} $baseCurrency',
+    );
+
+    if (!_initialized || (_model != null && _model!.isClosed)) {
       await initialize();
     }
 
@@ -82,7 +108,9 @@ class LocalTranslationEngine implements TranslationEngine {
     );
 
     final wavBytes = encodeFloat32PcmToWav(audioWavChunk);
+    _log.info('Encoded audio chunk to WAV: ${wavBytes.length} bytes.');
 
+    final stopwatch = Stopwatch()..start();
     final String rawResponse;
     if (_inferenceRunner != null) {
       rawResponse = await _inferenceRunner(
@@ -95,43 +123,74 @@ class LocalTranslationEngine implements TranslationEngine {
         systemPrompt: systemPrompt,
       );
     }
+    stopwatch.stop();
 
-    return parseTranslationResponse(
+    _log.info(
+      'Model inference finished in ${stopwatch.elapsedMilliseconds}ms. '
+      'Raw LLM output:\n$rawResponse',
+    );
+
+    final parsed = parseTranslationResponse(
       rawResponse,
       fallbackSourceLanguage: baseLanguage,
     );
+    _log.info(
+      'Parsed TranslationResult: sourceLanguage="${parsed.sourceLanguage}", '
+      'originalText="${parsed.originalText}", translatedText="${parsed.translatedText}"',
+    );
+    return parsed;
   }
 
   Future<String> _runModelInference({
     required Uint8List wavBytes,
     required String systemPrompt,
   }) async {
-    final model =
-        _model ??
-        await FlutterEdgeAi.getActiveModel(
-          maxTokens: 4096,
-          supportAudio: true,
-          preferredBackend: PreferredBackend.gpu,
-        );
-    _model = model;
+    var model = _model;
+    if (model == null || model.isClosed) {
+      _log.info('Re-acquiring active Gemma 4 model from FlutterEdgeAi...');
+      model = await FlutterEdgeAi.getActiveModel(
+        maxTokens: 4096,
+        supportAudio: true,
+        preferredBackend: PreferredBackend.gpu,
+      );
+      _model = model;
+    }
 
-    final session = await model.openSession(
-      enableAudioModality: true,
+    _log.info(
+      'Creating Gemma 4 audio chat session (supportAudio=true, enableThinking=false, maxOutputTokens=512)...',
+    );
+    final chat = await model.createChat(
+      supportAudio: true,
+      modelType: ModelType.gemma4,
       systemInstruction: systemPrompt,
       enableThinking: false,
       maxOutputTokens: 512,
     );
     try {
-      await session.addQueryChunk(
+      _log.info(
+        'Adding audio + prompt query chunk (${wavBytes.length} WAV bytes) to Gemma 4 chat...',
+      );
+      await chat.addQueryChunk(
         Message.withAudio(
           text: systemPrompt,
           audioBytes: wavBytes,
           isUser: true,
         ),
       );
-      return await session.getResponse();
+      _log.info('Awaiting chat.generateChatResponse()...');
+      final response = await chat.generateChatResponse();
+      try {
+        final metrics = chat.session.getSessionMetrics();
+        _log.info('Gemma 4 session metrics: $metrics');
+      } on Object {
+        // Ignore if session metrics are unavailable on this backend.
+      }
+      if (response is TextResponse) {
+        return response.token;
+      }
+      return response.toString();
     } finally {
-      await session.close();
+      await chat.session.close();
     }
   }
 

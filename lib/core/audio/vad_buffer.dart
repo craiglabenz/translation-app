@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:translation_app/core/logging/app_logger.dart';
+
 /// Voice Activity Detector (VAD) and audio frame accumulator for 16kHz mono
 /// 32-bit floating-point PCM streams.
 ///
@@ -19,6 +21,7 @@ class VadBuffer {
   }) : assert(sampleRate > 0, 'sampleRate must be positive');
 
   static const int defaultSampleRate = 16000;
+  static final _log = AppLogger.of('VadBuffer');
 
   final int sampleRate;
   final Duration silenceCutoff;
@@ -47,6 +50,9 @@ class VadBuffer {
 
   /// Current number of buffered samples.
   int get bufferedSampleCount => _buffer.length;
+
+  /// Current number of consecutive trailing silent samples.
+  int get trailingSilenceSamples => _trailingSilenceSamples;
 
   /// True if speech has been detected in the current accumulation window.
   bool get hasDetectedSpeech => _hasDetectedSpeech;
@@ -84,7 +90,8 @@ class VadBuffer {
         windowStart,
         windowEnd,
       );
-      final isWindowSilent = computeRms(windowView) < silenceThreshold;
+      final windowRms = computeRms(windowView);
+      final isWindowSilent = windowRms < silenceThreshold;
 
       for (var i = windowStart; i < windowEnd; i++) {
         final sample = samples[i];
@@ -92,6 +99,12 @@ class VadBuffer {
             isWindowSilent && sample.abs() < silenceThreshold;
 
         if (!isSampleSilent) {
+          if (!_hasDetectedSpeech) {
+            _log.info(
+              'Speech onset detected! windowRms=${windowRms.toStringAsFixed(4)}, '
+              'sample=${sample.toStringAsFixed(4)}, threshold=$silenceThreshold',
+            );
+          }
           _hasDetectedSpeech = true;
           _trailingSilenceSamples = 0;
           _buffer.add(sample);
@@ -105,6 +118,10 @@ class VadBuffer {
 
         // 1. Check hard ceiling (15.0 seconds).
         if (_buffer.length >= maxSamples) {
+          final durationSec = (_buffer.length / sampleRate).toStringAsFixed(2);
+          _log.info(
+            'VAD hard ceiling reached (${_buffer.length} samples / ${durationSec}s) -> flushing chunk.',
+          );
           final chunk = _drainBuffer();
           if (chunk != null) {
             emitted.add(chunk);
@@ -115,6 +132,11 @@ class VadBuffer {
         // 2. Check silence cutoff (~3.0 seconds of trailing silence after speech).
         if (_hasDetectedSpeech &&
             _trailingSilenceSamples >= silenceCutoffSamples) {
+          final durationSec = (_buffer.length / sampleRate).toStringAsFixed(2);
+          _log.info(
+            'VAD silence cutoff reached (trailingSilence=$_trailingSilenceSamples samples, '
+            'totalChunk=${_buffer.length} samples / ${durationSec}s) -> flushing chunk.',
+          );
           final chunk = _drainBuffer();
           if (chunk != null) {
             emitted.add(chunk);
@@ -128,6 +150,11 @@ class VadBuffer {
 
   /// Flushes any currently buffered speech samples (e.g. when stopping a session).
   Float32List? flush() {
+    _log.info(
+      'flush() called: hasDetectedSpeech=$_hasDetectedSpeech, '
+      'bufferedSamples=${_buffer.length} '
+      '(${(_buffer.length / sampleRate).toStringAsFixed(2)}s)',
+    );
     if (!_hasDetectedSpeech || _buffer.isEmpty) {
       reset();
       return null;

@@ -1,16 +1,271 @@
+import AVFoundation
 import Flutter
 import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+  private var audioCaptureController: NativeAudioCaptureController?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    if audioCaptureController == nil,
+       let controller = window?.rootViewController as? FlutterViewController {
+      audioCaptureController = NativeAudioCaptureController(
+        messenger: controller.binaryMessenger
+      )
+      NSLog("[NativeAudioCapture] Registered channels via rootViewController fallback.")
+    }
+    return result
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let registrar = engineBridge.pluginRegistry.registrar(
+      forPlugin: "NativeAudioCapturePlugin"
+    ) {
+      audioCaptureController = NativeAudioCaptureController(
+        messenger: registrar.messenger()
+      )
+      NSLog("[NativeAudioCapture] Registered flutter_edge_ai_speech audio channels via engineBridge.")
+    }
+  }
+}
+
+final class NativeAudioCaptureController: NSObject, FlutterStreamHandler {
+  private let controlChannel: FlutterMethodChannel
+  private let streamChannel: FlutterEventChannel
+  private var eventSink: FlutterEventSink?
+  private var audioEngine: AVAudioEngine?
+  private var isRunning = false
+  private var frameCounter: Int = 0
+
+  init(messenger: FlutterBinaryMessenger) {
+    controlChannel = FlutterMethodChannel(
+      name: "flutter_edge_ai_speech/audio_control",
+      binaryMessenger: messenger
+    )
+    streamChannel = FlutterEventChannel(
+      name: "flutter_edge_ai_speech/audio_stream",
+      binaryMessenger: messenger
+    )
+    super.init()
+
+    controlChannel.setMethodCallHandler { [weak self] call, result in
+      self?.handleMethodCall(call, result: result)
+    }
+    streamChannel.setStreamHandler(self)
+  }
+
+  func onListen(
+    withArguments arguments: Any?,
+    eventSink events: @escaping FlutterEventSink
+  ) -> FlutterError? {
+    NSLog("[NativeAudioCapture] EventChannel onListen attached.")
+    self.eventSink = events
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    NSLog("[NativeAudioCapture] EventChannel onCancel detached.")
+    self.eventSink = nil
+    return nil
+  }
+
+  private func handleMethodCall(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "start":
+      let args = call.arguments as? [String: Any]
+      let sampleRate = (args?["sampleRate"] as? Int) ?? 16000
+      NSLog("[NativeAudioCapture] 'start' invoked (targetSampleRate=\(sampleRate)).")
+      requestPermissionAndStart(targetSampleRate: Double(sampleRate), result: result)
+    case "stop":
+      NSLog("[NativeAudioCapture] 'stop' invoked.")
+      stopEngine()
+      result(nil)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func requestPermissionAndStart(
+    targetSampleRate: Double,
+    result: @escaping FlutterResult
+  ) {
+    AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
+      DispatchQueue.main.async {
+        guard let self = self else { return }
+        if !granted {
+          NSLog("[NativeAudioCapture] Microphone permission DENIED.")
+          result(
+            FlutterError(
+              code: "PERMISSION_DENIED",
+              message: "Microphone permission was denied. Please enable Microphone access in Settings.",
+              details: nil
+            )
+          )
+          return
+        }
+        NSLog("[NativeAudioCapture] Microphone permission GRANTED. Starting AVAudioEngine...")
+        self.startEngine(targetSampleRate: targetSampleRate, result: result)
+      }
+    }
+  }
+
+  private func startEngine(
+    targetSampleRate: Double,
+    result: @escaping FlutterResult
+  ) {
+    if isRunning {
+      stopEngine()
+    }
+
+    do {
+      let session = AVAudioSession.sharedInstance()
+      try session.setCategory(
+        .playAndRecord,
+        mode: .default,
+        options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+      )
+      try session.setPreferredSampleRate(targetSampleRate)
+      try session.setPreferredIOBufferDuration(0.02)
+      try session.setActive(true, options: .notifyOthersOnDeactivation)
+
+      let engine = AVAudioEngine()
+      let inputNode = engine.inputNode
+      let hardwareFormat = inputNode.outputFormat(forBus: 0)
+
+      NSLog(
+        "[NativeAudioCapture] Hardware input format: sampleRate=\(hardwareFormat.sampleRate), channels=\(hardwareFormat.channelCount)"
+      )
+
+      guard hardwareFormat.sampleRate > 0 && hardwareFormat.channelCount > 0 else {
+        result(
+          FlutterError(
+            code: "AUDIO_FORMAT_INVALID",
+            message: "Invalid hardware audio input format (sampleRate=\(hardwareFormat.sampleRate)).",
+            details: nil
+          )
+        )
+        return
+      }
+
+      guard let targetFormat = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32,
+        sampleRate: targetSampleRate,
+        channels: 1,
+        interleaved: false
+      ) else {
+        result(
+          FlutterError(
+            code: "AUDIO_FORMAT_ERROR",
+            message: "Unable to create 16kHz mono Float32 target format.",
+            details: nil
+          )
+        )
+        return
+      }
+
+      guard let converter = AVAudioConverter(from: hardwareFormat, to: targetFormat) else {
+        result(
+          FlutterError(
+            code: "AUDIO_CONVERTER_ERROR",
+            message: "Unable to create AVAudioConverter from hardware format to 16kHz mono.",
+            details: nil
+          )
+        )
+        return
+      }
+
+      frameCounter = 0
+
+      inputNode.installTap(onBus: 0, bufferSize: 1024, format: hardwareFormat) {
+        [weak self] (buffer, _) in
+        guard let self = self else { return }
+
+        let ratio = targetSampleRate / hardwareFormat.sampleRate
+        let outputFrameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 32
+        guard let outputBuffer = AVAudioPCMBuffer(
+          pcmFormat: targetFormat,
+          frameCapacity: outputFrameCapacity
+        ) else {
+          return
+        }
+
+        var error: NSError?
+        var didProvideInput = false
+        let status = converter.convert(to: outputBuffer, error: &error) { _, outStatus in
+          if didProvideInput {
+            outStatus.pointee = .noDataNow
+            return nil
+          }
+          didProvideInput = true
+          outStatus.pointee = .haveData
+          return buffer
+        }
+
+        guard status != .error, error == nil else {
+          return
+        }
+
+        let frameLength = Int(outputBuffer.frameLength)
+        guard frameLength > 0,
+              let channelData = outputBuffer.floatChannelData?[0] else {
+          return
+        }
+
+        let byteCount = frameLength * MemoryLayout<Float32>.size
+        let data = Data(bytes: channelData, count: byteCount)
+        let typedData = FlutterStandardTypedData(float32: data)
+
+        self.frameCounter += 1
+        let currentCount = self.frameCounter
+        if currentCount == 1 || currentCount % 50 == 0 {
+          NSLog(
+            "[NativeAudioCapture] Captured 16kHz mono frame #\(currentCount): \(frameLength) samples"
+          )
+        }
+
+        DispatchQueue.main.async { [weak self] in
+          self?.eventSink?(typedData)
+        }
+      }
+
+      engine.prepare()
+      try engine.start()
+      self.audioEngine = engine
+      self.isRunning = true
+      NSLog("[NativeAudioCapture] AVAudioEngine started successfully.")
+      result(nil)
+    } catch {
+      NSLog("[NativeAudioCapture] Failed to start AVAudioEngine: \(error.localizedDescription)")
+      result(
+        FlutterError(
+          code: "AUDIO_ENGINE_FAILURE",
+          message: "Failed to start microphone capture: \(error.localizedDescription)",
+          details: nil
+        )
+      )
+    }
+  }
+
+  private func stopEngine() {
+    if let engine = audioEngine {
+      engine.inputNode.removeTap(onBus: 0)
+      engine.stop()
+      audioEngine = nil
+    }
+    isRunning = false
+    do {
+      try AVAudioSession.sharedInstance().setActive(
+        false,
+        options: .notifyOthersOnDeactivation
+      )
+    } catch {
+      NSLog("[NativeAudioCapture] Note: deactivating AVAudioSession returned: \(error.localizedDescription)")
+    }
+    NSLog("[NativeAudioCapture] AVAudioEngine stopped (totalFrames=\(frameCounter)).")
   }
 }

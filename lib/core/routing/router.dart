@@ -1,6 +1,7 @@
 import 'package:injectable/injectable.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:translation_app/core/auth/auth.dart';
+import 'package:translation_app/core/logging/app_logger.dart';
 import 'package:translation_app/features/conversation/widgets/active_chat_view.dart';
 import 'package:translation_app/features/history/history_screen.dart';
 import 'package:translation_app/features/settings/settings_screen.dart';
@@ -20,6 +21,8 @@ class AppRouter {
     });
   }
 
+  static final _log = AppLogger.of('AppRouter');
+
   final AuthPolicy _authPolicy;
   final AuthCubit _authCubit;
   final KaiselRedirector _redirector;
@@ -32,24 +35,31 @@ class AppRouter {
 
   late final config = KaiselRouterConfig<AppRoute>(
     initial: _authPolicy.isEnabled ? const LoginRoute() : const HomeRoute(),
-    builder: (context, route) => switch (route) {
-      LoginRoute() => const LoginScreen(),
-      HomeRoute() => const HomeScreen(),
-      ChatRoute(:final conversationId, :final autoStartListening) =>
-        ActiveChatView(
-          conversationId: conversationId,
-          autoStartListening: autoStartListening,
-        ),
-      HistoryRoute() => const HistoryScreen(),
-      SettingsRoute() => const SettingsScreen(),
+    builder: (context, route) {
+      _log.info('AppRouter building route: $route');
+      return switch (route) {
+        LoginRoute() => const LoginScreen(),
+        HomeRoute() => const HomeScreen(),
+        ChatRoute(:final conversationId, :final autoStartListening) =>
+          ActiveChatView(
+            conversationId: conversationId,
+            autoStartListening: autoStartListening,
+          ),
+        HistoryRoute() => const HistoryScreen(),
+        SettingsRoute() => const SettingsScreen(),
+      };
     },
     guards: [
       (current, proposed) {
-        return _redirector.redirect(
+        final redirected = _redirector.redirect(
           current,
           proposed,
           _authCubit.stateValue,
         );
+        if (redirected != proposed) {
+          _log.info('AppRouter guard redirected $proposed -> $redirected');
+        }
+        return redirected;
       },
     ],
   );

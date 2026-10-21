@@ -456,12 +456,20 @@ void main() {
         ..setInt16(2, -16384, Endian.little);
       eventSink!.success(pcmBytes);
 
+      // 3. Send Int16List payload (8192 -> 0.25)
+      eventSink!.success(Int16List.fromList(<int>[8192]));
+
+      // 4. Send List<Object?> payload
+      eventSink!.success(<Object?>[0.125, -0.125]);
+
       await Future<void>.delayed(Duration.zero);
 
-      expect(receivedFrames, hasLength(2));
+      expect(receivedFrames, hasLength(4));
       expect(receivedFrames[0][0], closeTo(0.25, 1e-5));
       expect(receivedFrames[1][0], closeTo(0.5, 1e-4));
       expect(receivedFrames[1][1], closeTo(-0.5, 1e-4));
+      expect(receivedFrames[2][0], closeTo(0.25, 1e-4));
+      expect(receivedFrames[3][0], closeTo(0.125, 1e-5));
 
       await service.stopCapture();
       expect(methodCalls.map((c) => c.method), contains('stop'));

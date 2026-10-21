@@ -435,8 +435,12 @@ Let me know if you need anything else!
       final secondResult = await manager.downloadModel();
       expect(secondResult, isFalse);
 
+      // However, ensureModelDownloaded() joins the in-flight download future instead of failing!
+      final joinedFuture = manager.ensureModelDownloaded();
+
       completer.complete();
       expect(await firstFuture, isTrue);
+      expect(await joinedFuture, isTrue);
       await manager.close();
     });
 

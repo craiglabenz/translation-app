@@ -438,6 +438,24 @@ void main() {
       expect(find.byKey(const ValueKey('chat_error_banner')), findsOneWidget);
       expect(find.text('Conversation not found.'), findsOneWidget);
 
+      // Verify model download progress banner appears inside ActiveChatView when downloading
+      GetIt.I<ModelManager>().emit(
+        const ModelDownloadState(
+          isInstalled: false,
+          isDownloading: true,
+          progress: 0.35,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('chat_model_download_banner')),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Downloading Gemma 4 E2B model (35%)…'),
+        findsOneWidget,
+      );
+
       await chatBloc.close();
       await audioService.dispose();
     });

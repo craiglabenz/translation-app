@@ -1,5 +1,6 @@
 import 'package:flow_ui/flow_ui.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:translation_app/core/logging/app_logger.dart';
 import 'package:translation_app/core/theme/tokens.dart';
 
 /// Prominent circular CTA button surrounded by concentric ripple rings
@@ -26,6 +27,8 @@ class RippleStartButton extends StatefulWidget {
 
 class _RippleStartButtonState extends State<RippleStartButton>
     with SingleTickerProviderStateMixin {
+  static final _log = AppLogger.of('RippleStartButton');
+
   late final AnimationController _controller;
   late final Animation<double> _pulseAnimation;
 
@@ -52,6 +55,7 @@ class _RippleStartButtonState extends State<RippleStartButton>
   }
 
   void _handleTap() {
+    _log.info('RippleStartButton tapped (enabled=${widget.enabled}, label="${widget.label}")');
     if (!widget.enabled) return;
     _controller
       ..reset()

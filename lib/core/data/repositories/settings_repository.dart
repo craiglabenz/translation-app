@@ -1,6 +1,7 @@
 import 'package:data_layer/data_layer.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
 import 'package:translation_app/core/data/models/exchange_rate_cache.dart';
+import 'package:translation_app/core/logging/app_logger.dart';
 
 /// Repository managing persistent [AppSettings] and cached [ExchangeRateCache]
 /// records with a 7-day TTL and offline fallback.
@@ -29,6 +30,8 @@ class SettingsRepository extends Repository<AppSettings> {
            getTime: getTime,
          ),
        );
+
+  static final _log = AppLogger.of('SettingsRepository');
 
   final Repository<ExchangeRateCache> _exchangeRateRepository;
 
@@ -107,17 +110,20 @@ class SettingsRepository extends Repository<AppSettings> {
     if (!forceRefresh &&
         cached != null &&
         !cached.isExpired(now: now, ttl: ttl)) {
+      _log.fine('Using fresh cached exchange rate for $pairId: ${cached.rate}');
       final freshCached = cached.copyWith(isStale: false);
       _lastHydratedRate = freshCached;
       return freshCached;
     }
 
+    _log.info('Refreshing exchange rate for $pairId from remote Frankfurter API...');
     final refreshed = await _exchangeRateRepository.getById(
       pairId,
       details: RequestDetails.read(requestType: RequestType.refresh),
     );
 
     if (refreshed != null) {
+      _log.info('Refreshed exchange rate for $pairId: ${refreshed.rate}');
       final cleanRefreshed = refreshed.copyWith(isStale: false);
       await _exchangeRateRepository.setItem(
         cleanRefreshed,
@@ -128,6 +134,9 @@ class SettingsRepository extends Repository<AppSettings> {
     }
 
     if (cached != null) {
+      _log.warning(
+        'Remote refresh failed for $pairId; falling back to stale cached rate ${cached.rate}',
+      );
       final staleFallback = cached.copyWith(isStale: true);
       _lastHydratedRate = staleFallback;
       return staleFallback;

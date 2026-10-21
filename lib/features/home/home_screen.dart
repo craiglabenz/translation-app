@@ -9,6 +9,7 @@ import 'package:translation_app/core/ai/model_manager.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
 import 'package:translation_app/core/data/models/conversation.dart';
 import 'package:translation_app/core/data/repositories/conversation_repository.dart';
+import 'package:translation_app/core/logging/app_logger.dart';
 import 'package:translation_app/core/routing/routing.dart';
 import 'package:translation_app/core/theme/tokens.dart';
 import 'package:translation_app/features/home/widgets/ripple_start_button.dart';
@@ -33,6 +34,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static final _log = AppLogger.of('HomeScreen');
+
   late final SettingsBloc _settingsBloc;
   late final ConversationRepository _conversationRepository;
   StreamSubscription<void>? _conversationsSub;
@@ -41,6 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _log.info('HomeScreen.initState()');
     _settingsBloc = widget.settingsBloc ?? GetIt.I<SettingsBloc>();
     _conversationRepository =
         widget.conversationRepository ?? GetIt.I<ConversationRepository>();
@@ -58,6 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final recent = await _conversationRepository.getRecentConversations(
       limit: 3,
     );
+    _log.fine('Loaded ${recent.length} recent conversations.');
     if (mounted) {
       setState(() {
         _recentConversations = recent;
@@ -72,11 +77,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _navigateTo(AppRoute route) {
+    _log.info('HomeScreen navigating to route: $route');
     final scope = RouterScope.maybeOf<AppRoute>(context);
     if (scope != null) {
       unawaited(scope.router.push(route));
     } else if (GetIt.I.isRegistered<AppRouter>()) {
       unawaited(GetIt.I<AppRouter>().config.router.push(route));
+    } else {
+      _log.warning('No RouterScope or AppRouter found for navigation to $route');
     }
   }
 

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:data_layer/data_layer.dart';
 import 'package:translation_app/core/data/models/conversation.dart';
 import 'package:translation_app/core/data/models/message.dart';
+import 'package:translation_app/core/logging/app_logger.dart';
 
 /// Repository managing [Conversation] sessions and their [Message] turns
 /// persisted in local Hive boxes.
@@ -26,6 +27,8 @@ class ConversationRepository extends Repository<Conversation> {
            getTime: getTime,
          ),
        );
+
+  static final _log = AppLogger.of('ConversationRepository');
 
   final Repository<Message> _messageRepository;
   final StreamController<void> _changesController =
@@ -86,6 +89,9 @@ class ConversationRepository extends Repository<Conversation> {
       details: RequestDetails.write(requestType: RequestType.local),
     );
     final result = saved ?? Conversation.bindings.save(draft);
+    _log.info(
+      'Created conversation id=${result.id} (${result.baseLanguage} <-> ${result.targetLanguage})',
+    );
     _notifyChanged();
     return result;
   }
@@ -108,6 +114,10 @@ class ConversationRepository extends Repository<Conversation> {
       details: RequestDetails.write(requestType: RequestType.local),
     );
     final result = savedMessage ?? Message.bindings.save(message);
+    _log.info(
+      'Saved message id=${result.id} in conversation=${result.conversationId}: '
+      'isBaseLanguage=${result.isBaseLanguage}, translatedText="${result.translatedText}"',
+    );
 
     final existingConv = await getConversationById(result.conversationId);
     if (existingConv != null && result.translatedText.trim().isNotEmpty) {

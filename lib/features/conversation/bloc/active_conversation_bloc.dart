@@ -5,11 +5,13 @@ import 'package:bloc_signals/bloc_signals.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/audio/audio_exceptions.dart';
 import 'package:translation_app/core/audio/native_audio_service.dart';
+import 'package:translation_app/core/audio/vad_buffer.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
 import 'package:translation_app/core/data/models/conversation.dart';
 import 'package:translation_app/core/data/models/message.dart';
 import 'package:translation_app/core/data/repositories/conversation_repository.dart';
 import 'package:translation_app/core/data/repositories/settings_repository.dart';
+import 'package:translation_app/core/logging/app_logger.dart';
 import 'package:translation_app/features/conversation/bloc/active_conversation_state.dart';
 
 /// Orchestrates live audio capture, VAD speech segmentation, on-device
@@ -21,6 +23,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     required this._translationEngine,
     required this._audioService,
   }) : super(initialState: const ActiveConversationState());
+
+  static final _log = AppLogger.of('ActiveConversationBloc');
 
   final ConversationRepository _conversationRepository;
   final SettingsRepository _settingsRepository;
@@ -36,6 +40,9 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     String? conversationId,
     bool autoStartListening = true,
   }) async {
+    _log.info(
+      'initialize(conversationId=$conversationId, autoStartListening=$autoStartListening)',
+    );
     if (conversationId != null) {
       await loadConversation(
         conversationId,
@@ -43,11 +50,14 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       );
     } else if (autoStartListening) {
       await startNewSession();
+    } else {
+      _log.info('initialize(): staying idle (no conversationId and autoStartListening=false).');
     }
   }
 
   /// Creates a fresh [Conversation] using current settings and starts listening.
   Future<void> startNewSession() async {
+    _log.info('startNewSession() called...');
     emit(stateValue.copyWith(error: null));
     final settings = await _settingsRepository.getSettings();
     final conversation = await _conversationRepository.createConversation(
@@ -56,6 +66,10 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     );
     if (isClosed) return;
 
+    _log.info(
+      'Created new conversation id=${conversation.id} '
+      '(${conversation.baseLanguage} <-> ${conversation.targetLanguage}).',
+    );
     emit(
       stateValue.copyWith(
         conversation: conversation,
@@ -76,6 +90,9 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     String conversationId, {
     bool autoStartListening = false,
   }) async {
+    _log.info(
+      'loadConversation(conversationId=$conversationId, autoStartListening=$autoStartListening)',
+    );
     emit(stateValue.copyWith(error: null));
     try {
       final conversation = await _conversationRepository.getConversationById(
@@ -86,6 +103,10 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       );
       if (isClosed) return;
 
+      _log.info(
+        'Loaded conversation id=$conversationId: found=${conversation != null}, '
+        'messages=${messages.length}',
+      );
       emit(
         stateValue.copyWith(
           conversation: conversation,
@@ -99,7 +120,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       if (autoStartListening && conversation != null) {
         await startListening(conversation);
       }
-    } catch (e) {
+    } catch (e, st) {
+      _log.severe('Failed to load conversation $conversationId', e, st);
       if (isClosed) return;
       emit(
         stateValue.copyWith(
@@ -112,6 +134,10 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
 
   /// Starts or resumes microphone capture and VAD speech segmentation.
   Future<void> startListening([Conversation? targetConversation]) async {
+    _log.info(
+      'startListening() called (currentIsListening=${stateValue.isListening}, '
+      'targetConversationId=${targetConversation?.id ?? stateValue.conversation?.id})',
+    );
     var conversation = targetConversation ?? stateValue.conversation;
     if (conversation == null) {
       final settings = await _settingsRepository.getSettings();
@@ -120,17 +146,28 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         targetLanguage: settings.targetLanguage,
       );
       if (isClosed) return;
+      _log.info('Auto-created conversation id=${conversation.id} for startListening().');
       emit(stateValue.copyWith(conversation: conversation));
     }
 
     _ensureAudioSubscriptions();
 
     try {
-      await _translationEngine.initialize();
+      _log.info('startListening(): starting NativeAudioService capture...');
       await _audioService.startCapture();
       if (isClosed) return;
+
       emit(stateValue.copyWith(isListening: true, error: null));
-    } on MicrophonePermissionException catch (e) {
+      _log.info(
+        'startListening(): microphone capture active (isListening=true). '
+        'Initializing TranslationEngine...',
+      );
+
+      await _translationEngine.initialize();
+      _log.info('startListening(): TranslationEngine initialized and ready.');
+    } on MicrophonePermissionException catch (e, st) {
+      _log.severe('MicrophonePermissionException in startListening()', e, st);
+      await _audioService.stopCapture();
       if (isClosed) return;
       emit(
         stateValue.copyWith(
@@ -139,7 +176,9 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           error: e.message,
         ),
       );
-    } on AudioCaptureException catch (e) {
+    } on AudioCaptureException catch (e, st) {
+      _log.severe('AudioCaptureException in startListening()', e, st);
+      await _audioService.stopCapture();
       if (isClosed) return;
       emit(
         stateValue.copyWith(
@@ -148,7 +187,9 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           error: e.message,
         ),
       );
-    } catch (e) {
+    } catch (e, st) {
+      _log.severe('Unexpected error in startListening()', e, st);
+      await _audioService.stopCapture();
       if (isClosed) return;
       emit(
         stateValue.copyWith(
@@ -162,13 +203,19 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
 
   /// Pauses microphone capture and flushes any buffered speech.
   Future<void> stopListening() async {
+    _log.info('stopListening() called (isListening=${stateValue.isListening})...');
     await _audioService.stopCapture();
     if (isClosed) return;
     emit(stateValue.copyWith(isListening: false, amplitude: 0.0));
+    _log.info('stopListening() complete (isListening=false).');
   }
 
   /// Toggles live microphone capture on or off.
   Future<void> toggleListening() async {
+    _log.info(
+      'toggleListening() called: current isListening=${stateValue.isListening} -> '
+      '${stateValue.isListening ? "stopping" : "starting"}',
+    );
     if (stateValue.isListening) {
       await stopListening();
     } else {
@@ -179,7 +226,19 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   /// Processes a complete VAD-segmented 16kHz mono PCM audio chunk through
   /// the [TranslationEngine] and saves the resulting [Message].
   Future<void> onAudioChunkReceived(Float32List audioChunk) async {
-    if (audioChunk.isEmpty || isClosed) return;
+    if (audioChunk.isEmpty || isClosed) {
+      _log.fine(
+        'onAudioChunkReceived() ignored (isEmpty=${audioChunk.isEmpty}, isClosed=$isClosed)',
+      );
+      return;
+    }
+
+    final rms = VadBuffer.computeRms(audioChunk);
+    final durationSec = (audioChunk.length / 16000.0).toStringAsFixed(2);
+    _log.info(
+      'onAudioChunkReceived(): received ${audioChunk.length} samples '
+      '(~${durationSec}s @ 16kHz, chunkRms=${rms.toStringAsFixed(4)})',
+    );
 
     var conversation = stateValue.conversation;
     final settings = await _settingsRepository.getSettings();
@@ -205,6 +264,13 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         targetCurrency: settings.targetCurrency,
       );
 
+      _log.info(
+        'onAudioChunkReceived(): invoking translationEngine.translateAudioChunk '
+        'for conversation=${conversation.id} '
+        '(${settings.baseLanguage}/${settings.baseCurrency} <-> '
+        '${settings.targetLanguage}/${settings.targetCurrency}, rate=${exchangeRate.rate})...',
+      );
+
       final result = await _translationEngine.translateAudioChunk(
         audioWavChunk: audioChunk,
         baseLanguage: AppSettings.languageNameFor(settings.baseLanguage),
@@ -221,6 +287,13 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         languageName: AppSettings.languageNameFor(settings.baseLanguage),
       );
 
+      _log.info(
+        'onAudioChunkReceived(): translation succeeded! '
+        'detectedSource="${result.sourceLanguage}" (isBaseLanguage=$isBaseLanguage), '
+        'originalText="${result.originalText}", '
+        'translatedText="${result.translatedText}"',
+      );
+
       final draftMessage = Message(
         id: '',
         conversationId: conversation.id,
@@ -235,6 +308,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       );
       if (isClosed) return;
 
+      _log.info('Saved translated message id=${savedMessage.id} to local storage.');
+
       final updatedConversation = conversation.copyWith(
         previewText: result.translatedText,
       );
@@ -247,7 +322,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           isLoading: false,
         ),
       );
-    } catch (e) {
+    } catch (e, st) {
+      _log.severe('Translation failed in onAudioChunkReceived()', e, st);
       if (isClosed) return;
       emit(
         stateValue.copyWith(
@@ -260,6 +336,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
 
   /// Stops audio capture and cleans up active session resources.
   Future<void> cancelSession() async {
+    _log.info('cancelSession() called.');
     await _speechChunkSub?.cancel();
     _speechChunkSub = null;
     await _amplitudeSub?.cancel();
@@ -279,9 +356,13 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   void _ensureAudioSubscriptions() {
     _speechChunkSub ??= _audioService.audioChunkStream.listen(
       (chunk) {
+        _log.info(
+          'audioChunkStream emitted a VAD speech chunk (${chunk.length} samples) -> dispatching to onAudioChunkReceived().',
+        );
         unawaited(onAudioChunkReceived(chunk));
       },
-      onError: (Object error) {
+      onError: (Object error, StackTrace st) {
+        _log.severe('Error on audioChunkStream', error, st);
         if (!isClosed) {
           emit(
             stateValue.copyWith(
@@ -314,6 +395,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
 
   @override
   Future<void> close() async {
+    _log.info('Closing ActiveConversationBloc...');
     final chunkSub = _speechChunkSub;
     _speechChunkSub = null;
     final ampSub = _amplitudeSub;

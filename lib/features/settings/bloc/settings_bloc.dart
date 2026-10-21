@@ -2,6 +2,7 @@ import 'package:bloc_signals/bloc_signals.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
 import 'package:translation_app/core/data/repositories/settings_repository.dart';
+import 'package:translation_app/core/logging/app_logger.dart';
 import 'package:translation_app/features/settings/bloc/settings_state.dart';
 
 /// Manages user preferences, language/currency pairs, and exchange rate status.
@@ -11,11 +12,14 @@ class SettingsBloc extends CubitSignal<SettingsState> {
     required this.modelManager,
   }) : super(initialState: const SettingsState());
 
+  static final _log = AppLogger.of('SettingsBloc');
+
   final SettingsRepository _settingsRepository;
   final ModelManager modelManager;
 
   /// Loads persisted settings and exchange rates, refreshing expired rates.
   Future<void> load() async {
+    _log.info('SettingsBloc.load() called...');
     emit(stateValue.copyWith(isLoading: true, error: null));
     try {
       final settings = await _settingsRepository.getSettings();
@@ -30,8 +34,14 @@ class SettingsBloc extends CubitSignal<SettingsState> {
       );
       if (isClosed) return;
 
+      _log.info(
+        'SettingsBloc.load() complete: pair=${settings.pairLabel}, '
+        'rate=${rate.rate} (isStale=${rate.isStale}), '
+        'modelInstalled=${modelManager.stateValue.isInstalled}',
+      );
       emit(stateValue.copyWith(exchangeRate: rate));
-    } catch (e) {
+    } catch (e, st) {
+      _log.severe('SettingsBloc.load() failed', e, st);
       if (isClosed) return;
       emit(
         stateValue.copyWith(
