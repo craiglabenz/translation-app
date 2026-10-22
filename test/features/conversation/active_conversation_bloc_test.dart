@@ -33,6 +33,7 @@ class _ConfigurableTranslationEngine implements TranslationEngine {
   }
 
   List<TranslationResult> partialResultsToEmit = const <TranslationResult>[];
+  int translateCallCount = 0;
 
   @override
   Future<TranslationResult> translateAudioChunk({
@@ -44,6 +45,7 @@ class _ConfigurableTranslationEngine implements TranslationEngine {
     required String targetCurrency,
     void Function(TranslationResult partialResult)? onPartialResult,
   }) async {
+    translateCallCount++;
     if (translateError != null) {
       throw translateError!;
     }
@@ -601,6 +603,48 @@ void main() {
       expect(bloc.stateValue.conversation?.id, nonEmptyConvId);
       expect(bloc.stateValue.isListening, isFalse);
       expect(await conversationRepo.getConversationById(nonEmptyConvId), isNotNull);
+    });
+
+    test('begins translating as soon as active speech is detected and reuses result when utterance ends', () async {
+      await bloc.startNewSession();
+      fakeEngine.translateCallCount = 0;
+      fakeEngine.nextResult = const TranslationResult(
+        sourceLanguage: 'en',
+        originalText: 'Where is the station?',
+        translatedText: '¿Dónde está la estación?',
+      );
+
+      // Push 700ms of active speech (700 samples @ 1kHz >= 600ms liveSnapshotInterval, < 2s silenceCutoff).
+      // The utterance has NOT ended yet, but live snapshot translation begins immediately!
+      frameStreamController.add(
+        Float32List.fromList(List<double>.filled(700, 0.25)),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(fakeEngine.translateCallCount, 1);
+      expect(bloc.stateValue.isLoading, isTrue);
+      expect(
+        bloc.stateValue.streamingTranslatedText,
+        '¿Dónde está la estación?',
+      );
+      expect(bloc.stateValue.streamingIsBaseLanguage, isTrue);
+      // Not finalized into messages yet because the speaker hasn't finished the turn
+      expect(bloc.stateValue.messages, isEmpty);
+
+      // Now push 2s of trailing silence to finish the utterance.
+      // Because no new speech was added after the 700-sample active speech snapshot,
+      // onAudioChunkReceived reuses the completed snapshot result without calling translateAudioChunk again!
+      frameStreamController.add(Float32List(2000));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(fakeEngine.translateCallCount, 1);
+      expect(bloc.stateValue.isLoading, isFalse);
+      expect(bloc.stateValue.streamingTranslatedText, isNull);
+      expect(bloc.stateValue.messages, hasLength(1));
+      expect(
+        bloc.stateValue.messages.single.translatedText,
+        '¿Dónde está la estación?',
+      );
     });
   });
 }

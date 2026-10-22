@@ -49,6 +49,12 @@ class NativeAudioService {
   /// multimodal translation.
   Stream<Float32List> get audioChunkStream => _vadBuffer.onChunkReady;
 
+  /// Emits cumulative 16kHz mono [Float32List] audio snapshots as soon as
+  /// active speech is detected and progressing, allowing live translation
+  /// before the utterance ends.
+  Stream<Float32List> get activeSpeechSnapshotStream =>
+      _vadBuffer.onActiveSpeechSnapshot;
+
   /// Emits raw 16kHz mono [Float32List] frames as they arrive.
   Stream<Float32List> get rawFrameStream => _rawFrameController.stream;
 

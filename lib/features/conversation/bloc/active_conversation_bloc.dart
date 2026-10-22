@@ -35,8 +35,16 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   final NativeAudioService _audioService;
 
   StreamSubscription<Float32List>? _speechChunkSub;
+  StreamSubscription<Float32List>? _activeSpeechSnapshotSub;
   StreamSubscription<double>? _amplitudeSub;
   Future<bool>? _ongoingExitFuture;
+
+  Float32List? _latestPendingSnapshotChunk;
+  Float32List? _inFlightSnapshotChunk;
+  Future<TranslationResult?>? _inFlightSnapshotFuture;
+  Float32List? _lastCompletedSnapshotChunk;
+  TranslationResult? _lastCompletedSnapshotResult;
+  bool _isFinalChunkTranslating = false;
 
   /// Initializes the session either for an existing [conversationId] or a new
   /// live translation session.
@@ -259,9 +267,24 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     _log.info(
       'stopListening() called (isListening=${stateValue.isListening})...',
     );
+    _latestPendingSnapshotChunk = null;
     await _audioService.stopCapture();
     if (isClosed) return;
-    emit(stateValue.copyWith(isListening: false, amplitude: 0.0));
+    if (!_isFinalChunkTranslating) {
+      _lastCompletedSnapshotChunk = null;
+      _lastCompletedSnapshotResult = null;
+      emit(
+        stateValue.copyWith(
+          isListening: false,
+          isLoading: false,
+          amplitude: 0.0,
+          streamingTranslatedText: null,
+          streamingIsBaseLanguage: null,
+        ),
+      );
+    } else {
+      emit(stateValue.copyWith(isListening: false, amplitude: 0.0));
+    }
     _log.info('stopListening() complete (isListening=false).');
   }
 
@@ -276,6 +299,204 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     } else {
       await startListening();
     }
+  }
+
+  /// Translates a cumulative live active-speech snapshot while the user is
+  /// still speaking (or during a brief pause before the full VAD silence
+  /// cutoff expires), streaming the in-progress translation into the UI.
+  ///
+  /// Concurrent snapshots are coalesced so only the latest snapshot runs next.
+  Future<void> onActiveSpeechSnapshotReceived(
+    Float32List snapshotChunk,
+  ) async {
+    if (snapshotChunk.isEmpty ||
+        isClosed ||
+        _isFinalChunkTranslating) {
+      return;
+    }
+
+    if (snapshotChunk.length >= 4000 &&
+        !VadBuffer.hasMeaningfulSpeech(
+          snapshotChunk,
+          sampleRate: _audioService.vadBuffer.sampleRate,
+        )) {
+      return;
+    }
+
+    if (_inFlightSnapshotFuture != null) {
+      _latestPendingSnapshotChunk = snapshotChunk;
+      _log.info(
+        'onActiveSpeechSnapshotReceived(): coalescing ${snapshotChunk.length}-sample '
+        'snapshot behind in-flight snapshot inference.',
+      );
+      return;
+    }
+
+    _latestPendingSnapshotChunk = snapshotChunk;
+    while (_latestPendingSnapshotChunk != null &&
+        !isClosed &&
+        !_isFinalChunkTranslating) {
+      final chunk = _latestPendingSnapshotChunk!;
+      _latestPendingSnapshotChunk = null;
+      _inFlightSnapshotChunk = chunk;
+      final future = _translateLiveSnapshot(chunk);
+      _inFlightSnapshotFuture = future;
+      try {
+        await future;
+      } finally {
+        if (identical(_inFlightSnapshotFuture, future)) {
+          _inFlightSnapshotFuture = null;
+          _inFlightSnapshotChunk = null;
+        }
+      }
+    }
+  }
+
+  Future<TranslationResult?> _translateLiveSnapshot(
+    Float32List snapshotChunk,
+  ) async {
+    try {
+      var conversation = stateValue.conversation;
+      final settings = await _settingsRepository.getSettings();
+      if (conversation == null) {
+        conversation = await _conversationRepository.createConversation(
+          baseLanguage: settings.baseLanguage,
+          targetLanguage: settings.targetLanguage,
+        );
+        if (isClosed) return null;
+      }
+
+      if (!_isFinalChunkTranslating) {
+        emit(
+          stateValue.copyWith(
+            conversation: conversation,
+            isLoading: true,
+            error: null,
+          ),
+        );
+      }
+
+      final exchangeRate = await _settingsRepository.getExchangeRate(
+        baseCurrency: settings.baseCurrency,
+        targetCurrency: settings.targetCurrency,
+      );
+      if (isClosed) return null;
+
+      final durationSec =
+          (snapshotChunk.length / _audioService.vadBuffer.sampleRate)
+              .toStringAsFixed(2);
+      _log.info(
+        '_translateLiveSnapshot(): starting early translation on active speech '
+        '(${snapshotChunk.length} samples / ~${durationSec}s)...',
+      );
+
+      final result = await _translationEngine.translateAudioChunk(
+        audioWavChunk: snapshotChunk,
+        baseLanguage: AppSettings.languageNameFor(settings.baseLanguage),
+        targetLanguage: AppSettings.languageNameFor(settings.targetLanguage),
+        exchangeRate: exchangeRate.rate,
+        baseCurrency: settings.baseCurrency,
+        targetCurrency: settings.targetCurrency,
+        onPartialResult: (partial) {
+          if (isClosed || _isFinalChunkTranslating) return;
+          if (partial.translatedText.trim().isEmpty) return;
+          final partialIsBase = _resolveIsBaseLanguage(
+            result: partial,
+            baseLanguageCode: settings.baseLanguage,
+            targetLanguageCode: settings.targetLanguage,
+          );
+          emit(
+            stateValue.copyWith(
+              conversation: conversation,
+              isLoading: true,
+              streamingTranslatedText: partial.translatedText,
+              streamingIsBaseLanguage: partialIsBase,
+            ),
+          );
+        },
+      );
+      if (isClosed) return null;
+
+      _lastCompletedSnapshotChunk = snapshotChunk;
+      _lastCompletedSnapshotResult = result;
+
+      if (result.translatedText.trim().isEmpty ||
+          LocalTranslationEngine.isNonSpeechOrHallucination(
+            originalText: result.originalText,
+            translatedText: result.translatedText,
+          )) {
+        if (!_isFinalChunkTranslating && _latestPendingSnapshotChunk == null) {
+          emit(
+            stateValue.copyWith(
+              isLoading: false,
+              streamingTranslatedText: null,
+              streamingIsBaseLanguage: null,
+            ),
+          );
+        }
+        return result;
+      }
+
+      final isBaseLanguage = _resolveIsBaseLanguage(
+        result: result,
+        baseLanguageCode: settings.baseLanguage,
+        targetLanguageCode: settings.targetLanguage,
+      );
+      final annotatedText = TranslationAnnotator.annotate(
+        originalText: result.originalText?.trim() ?? '',
+        translatedText: result.translatedText.trim(),
+        exchangeRate: exchangeRate.rate,
+        baseCurrency: settings.baseCurrency,
+        targetCurrency: settings.targetCurrency,
+        isBaseLanguage: isBaseLanguage,
+      );
+
+      if (!_isFinalChunkTranslating) {
+        emit(
+          stateValue.copyWith(
+            conversation: conversation,
+            isLoading: true,
+            streamingTranslatedText: annotatedText,
+            streamingIsBaseLanguage: isBaseLanguage,
+          ),
+        );
+      }
+
+      return result;
+    } catch (e, st) {
+      _log.warning('Live snapshot translation failed (non-fatal): $e', e, st);
+      return null;
+    }
+  }
+
+  /// Returns `true` when [snapshotChunk] is a prefix of [finalChunk] and any
+  /// trailing samples in [finalChunk] after [snapshotChunk] contain only
+  /// trailing silence (no additional active speech).
+  bool _hasSameActiveSpeech(
+    Float32List snapshotChunk,
+    Float32List finalChunk,
+  ) {
+    if (snapshotChunk.isEmpty || finalChunk.length < snapshotChunk.length) {
+      return false;
+    }
+    for (var i = 0; i < snapshotChunk.length; i++) {
+      if (snapshotChunk[i] != finalChunk[i]) {
+        return false;
+      }
+    }
+    if (finalChunk.length == snapshotChunk.length) {
+      return true;
+    }
+    final tail = Float32List.sublistView(finalChunk, snapshotChunk.length);
+    final threshold = _audioService.vadBuffer.silenceThreshold;
+    if (VadBuffer.computeRms(tail) >= threshold) {
+      return false;
+    }
+    return !VadBuffer.hasMeaningfulSpeech(
+      tail,
+      silenceThreshold: threshold,
+      sampleRate: _audioService.vadBuffer.sampleRate,
+    );
   }
 
   /// Processes a complete VAD-segmented 16kHz mono PCM audio chunk through
@@ -306,61 +527,95 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       return;
     }
 
-    var conversation = stateValue.conversation;
-    final settings = await _settingsRepository.getSettings();
-    if (conversation == null) {
-      conversation = await _conversationRepository.createConversation(
-        baseLanguage: settings.baseLanguage,
-        targetLanguage: settings.targetLanguage,
-      );
-      if (isClosed) return;
-    }
-
-    emit(
-      stateValue.copyWith(
-        conversation: conversation,
-        isLoading: true,
-        streamingTranslatedText: null,
-        streamingIsBaseLanguage: null,
-        error: null,
-      ),
-    );
+    _isFinalChunkTranslating = true;
+    _latestPendingSnapshotChunk = null;
 
     try {
+      var conversation = stateValue.conversation;
+      final settings = await _settingsRepository.getSettings();
+      if (conversation == null) {
+        conversation = await _conversationRepository.createConversation(
+          baseLanguage: settings.baseLanguage,
+          targetLanguage: settings.targetLanguage,
+        );
+        if (isClosed) return;
+      }
+
+      emit(
+        stateValue.copyWith(
+          conversation: conversation,
+          isLoading: true,
+          error: null,
+        ),
+      );
+
       final exchangeRate = await _settingsRepository.getExchangeRate(
         baseCurrency: settings.baseCurrency,
         targetCurrency: settings.targetCurrency,
       );
 
-      _log.info(
-        'onAudioChunkReceived(): invoking translationEngine.translateAudioChunk '
-        'for conversation=${conversation.id} '
-        '(${settings.baseLanguage}/${settings.baseCurrency} <-> '
-        '${settings.targetLanguage}/${settings.targetCurrency}, rate=${exchangeRate.rate})...',
-      );
+      TranslationResult? result;
+      final inFlightFuture = _inFlightSnapshotFuture;
+      final inFlightChunk = _inFlightSnapshotChunk;
 
-      final result = await _translationEngine.translateAudioChunk(
-        audioWavChunk: audioChunk,
-        baseLanguage: AppSettings.languageNameFor(settings.baseLanguage),
-        targetLanguage: AppSettings.languageNameFor(settings.targetLanguage),
-        exchangeRate: exchangeRate.rate,
-        baseCurrency: settings.baseCurrency,
-        targetCurrency: settings.targetCurrency,
-        onPartialResult: (partial) {
-          if (isClosed || !stateValue.isLoading) return;
-          final partialIsBase = _resolveIsBaseLanguage(
-            result: partial,
-            baseLanguageCode: settings.baseLanguage,
-            targetLanguageCode: settings.targetLanguage,
+      if (inFlightFuture != null &&
+          inFlightChunk != null &&
+          _hasSameActiveSpeech(inFlightChunk, audioChunk)) {
+        _log.info(
+          'onAudioChunkReceived(): joining in-flight active-speech snapshot '
+          '(${inFlightChunk.length} active samples) for final utterance...',
+        );
+        result = await inFlightFuture;
+      } else {
+        if (inFlightFuture != null) {
+          await inFlightFuture;
+        }
+        final completedChunk = _lastCompletedSnapshotChunk;
+        final completedResult = _lastCompletedSnapshotResult;
+        if (completedChunk != null &&
+            completedResult != null &&
+            _hasSameActiveSpeech(completedChunk, audioChunk)) {
+          _log.info(
+            'onAudioChunkReceived(): reusing completed active-speech snapshot '
+            'result (${completedChunk.length} active samples) with zero extra inference!',
           );
-          emit(
-            stateValue.copyWith(
-              streamingTranslatedText: partial.translatedText,
-              streamingIsBaseLanguage: partialIsBase,
-            ),
-          );
-        },
-      );
+          result = completedResult;
+        }
+      }
+
+      if (isClosed) return;
+
+      if (result == null) {
+        _log.info(
+          'onAudioChunkReceived(): invoking translationEngine.translateAudioChunk '
+          'for conversation=${conversation.id} '
+          '(${settings.baseLanguage}/${settings.baseCurrency} <-> '
+          '${settings.targetLanguage}/${settings.targetCurrency}, rate=${exchangeRate.rate})...',
+        );
+
+        result = await _translationEngine.translateAudioChunk(
+          audioWavChunk: audioChunk,
+          baseLanguage: AppSettings.languageNameFor(settings.baseLanguage),
+          targetLanguage: AppSettings.languageNameFor(settings.targetLanguage),
+          exchangeRate: exchangeRate.rate,
+          baseCurrency: settings.baseCurrency,
+          targetCurrency: settings.targetCurrency,
+          onPartialResult: (partial) {
+            if (isClosed || !stateValue.isLoading) return;
+            final partialIsBase = _resolveIsBaseLanguage(
+              result: partial,
+              baseLanguageCode: settings.baseLanguage,
+              targetLanguageCode: settings.targetLanguage,
+            );
+            emit(
+              stateValue.copyWith(
+                streamingTranslatedText: partial.translatedText,
+                streamingIsBaseLanguage: partialIsBase,
+              ),
+            );
+          },
+        );
+      }
       if (isClosed) return;
 
       if (result.translatedText.trim().isEmpty ||
@@ -454,6 +709,10 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           error: 'Translation failed: $e',
         ),
       );
+    } finally {
+      _isFinalChunkTranslating = false;
+      _lastCompletedSnapshotChunk = null;
+      _lastCompletedSnapshotResult = null;
     }
   }
 
@@ -500,11 +759,17 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
 
   Future<bool> _performExitSession() async {
     _log.info('exitSession() called.');
+    _latestPendingSnapshotChunk = null;
+    _lastCompletedSnapshotChunk = null;
+    _lastCompletedSnapshotResult = null;
     final chunkSub = _speechChunkSub;
     _speechChunkSub = null;
+    final snapSub = _activeSpeechSnapshotSub;
+    _activeSpeechSnapshotSub = null;
     final ampSub = _amplitudeSub;
     _amplitudeSub = null;
     if (chunkSub != null) unawaited(chunkSub.cancel());
+    if (snapSub != null) unawaited(snapSub.cancel());
     if (ampSub != null) unawaited(ampSub.cancel());
     await _audioService.stopCapture();
 
@@ -565,6 +830,18 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
             ),
           );
         }
+      },
+    );
+
+    _activeSpeechSnapshotSub ??= _audioService.activeSpeechSnapshotStream.listen(
+      (snapshotChunk) {
+        _log.info(
+          'activeSpeechSnapshotStream emitted a live speech snapshot (${snapshotChunk.length} samples) -> dispatching to onActiveSpeechSnapshotReceived().',
+        );
+        unawaited(onActiveSpeechSnapshotReceived(snapshotChunk));
+      },
+      onError: (Object error, StackTrace st) {
+        _log.warning('Error on activeSpeechSnapshotStream', error, st);
       },
     );
 

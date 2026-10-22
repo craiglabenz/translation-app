@@ -19,6 +19,8 @@ class VadBuffer {
     this.maxChunkDuration = const Duration(seconds: 15),
     this.silenceThreshold = 0.015,
     this.minSpeechDuration = Duration.zero,
+    this.liveSnapshotInterval = const Duration(milliseconds: 600),
+    this.livePauseSnapshotDelay = const Duration(milliseconds: 300),
   }) : assert(sampleRate > 0, 'sampleRate must be positive');
 
   static const int defaultSampleRate = 16000;
@@ -44,16 +46,38 @@ class VadBuffer {
   final double silenceThreshold;
   final Duration minSpeechDuration;
 
+  /// Interval of active speech accumulation after which a live in-progress
+  /// audio snapshot is emitted to [onActiveSpeechSnapshot] so translation can
+  /// begin while the speaker is still talking.
+  final Duration liveSnapshotInterval;
+
+  /// Short pause duration after active speech that triggers an immediate live
+  /// audio snapshot on [onActiveSpeechSnapshot] before the full [silenceCutoff]
+  /// expires.
+  final Duration livePauseSnapshotDelay;
+
   final List<double> _buffer = <double>[];
   int _trailingSilenceSamples = 0;
   int _activeSpeechSamples = 0;
+  int _lastActiveSampleEndIndex = 0;
+  int _lastSnapshotActiveSpeechSamples = 0;
+  int _lastSnapshotEndIndex = 0;
   bool _hasDetectedSpeech = false;
 
   final StreamController<Float32List> _chunkController =
       StreamController<Float32List>.broadcast();
 
-  /// Stream of segmented 16kHz mono [Float32List] audio chunks.
+  final StreamController<Float32List> _snapshotController =
+      StreamController<Float32List>.broadcast();
+
+  /// Stream of segmented 16kHz mono [Float32List] audio chunks emitted when an
+  /// utterance finishes.
   Stream<Float32List> get onChunkReady => _chunkController.stream;
+
+  /// Stream of cumulative 16kHz mono [Float32List] audio snapshots emitted as
+  /// soon as active speech is detected and progressing, allowing live
+  /// translation before the utterance ends.
+  Stream<Float32List> get onActiveSpeechSnapshot => _snapshotController.stream;
 
   /// Maximum number of samples allowed before a hard ceiling flush (240,000 at 16kHz / 15s).
   int get maxSamples =>
@@ -68,6 +92,16 @@ class VadBuffer {
   /// Minimum number of active speech samples required before a chunk is emitted.
   int get minSpeechSamples =>
       (sampleRate * minSpeechDuration.inMicroseconds) ~/
+      Duration.microsecondsPerSecond;
+
+  /// Number of active speech samples between periodic live snapshots.
+  int get liveSnapshotIntervalSamples =>
+      (sampleRate * liveSnapshotInterval.inMicroseconds) ~/
+      Duration.microsecondsPerSecond;
+
+  /// Number of trailing silent samples required to trigger an early pause snapshot.
+  int get livePauseSnapshotSamples =>
+      (sampleRate * livePauseSnapshotDelay.inMicroseconds) ~/
       Duration.microsecondsPerSecond;
 
   /// Current number of buffered samples.
@@ -170,6 +204,7 @@ class VadBuffer {
           _trailingSilenceSamples = 0;
           _activeSpeechSamples++;
           _buffer.add(sample);
+          _lastActiveSampleEndIndex = _buffer.length;
         } else if (_hasDetectedSpeech) {
           _buffer.add(sample);
           _trailingSilenceSamples++;
@@ -209,7 +244,61 @@ class VadBuffer {
       }
     }
 
+    _maybeEmitActiveSpeechSnapshot();
+
     return emitted;
+  }
+
+  void _maybeEmitActiveSpeechSnapshot() {
+    if (!_hasDetectedSpeech ||
+        _buffer.isEmpty ||
+        _snapshotController.isClosed ||
+        _lastActiveSampleEndIndex <= _lastSnapshotEndIndex) {
+      return;
+    }
+
+    final intervalSamples = liveSnapshotIntervalSamples;
+    final pauseSamples = livePauseSnapshotSamples;
+    final fallbackMinSpeech = math.max(
+      1,
+      math.min(
+        intervalSamples > 0 ? intervalSamples : sampleRate ~/ 4,
+        pauseSamples > 0 ? pauseSamples : sampleRate ~/ 4,
+      ),
+    );
+    final requiredSpeech = minSpeechSamples > 0
+        ? minSpeechSamples
+        : fallbackMinSpeech;
+
+    if (_activeSpeechSamples < requiredSpeech) {
+      return;
+    }
+
+    final hasIntervalTrigger =
+        intervalSamples > 0 &&
+        (_activeSpeechSamples - _lastSnapshotActiveSpeechSamples) >=
+            intervalSamples;
+    final hasPauseTrigger =
+        pauseSamples > 0 && _trailingSilenceSamples >= pauseSamples;
+
+    if (!hasIntervalTrigger && !hasPauseTrigger) {
+      return;
+    }
+
+    final snapshotEnd = math.min(_lastActiveSampleEndIndex, _buffer.length);
+    if (snapshotEnd <= 0) return;
+
+    final snapshot = Float32List.fromList(_buffer.sublist(0, snapshotEnd));
+    _lastSnapshotActiveSpeechSamples = _activeSpeechSamples;
+    _lastSnapshotEndIndex = snapshotEnd;
+
+    final durationSec = (snapshot.length / sampleRate).toStringAsFixed(2);
+    _log.info(
+      'Emitting live active-speech snapshot (${snapshot.length} samples / ${durationSec}s, '
+      'activeSpeech=$_activeSpeechSamples, trailingSilence=$_trailingSilenceSamples, '
+      'trigger=${hasIntervalTrigger ? "interval" : "pause"}).',
+    );
+    _snapshotController.add(snapshot);
   }
 
   /// Flushes any currently buffered speech samples (e.g. when stopping a session).
@@ -232,6 +321,9 @@ class VadBuffer {
     _buffer.clear();
     _trailingSilenceSamples = 0;
     _activeSpeechSamples = 0;
+    _lastActiveSampleEndIndex = 0;
+    _lastSnapshotActiveSpeechSamples = 0;
+    _lastSnapshotEndIndex = 0;
     _hasDetectedSpeech = false;
   }
 
@@ -260,5 +352,6 @@ class VadBuffer {
   Future<void> dispose() async {
     reset();
     unawaited(_chunkController.close());
+    unawaited(_snapshotController.close());
   }
 }

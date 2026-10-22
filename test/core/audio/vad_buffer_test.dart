@@ -321,6 +321,49 @@ void main() {
       }
       expect(VadBuffer.hasMeaningfulSpeech(validSpeech), isTrue);
     });
+
+    test('emits onActiveSpeechSnapshot as soon as active speech reaches interval or short pause before silenceCutoff', () async {
+      final vad = VadBuffer(
+        sampleRate: 1000,
+        silenceCutoff: const Duration(seconds: 2),
+        minSpeechDuration: const Duration(milliseconds: 300),
+        liveSnapshotInterval: const Duration(milliseconds: 600),
+        livePauseSnapshotDelay: const Duration(milliseconds: 250),
+        silenceThreshold: 0.02,
+      );
+
+      final snapshots = <Float32List>[];
+      final finalChunks = <Float32List>[];
+      final snapSub = vad.onActiveSpeechSnapshot.listen(snapshots.add);
+      final chunkSub = vad.onChunkReady.listen(finalChunks.add);
+
+      // 1. Feed 600ms of active speech -> triggers first live snapshot immediately while still speaking
+      vad.addSamples(Float32List.fromList(List<double>.filled(600, 0.25)));
+      await Future<void>.delayed(Duration.zero);
+      expect(snapshots, hasLength(1));
+      expect(snapshots.first.length, 600);
+      expect(finalChunks, isEmpty);
+
+      // 2. Feed another 300ms of active speech (total 900ms) followed by 300ms short pause (< 2s silenceCutoff)
+      // -> triggers pause snapshot trimmed to the 900 active samples
+      vad.addSamples(Float32List.fromList(List<double>.filled(300, 0.25)));
+      vad.addSamples(Float32List(300));
+      await Future<void>.delayed(Duration.zero);
+      expect(snapshots, hasLength(2));
+      expect(snapshots.last.length, 900);
+      expect(finalChunks, isEmpty);
+
+      // 3. Feed remaining 1700ms of silence to reach 2000ms silenceCutoff -> final chunk emitted, no extra snapshot
+      vad.addSamples(Float32List(1700));
+      await Future<void>.delayed(Duration.zero);
+      expect(snapshots, hasLength(2));
+      expect(finalChunks, hasLength(1));
+      expect(finalChunks.single.length, 2900);
+
+      await snapSub.cancel();
+      await chunkSub.cancel();
+      await vad.dispose();
+    });
   });
 
   group('NativeAudioService', () {
