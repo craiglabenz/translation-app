@@ -175,6 +175,22 @@ abstract class AppSettings with _$AppSettings {
     return trimmed.toUpperCase();
   }
 
+  /// Returns the native-script name for a language [code] (e.g. `'ko'` -> `'한국어'`,
+  /// `'es'` -> `'Español'`).
+  static String nativeLanguageNameFor(String code) {
+    final trimmed = code.trim();
+    if (trimmed.isEmpty) return '';
+    final normalized = trimmed.toLowerCase().split(RegExp(r'[-_\s()]')).first;
+    for (final lang in supportedLanguages) {
+      if (lang.code.toLowerCase() == normalized ||
+          lang.name.toLowerCase() == trimmed.toLowerCase() ||
+          lang.nativeName.toLowerCase() == trimmed.toLowerCase()) {
+        return lang.nativeName;
+      }
+    }
+    return languageNameFor(code);
+  }
+
   /// Returns the flag emoji for a detected or configured language [code]
   /// (e.g. `'en'` -> `'🇺🇸'`, `'ko'` -> `'🇰🇷'`).
   static String languageFlagFor(String code) {

@@ -13,6 +13,8 @@ _Conversation _$ConversationFromJson(Map<String, dynamic> json) =>
       baseLanguage: json['baseLanguage'] as String,
       targetLanguage: json['targetLanguage'] as String,
       previewText: json['previewText'] as String? ?? '',
+      generatedSummary: json['generatedSummary'] as String?,
+      userSummary: json['userSummary'] as String?,
     );
 
 Map<String, dynamic> _$ConversationToJson(_Conversation instance) =>
@@ -22,4 +24,6 @@ Map<String, dynamic> _$ConversationToJson(_Conversation instance) =>
       'baseLanguage': instance.baseLanguage,
       'targetLanguage': instance.targetLanguage,
       'previewText': instance.previewText,
+      'generatedSummary': instance.generatedSummary,
+      'userSummary': instance.userSummary,
     };

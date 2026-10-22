@@ -11,6 +11,7 @@ import 'package:translation_app/core/ai/prompt_templates.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/audio/vad_buffer.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
+import 'package:translation_app/core/data/models/message.dart' as domain;
 import 'package:translation_app/core/logging/app_logger.dart';
 
 /// Signature for executing multimodal audio + prompt inference.
@@ -82,7 +83,9 @@ class LocalTranslationEngine implements TranslationEngine {
   }
 
   Future<void> _performInitialize() async {
-    if (_inferenceRunner != null || _streamingInferenceRunner != null) {
+    if (_inferenceRunner != null ||
+        _streamingInferenceRunner != null ||
+        _textInferenceRunner != null) {
       _log.info(
         'initialize(): custom inferenceRunner attached -> initialized=true.',
       );
@@ -365,6 +368,195 @@ class LocalTranslationEngine implements TranslationEngine {
     return parsed.copyWith(
       sourceLanguage: analysis.resolvedSourceCode,
     );
+  }
+
+  @override
+  Future<String> summarizeConversation({
+    required List<domain.Message> messages,
+    required String baseLanguage,
+    required String targetLanguage,
+  }) async {
+    if (messages.isEmpty) {
+      return '';
+    }
+
+    if (!_initialized || (_model != null && _model!.isClosed)) {
+      await initialize();
+    }
+
+    final systemPrompt = PromptTemplates.buildSummarySystemPrompt(
+      baseLanguage: baseLanguage,
+    );
+    final prompt = PromptTemplates.buildConversationSummaryPrompt(
+      messages: messages,
+      baseLanguage: baseLanguage,
+      targetLanguage: targetLanguage,
+    );
+
+    final String rawOutput;
+    if (_textInferenceRunner != null) {
+      rawOutput = await _textInferenceRunner(
+        prompt: prompt,
+        systemPrompt: systemPrompt,
+      );
+    } else if (_inferenceRunner != null) {
+      rawOutput = await _inferenceRunner(
+        wavBytes: Uint8List(0),
+        systemPrompt: prompt,
+      );
+    } else if (_streamingInferenceRunner != null) {
+      final buffer = StringBuffer();
+      await for (final tokenChunk in _streamingInferenceRunner(
+        wavBytes: Uint8List(0),
+        systemPrompt: systemPrompt,
+        userPrompt: prompt,
+      )) {
+        buffer.write(tokenChunk);
+      }
+      rawOutput = buffer.toString();
+    } else {
+      rawOutput = await _runModelTextFallback(
+        prompt: prompt,
+        systemPrompt: systemPrompt,
+      );
+    }
+
+    var cleaned = cleanSummaryOutput(rawOutput);
+    if (cleaned.isNotEmpty) {
+      final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
+      final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
+      String? wrongSourceLangName;
+
+      if (baseCode != 'en') {
+        final detectedVsEn = LanguageDetector.detectLanguage(
+          cleaned,
+          candidateA: baseCode,
+          candidateB: 'en',
+        );
+        if (detectedVsEn == 'en') {
+          wrongSourceLangName = 'English';
+        }
+      }
+      if (wrongSourceLangName == null && targetCode != baseCode) {
+        final detectedVsTarget = LanguageDetector.detectLanguage(
+          cleaned,
+          candidateA: baseCode,
+          candidateB: targetCode,
+        );
+        if (detectedVsTarget == targetCode) {
+          wrongSourceLangName = AppSettings.languageNameFor(targetCode);
+        }
+      }
+
+      if (wrongSourceLangName != null) {
+        final baseName = AppSettings.languageNameFor(baseCode);
+        final nativeName = AppSettings.nativeLanguageNameFor(baseCode);
+        final nativeLabel = nativeName != baseName && nativeName.isNotEmpty
+            ? '$baseName ($nativeName)'
+            : baseName;
+        _log.info(
+          'summarizeConversation(): summary "$cleaned" was generated in '
+          '$wrongSourceLangName instead of native language $nativeLabel ($baseCode) '
+          '-> translating summary into $nativeLabel...',
+        );
+        final translatePrompt = PromptTemplates.buildTextFallbackPrompt(
+          textToTranslate: cleaned,
+          sourceLanguage: wrongSourceLangName,
+          targetLanguage: nativeLabel,
+          exchangeRate: 1.0,
+          baseCurrency: 'USD',
+          targetCurrency: 'USD',
+        );
+        final translateSystemPrompt =
+            PromptTemplates.buildTextFallbackSystemPrompt(
+              sourceLanguage: wrongSourceLangName,
+              targetLanguage: nativeLabel,
+            );
+        final String translatedRaw;
+        if (_textInferenceRunner != null) {
+          translatedRaw = await _textInferenceRunner(
+            prompt: translatePrompt,
+            systemPrompt: translateSystemPrompt,
+          );
+        } else if (_inferenceRunner != null) {
+          translatedRaw = await _inferenceRunner(
+            wavBytes: Uint8List(0),
+            systemPrompt: translatePrompt,
+          );
+        } else {
+          translatedRaw = await _runModelTextFallback(
+            prompt: translatePrompt,
+            systemPrompt: translateSystemPrompt,
+          );
+        }
+        final translatedCleaned = cleanSummaryOutput(translatedRaw);
+        if (translatedCleaned.isNotEmpty) {
+          cleaned = translatedCleaned;
+        }
+      }
+    }
+
+    _log.info(
+      'summarizeConversation() generated summary: "$cleaned" (from ${messages.length} messages)',
+    );
+    return cleaned;
+  }
+
+  /// Cleans and normalizes raw LLM summary output into a concise 3 to 5 word
+  /// description.
+  static String cleanSummaryOutput(String rawOutput) {
+    final stripped = stripMarkdownFences(rawOutput).trim();
+    if (stripped.isEmpty) return '';
+
+    var candidate = stripped;
+    if (candidate.startsWith('{') && candidate.endsWith('}')) {
+      try {
+        final decoded = jsonDecode(candidate);
+        if (decoded is Map<String, Object?>) {
+          final val =
+              decoded['summary'] ??
+              decoded['title'] ??
+              decoded['description'] ??
+              decoded['translated_text'];
+          if (val is String && val.trim().isNotEmpty) {
+            candidate = val.trim();
+          }
+        }
+      } on Object {
+        // Fall through to plain-text cleanup.
+      }
+    }
+
+    // Take the first non-empty line
+    candidate = candidate
+        .split('\n')
+        .map((l) => l.trim())
+        .firstWhere((l) => l.isNotEmpty, orElse: () => '');
+
+    // Remove common leading labels like "Summary:" or "3 to 5 word summary in ...:"
+    candidate = candidate.replaceFirst(
+      RegExp(
+        r'^(?:3\s+to\s+5\s+word\s+summary(?:\s+in\s+[^:]+)?|summary|title|description)\s*:\s*',
+        caseSensitive: false,
+      ),
+      '',
+    ).trim();
+
+    // Strip surrounding quotes and trailing period
+    while (candidate.length >= 2 &&
+        ((candidate.startsWith('"') && candidate.endsWith('"')) ||
+            (candidate.startsWith("'") && candidate.endsWith("'")))) {
+      candidate = candidate.substring(1, candidate.length - 1).trim();
+    }
+    candidate = candidate.replaceAll(RegExp(r'[.。]+$'), '').trim();
+
+    if (candidate.isEmpty) return '';
+
+    final words = candidate.split(RegExp(r'\s+'));
+    if (words.length > 5) {
+      return words.take(5).join(' ');
+    }
+    return words.join(' ');
   }
 
   Future<String> _executeTextFallback({

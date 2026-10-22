@@ -96,10 +96,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
         .map(
           (c) => FlowThreadListItem(
             id: c.id,
-            title: c.previewText.trim().isNotEmpty
-                ? c.previewText
-                : '${AppSettings.languageNameFor(c.baseLanguage)} ⇄ '
-                      '${AppSettings.languageNameFor(c.targetLanguage)}',
+            title:
+                (c.userSummary ?? c.generatedSummary) ??
+                (c.previewText.trim().isNotEmpty
+                    ? c.previewText
+                    : '${AppSettings.languageNameFor(c.baseLanguage)} ⇄ '
+                          '${AppSettings.languageNameFor(c.targetLanguage)}'),
             icon: Icons.forum_outlined,
           ),
         )

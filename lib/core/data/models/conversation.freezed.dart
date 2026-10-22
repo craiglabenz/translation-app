@@ -16,7 +16,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$Conversation {
 
- String get id; DateTime get createdAt; String get baseLanguage; String get targetLanguage; String get previewText;
+ String get id; DateTime get createdAt; String get baseLanguage; String get targetLanguage; String get previewText; String? get generatedSummary; String? get userSummary;
 /// Create a copy of Conversation
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -30,20 +30,20 @@ $ConversationCopyWith<Conversation> get copyWith => _$ConversationCopyWithImpl<C
 @override
 bool operator ==(Object other) {
   final _this = this as Conversation;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is Conversation&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.createdAt, _this.createdAt) || other.createdAt == _this.createdAt)&&(identical(other.baseLanguage, _this.baseLanguage) || other.baseLanguage == _this.baseLanguage)&&(identical(other.targetLanguage, _this.targetLanguage) || other.targetLanguage == _this.targetLanguage)&&(identical(other.previewText, _this.previewText) || other.previewText == _this.previewText));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is Conversation&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.createdAt, _this.createdAt) || other.createdAt == _this.createdAt)&&(identical(other.baseLanguage, _this.baseLanguage) || other.baseLanguage == _this.baseLanguage)&&(identical(other.targetLanguage, _this.targetLanguage) || other.targetLanguage == _this.targetLanguage)&&(identical(other.previewText, _this.previewText) || other.previewText == _this.previewText)&&(identical(other.generatedSummary, _this.generatedSummary) || other.generatedSummary == _this.generatedSummary)&&(identical(other.userSummary, _this.userSummary) || other.userSummary == _this.userSummary));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
   final _this = this as Conversation;
-  return Object.hash(runtimeType,_this.id,_this.createdAt,_this.baseLanguage,_this.targetLanguage,_this.previewText);
+  return Object.hash(runtimeType,_this.id,_this.createdAt,_this.baseLanguage,_this.targetLanguage,_this.previewText,_this.generatedSummary,_this.userSummary);
 }
 
 @override
 String toString() {
   final _this = this as Conversation;
-  return 'Conversation(id: ${_this.id}, createdAt: ${_this.createdAt}, baseLanguage: ${_this.baseLanguage}, targetLanguage: ${_this.targetLanguage}, previewText: ${_this.previewText})';
+  return 'Conversation(id: ${_this.id}, createdAt: ${_this.createdAt}, baseLanguage: ${_this.baseLanguage}, targetLanguage: ${_this.targetLanguage}, previewText: ${_this.previewText}, generatedSummary: ${_this.generatedSummary}, userSummary: ${_this.userSummary})';
 }
 
 
@@ -54,7 +54,7 @@ abstract mixin class $ConversationCopyWith<$Res>  {
   factory $ConversationCopyWith(Conversation value, $Res Function(Conversation) _then) = _$ConversationCopyWithImpl;
 @useResult
 $Res call({
- String id, DateTime createdAt, String baseLanguage, String targetLanguage, String previewText
+ String id, DateTime createdAt, String baseLanguage, String targetLanguage, String previewText, String? generatedSummary, String? userSummary
 });
 
 
@@ -71,14 +71,16 @@ class _$ConversationCopyWithImpl<$Res>
 
 /// Create a copy of Conversation
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? createdAt = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? previewText = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? createdAt = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? previewText = null,Object? generatedSummary = freezed,Object? userSummary = freezed,}) {
   return _then(Conversation(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,createdAt: null == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
 as DateTime,baseLanguage: null == baseLanguage ? _self.baseLanguage : baseLanguage // ignore: cast_nullable_to_non_nullable
 as String,targetLanguage: null == targetLanguage ? _self.targetLanguage : targetLanguage // ignore: cast_nullable_to_non_nullable
 as String,previewText: null == previewText ? _self.previewText : previewText // ignore: cast_nullable_to_non_nullable
-as String,
+as String,generatedSummary: freezed == generatedSummary ? _self.generatedSummary : generatedSummary // ignore: cast_nullable_to_non_nullable
+as String?,userSummary: freezed == userSummary ? _self.userSummary : userSummary // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 
@@ -163,10 +165,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  DateTime createdAt,  String baseLanguage,  String targetLanguage,  String previewText)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  DateTime createdAt,  String baseLanguage,  String targetLanguage,  String previewText,  String? generatedSummary,  String? userSummary)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _Conversation() when $default != null:
-return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage,_that.previewText);case _:
+return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage,_that.previewText,_that.generatedSummary,_that.userSummary);case _:
   return orElse();
 
 }
@@ -184,10 +186,10 @@ return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  DateTime createdAt,  String baseLanguage,  String targetLanguage,  String previewText)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  DateTime createdAt,  String baseLanguage,  String targetLanguage,  String previewText,  String? generatedSummary,  String? userSummary)  $default,) {final _that = this;
 switch (_that) {
 case _Conversation():
-return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage,_that.previewText);case _:
+return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage,_that.previewText,_that.generatedSummary,_that.userSummary);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -204,10 +206,10 @@ return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  DateTime createdAt,  String baseLanguage,  String targetLanguage,  String previewText)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  DateTime createdAt,  String baseLanguage,  String targetLanguage,  String previewText,  String? generatedSummary,  String? userSummary)?  $default,) {final _that = this;
 switch (_that) {
 case _Conversation() when $default != null:
-return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage,_that.previewText);case _:
+return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage,_that.previewText,_that.generatedSummary,_that.userSummary);case _:
   return null;
 
 }
@@ -219,7 +221,7 @@ return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage
 @JsonSerializable()
 
 class _Conversation extends Conversation {
-  const _Conversation({required this.id, required this.createdAt, required this.baseLanguage, required this.targetLanguage, this.previewText = ''}): super._();
+  const _Conversation({required this.id, required this.createdAt, required this.baseLanguage, required this.targetLanguage, this.previewText = '', this.generatedSummary, this.userSummary}): super._();
   factory _Conversation.fromJson(Map<String, dynamic> json) => _$ConversationFromJson(json);
 
 @override final  String id;
@@ -227,6 +229,8 @@ class _Conversation extends Conversation {
 @override final  String baseLanguage;
 @override final  String targetLanguage;
 @override@JsonKey() final  String previewText;
+@override final  String? generatedSummary;
+@override final  String? userSummary;
 
 /// Create a copy of Conversation
 /// with the given fields replaced by the non-null parameter values.
@@ -241,18 +245,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _Conversation&&(identical(other.id, id) || other.id == id)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.baseLanguage, baseLanguage) || other.baseLanguage == baseLanguage)&&(identical(other.targetLanguage, targetLanguage) || other.targetLanguage == targetLanguage)&&(identical(other.previewText, previewText) || other.previewText == previewText));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _Conversation&&(identical(other.id, id) || other.id == id)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.baseLanguage, baseLanguage) || other.baseLanguage == baseLanguage)&&(identical(other.targetLanguage, targetLanguage) || other.targetLanguage == targetLanguage)&&(identical(other.previewText, previewText) || other.previewText == previewText)&&(identical(other.generatedSummary, generatedSummary) || other.generatedSummary == generatedSummary)&&(identical(other.userSummary, userSummary) || other.userSummary == userSummary));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
-    return Object.hash(runtimeType,id,createdAt,baseLanguage,targetLanguage,previewText);
+    return Object.hash(runtimeType,id,createdAt,baseLanguage,targetLanguage,previewText,generatedSummary,userSummary);
 }
 
 @override
 String toString() {
-    return 'Conversation(id: $id, createdAt: $createdAt, baseLanguage: $baseLanguage, targetLanguage: $targetLanguage, previewText: $previewText)';
+    return 'Conversation(id: $id, createdAt: $createdAt, baseLanguage: $baseLanguage, targetLanguage: $targetLanguage, previewText: $previewText, generatedSummary: $generatedSummary, userSummary: $userSummary)';
 }
 
 
@@ -263,7 +267,7 @@ abstract mixin class _$ConversationCopyWith<$Res> implements $ConversationCopyWi
   factory _$ConversationCopyWith(_Conversation value, $Res Function(_Conversation) _then) = __$ConversationCopyWithImpl;
 @override @useResult
 $Res call({
- String id, DateTime createdAt, String baseLanguage, String targetLanguage, String previewText
+ String id, DateTime createdAt, String baseLanguage, String targetLanguage, String previewText, String? generatedSummary, String? userSummary
 });
 
 
@@ -280,14 +284,16 @@ class __$ConversationCopyWithImpl<$Res>
 
 /// Create a copy of Conversation
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? createdAt = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? previewText = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? createdAt = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? previewText = null,Object? generatedSummary = freezed,Object? userSummary = freezed,}) {
   return _then(_Conversation(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,createdAt: null == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
 as DateTime,baseLanguage: null == baseLanguage ? _self.baseLanguage : baseLanguage // ignore: cast_nullable_to_non_nullable
 as String,targetLanguage: null == targetLanguage ? _self.targetLanguage : targetLanguage // ignore: cast_nullable_to_non_nullable
 as String,previewText: null == previewText ? _self.previewText : previewText // ignore: cast_nullable_to_non_nullable
-as String,
+as String,generatedSummary: freezed == generatedSummary ? _self.generatedSummary : generatedSummary // ignore: cast_nullable_to_non_nullable
+as String?,userSummary: freezed == userSummary ? _self.userSummary : userSummary // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 

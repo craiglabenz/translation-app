@@ -256,6 +256,53 @@ class _ActiveChatViewState extends State<ActiveChatView> {
     }
   }
 
+  Future<void> _showEditSummaryDialog(
+    BuildContext context, {
+    required String? currentSummary,
+  }) async {
+    _log.info('ActiveChatView._showEditSummaryDialog() tapped.');
+    var draftSummary = currentSummary ?? '';
+    final newSummary = await showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        return AlertDialog(
+          key: const ValueKey('edit_summary_dialog'),
+          title: const Text('Edit Conversation Summary'),
+          content: TextFormField(
+            key: const ValueKey('edit_summary_text_field'),
+            initialValue: draftSummary,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            decoration: const InputDecoration(
+              hintText: 'Enter 3 to 5 word summary',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (value) => draftSummary = value,
+            onFieldSubmitted: (value) =>
+                Navigator.of(dialogContext).pop(value),
+          ),
+          actions: [
+            TextButton(
+              key: const ValueKey('edit_summary_cancel_button'),
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const ValueKey('edit_summary_save_button'),
+              onPressed: () => Navigator.of(dialogContext).pop(draftSummary),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (newSummary != null && newSummary.trim().isNotEmpty && mounted) {
+      await _conversationBloc.updateSummary(newSummary);
+    }
+  }
+
   Future<void> _showOriginalMessageModal(
     BuildContext context, {
     required Message message,
@@ -444,6 +491,7 @@ class _ActiveChatViewState extends State<ActiveChatView> {
             final targetFlag = AppSettings.languageFlagFor(
               effectiveTargetLanguage,
             );
+            final currentSummary = state.conversation?.effectiveSummary;
 
             return Scaffold(
               backgroundColor: colors.surface,
@@ -454,37 +502,72 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                   icon: const Icon(Icons.arrow_back_rounded),
                   onPressed: _handleBack,
                 ),
-                title: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '$baseName ⇄ $targetName',
-                      style: typography.titleSmallEmphasised.copyWith(
-                        color: colors.onSurface,
+                title: GestureDetector(
+                  key: const ValueKey('chat_title_summary_tap_area'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: state.conversation == null
+                      ? null
+                      : () => _showEditSummaryDialog(
+                          context,
+                          currentSummary: currentSummary,
+                        ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (currentSummary != null)
+                        Text(
+                          currentSummary,
+                          key: const ValueKey('chat_appbar_summary_text'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: typography.titleSmallEmphasised.copyWith(
+                            color: colors.onSurface,
+                          ),
+                        ),
+                      Text(
+                        '$baseName ⇄ $targetName',
+                        style: (currentSummary != null
+                                ? typography.labelSmall
+                                : typography.titleSmallEmphasised)
+                            .copyWith(
+                              color: currentSummary != null
+                                  ? colors.onSurfaceVariant
+                                  : colors.onSurface,
+                            ),
                       ),
-                    ),
-                    Text(
-                      '1 ${settings.baseCurrency} = '
-                      '${(exchangeRate?.rate ?? 1.0).toStringAsFixed(2)} '
-                      '${settings.targetCurrency}'
-                      '${(exchangeRate?.isStale ?? false) ? ' (offline)' : ''}',
-                      style: typography.labelSmall.copyWith(
-                        color: (exchangeRate?.isStale ?? false)
-                            ? AppTokens.warningAmber
-                            : colors.onSurfaceVariant,
+                      Text(
+                        '1 ${settings.baseCurrency} = '
+                        '${(exchangeRate?.rate ?? 1.0).toStringAsFixed(2)} '
+                        '${settings.targetCurrency}'
+                        '${(exchangeRate?.isStale ?? false) ? ' (offline)' : ''}',
+                        style: typography.labelSmall.copyWith(
+                          color: (exchangeRate?.isStale ?? false)
+                              ? AppTokens.warningAmber
+                              : colors.onSurfaceVariant,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 actions: [
-                  if (state.conversation != null)
+                  if (state.conversation != null) ...[
+                    IconButton(
+                      key: const ValueKey('chat_edit_summary_button'),
+                      tooltip: 'Edit summary',
+                      icon: const Icon(Icons.edit_outlined),
+                      onPressed: () => _showEditSummaryDialog(
+                        context,
+                        currentSummary: currentSummary,
+                      ),
+                    ),
                     IconButton(
                       key: const ValueKey('chat_delete_conversation_button'),
                       tooltip: 'Delete conversation',
                       icon: const Icon(Icons.delete_outline_rounded),
                       onPressed: _handleDeleteConversation,
                     ),
+                  ],
                   IconButton(
                     key: const ValueKey('chat_settings_button'),
                     tooltip: 'Settings',
@@ -619,7 +702,11 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                               messageBuilder: (context, flowMessage) {
                                 final domainMessage =
                                     messageById[flowMessage.id];
+                                final isStreamingTurn =
+                                    flowMessage.id ==
+                                    '__translating_streaming__';
                                 Widget? leadingBadge;
+                                Widget? footerBadge;
                                 if (domainMessage != null) {
                                   final isBase = domainMessage.isBaseLanguage;
                                   leadingBadge = _DetectedLanguageFlagBadge(
@@ -631,8 +718,7 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                                         ? baseName
                                         : targetName,
                                   );
-                                } else if (flowMessage.id ==
-                                    '__translating_streaming__') {
+                                } else if (isStreamingTurn) {
                                   final isBase =
                                       state.streamingIsBaseLanguage ?? true;
                                   leadingBadge = _DetectedLanguageFlagBadge(
@@ -643,7 +729,14 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                                     languageName: isBase
                                         ? baseName
                                         : targetName,
+                                    isInProgress: true,
                                   );
+                                  footerBadge =
+                                      const _InProgressTranslationBadge(
+                                        key: ValueKey(
+                                          'chat_in_progress_translation_badge',
+                                        ),
+                                      );
                                 }
 
                                 final bubble = FlowMessage(
@@ -651,6 +744,7 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                                   markdown: false,
                                   thinkingLabel: 'Translating…',
                                   leading: leadingBadge,
+                                  footer: footerBadge,
                                 );
                                 if (domainMessage == null) {
                                   return bubble;
@@ -701,11 +795,13 @@ class _DetectedLanguageFlagBadge extends StatelessWidget {
   const _DetectedLanguageFlagBadge({
     required this.flagEmoji,
     required this.languageName,
+    this.isInProgress = false,
     super.key,
   });
 
   final String flagEmoji;
   final String languageName;
+  final bool isInProgress;
 
   @override
   Widget build(BuildContext context) {
@@ -724,7 +820,12 @@ class _DetectedLanguageFlagBadge extends StatelessWidget {
             decoration: BoxDecoration(
               color: colors.surfaceContainerLow,
               shape: BoxShape.circle,
-              border: Border.all(color: colors.outline),
+              border: Border.all(
+                color: isInProgress
+                    ? AppTokens.listeningAccent
+                    : colors.outline,
+                width: isInProgress ? 1.5 : 1.0,
+              ),
             ),
             child: Text(
               flagEmoji,
@@ -732,6 +833,34 @@ class _DetectedLanguageFlagBadge extends StatelessWidget {
               style: typography.bodyMedium.copyWith(height: 1),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Animated footer pill displayed beneath an in-progress streaming message
+/// while the translation engine is still working on the utterance.
+class _InProgressTranslationBadge extends StatelessWidget {
+  const _InProgressTranslationBadge({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return SelectionContainer.disabled(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: AppTokens.listeningAccent.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: AppTokens.listeningAccent.withValues(alpha: 0.35),
+          ),
+        ),
+        child: const FlowThinkingIndicator(
+          key: ValueKey('chat_in_progress_thinking_indicator'),
+          label: 'Still translating…',
+          size: 13,
+          color: AppTokens.listeningAccent,
         ),
       ),
     );

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:translation_app/core/data/models/message.dart';
 
 part 'translation_engine.freezed.dart';
 part 'translation_engine.g.dart';
@@ -17,6 +18,14 @@ abstract class TranslationEngine {
     required String baseCurrency,
     required String targetCurrency,
     void Function(TranslationResult partialResult)? onPartialResult,
+  });
+
+  /// Summarizes the chat thread [messages] into a concise 3 to 5 word
+  /// description.
+  Future<String> summarizeConversation({
+    required List<Message> messages,
+    required String baseLanguage,
+    required String targetLanguage,
   });
 
   Future<void> dispose();

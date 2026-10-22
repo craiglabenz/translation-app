@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:translation_app/core/ai/translation_engine.dart';
+import 'package:translation_app/core/data/models/message.dart';
 
 /// Stubbed cloud translation engine reserved for v1 Gemini Socket support.
 class NetworkTranslationEngine implements TranslationEngine {
@@ -20,6 +21,15 @@ class NetworkTranslationEngine implements TranslationEngine {
     required String baseCurrency,
     required String targetCurrency,
     void Function(TranslationResult partialResult)? onPartialResult,
+  }) {
+    throw UnimplementedError('TODO: v1 Gemini Socket');
+  }
+
+  @override
+  Future<String> summarizeConversation({
+    required List<Message> messages,
+    required String baseLanguage,
+    required String targetLanguage,
   }) {
     throw UnimplementedError('TODO: v1 Gemini Socket');
   }

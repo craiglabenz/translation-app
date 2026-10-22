@@ -96,6 +96,16 @@ class PulsingMicIndicator extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (isLoading)
+                      SizedBox(
+                        key: const ValueKey('mic_translating_spinner'),
+                        width: 56,
+                        height: 56,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: accentColor,
+                        ),
+                      ),
                     Container(
                       width: 48,
                       height: 48,
@@ -120,12 +130,26 @@ class PulsingMicIndicator extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  statusTitle,
-                  style: typography.labelLarge.copyWith(
-                    color: colors.onSurface,
-                    fontWeight: FontWeight.w600,
-                  ),
+                Row(
+                  children: [
+                    if (isLoading) ...[
+                      FlowThinkingIndicator(
+                        key: const ValueKey('mic_translating_thinking_indicator'),
+                        size: 14,
+                        color: accentColor,
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    Expanded(
+                      child: Text(
+                        statusTitle,
+                        style: typography.labelLarge.copyWith(
+                          color: colors.onSurface,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -134,6 +158,18 @@ class PulsingMicIndicator extends StatelessWidget {
                     color: colors.onSurfaceVariant,
                   ),
                 ),
+                if (isLoading) ...[
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      key: const ValueKey('mic_translating_progress_bar'),
+                      minHeight: 3,
+                      color: accentColor,
+                      backgroundColor: accentColor.withValues(alpha: 0.16),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

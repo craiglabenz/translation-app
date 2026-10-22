@@ -10,6 +10,7 @@ import 'package:translation_app/core/ai/network_translation_engine.dart';
 import 'package:translation_app/core/ai/prompt_templates.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
+import 'package:translation_app/core/data/models/message.dart';
 
 void main() {
   group('PromptTemplates', () {
@@ -33,6 +34,31 @@ void main() {
           '{"detected_language": "en", "translated_text": "...", "original_transcript": "..."}',
         ),
       );
+    });
+
+    test('builds 3 to 5 word conversation summary prompt from messages', () {
+      final sysPrompt = PromptTemplates.buildSummarySystemPrompt(
+        baseLanguage: 'English',
+      );
+      expect(sysPrompt, contains('3 to 5 word'));
+      expect(sysPrompt, contains('English'));
+
+      final userPrompt = PromptTemplates.buildConversationSummaryPrompt(
+        messages: <Message>[
+          Message(
+            id: 'm1',
+            conversationId: 'c1',
+            timestamp: DateTime.utc(2026, 1, 1, 10),
+            isBaseLanguage: true,
+            originalText: 'Where is the subway?',
+            translatedText: '지하철이 어디에 있나요?',
+          ),
+        ],
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+      );
+      expect(userPrompt, contains('3 to 5 word description'));
+      expect(userPrompt, contains('Where is the subway? -> 지하철이 어디에 있나요?'));
     });
   });
 
@@ -869,6 +895,88 @@ Let me know if you need anything else!
       expect(partials, isEmpty);
       expect(textFallbackCalled, isFalse);
 
+      await engine.dispose();
+      await modelManager.close();
+    });
+
+    test('summarizeConversation generates and cleans a 3 to 5 word description', () async {
+      String? capturedPrompt;
+      String? capturedSystemPrompt;
+
+      final modelManager = ModelManager(initialInstalled: true);
+      final engine = LocalTranslationEngine(
+        modelManager: modelManager,
+        textInferenceRunner: ({required prompt, required systemPrompt}) async {
+          capturedPrompt = prompt;
+          capturedSystemPrompt = systemPrompt;
+          return 'Summary: "Asking for subway directions downtown."';
+        },
+      );
+
+      final summary = await engine.summarizeConversation(
+        messages: <Message>[
+          Message(
+            id: 'm1',
+            conversationId: 'c1',
+            timestamp: DateTime.utc(2026, 1, 1, 10),
+            isBaseLanguage: true,
+            originalText: 'Where is the subway?',
+            translatedText: '지하철이 어디에 있나요?',
+          ),
+        ],
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+      );
+
+      expect(capturedSystemPrompt, contains('3 to 5 word'));
+      expect(capturedPrompt, contains('Where is the subway?'));
+      expect(summary, 'Asking for subway directions downtown');
+
+      // Empty message list returns empty string without invoking runner
+      expect(
+        await engine.summarizeConversation(
+          messages: const <Message>[],
+          baseLanguage: 'English',
+          targetLanguage: 'Korean',
+        ),
+        isEmpty,
+      );
+
+      // When native language is Korean ('ko') and the first pass accidentally returns English,
+      // summarizeConversation automatically translates the summary into Korean (한국어).
+      var callIndex = 0;
+      final koEngine = LocalTranslationEngine(
+        modelManager: modelManager,
+        textInferenceRunner: ({required prompt, required systemPrompt}) async {
+          callIndex++;
+          if (callIndex == 1) {
+            expect(systemPrompt, contains('Korean (한국어)'));
+            expect(prompt, contains('Korean (한국어)'));
+            return 'Asking for subway directions';
+          }
+          expect(prompt, contains('Korean (한국어)'));
+          return '지하철 길 안내 문의';
+        },
+      );
+
+      final koSummary = await koEngine.summarizeConversation(
+        messages: <Message>[
+          Message(
+            id: 'm1',
+            conversationId: 'c1',
+            timestamp: DateTime.utc(2026, 1, 1, 10),
+            isBaseLanguage: true,
+            originalText: '지하철역이 어디에 있나요?',
+            translatedText: 'Where is the subway station?',
+          ),
+        ],
+        baseLanguage: 'Korean',
+        targetLanguage: 'English',
+      );
+      expect(callIndex, 2);
+      expect(koSummary, '지하철 길 안내 문의');
+
+      await koEngine.dispose();
       await engine.dispose();
       await modelManager.close();
     });

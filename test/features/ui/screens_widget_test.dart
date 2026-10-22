@@ -48,6 +48,15 @@ class _StubTranslationEngine implements TranslationEngine {
   }
 
   @override
+  Future<String> summarizeConversation({
+    required List<Message> messages,
+    required String baseLanguage,
+    required String targetLanguage,
+  }) async {
+    return 'Three word summary';
+  }
+
+  @override
   Future<void> dispose() async {}
 }
 
@@ -169,7 +178,7 @@ void main() {
           PulsingMicIndicator(
             isListening: true,
             isLoading: true,
-            amplitude: 0.1,
+            amplitude: 0.0,
             onToggleListening: () {},
           ),
         ),
@@ -178,6 +187,18 @@ void main() {
       expect(find.text('Translating speech…'), findsOneWidget);
       expect(
         find.text('Gemma 4 is processing audio & currency context'),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('mic_translating_spinner')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('mic_translating_thinking_indicator')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('mic_translating_progress_bar')),
         findsOneWidget,
       );
     });
@@ -512,6 +533,7 @@ void main() {
         chatBloc.emit(
           chatBloc.stateValue.copyWith(
             isLoading: true,
+            amplitude: 0.0,
             streamingTranslatedText: '지하철역이 어디에…',
             streamingIsBaseLanguage: true,
           ),
@@ -519,6 +541,19 @@ void main() {
         await tester.pump();
 
         expect(find.text('지하철역이 어디에…'), findsOneWidget);
+        expect(find.text('Still translating…'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('chat_in_progress_translation_badge')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('mic_translating_spinner')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('mic_translating_progress_bar')),
+          findsOneWidget,
+        );
         var thread = tester.widget<FlowThread>(
           find.byKey(const ValueKey('active_flow_thread')),
         );
@@ -529,6 +564,7 @@ void main() {
         chatBloc.emit(
           chatBloc.stateValue.copyWith(
             isLoading: true,
+            amplitude: 0.0,
             streamingTranslatedText: 'Go straight two blocks…',
             streamingIsBaseLanguage: false,
           ),
@@ -536,11 +572,47 @@ void main() {
         await tester.pump();
 
         expect(find.text('Go straight two blocks…'), findsOneWidget);
+        expect(find.text('Still translating…'), findsOneWidget);
         thread = tester.widget<FlowThread>(
           find.byKey(const ValueKey('active_flow_thread')),
         );
         expect(thread.messages.single.id, '__translating_streaming__');
         expect(thread.messages.single.role, FlowMessageRole.user);
+
+        // 3. Emit finalized message -> in-progress affordances disappear
+        chatBloc.emit(
+          chatBloc.stateValue.copyWith(
+            isLoading: false,
+            streamingTranslatedText: null,
+            streamingIsBaseLanguage: null,
+            messages: [
+              Message(
+                id: 'msg_finalized_1',
+                conversationId: conv.id,
+                timestamp: DateTime.utc(2026, 6, 1, 12),
+                isBaseLanguage: false,
+                originalText: '두 블록 직진하세요.',
+                translatedText: 'Go straight two blocks.',
+              ),
+            ],
+          ),
+        );
+        await tester.pump();
+
+        expect(find.text('Go straight two blocks.'), findsOneWidget);
+        expect(find.text('Still translating…'), findsNothing);
+        expect(
+          find.byKey(const ValueKey('chat_in_progress_translation_badge')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey('mic_translating_spinner')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey('mic_translating_progress_bar')),
+          findsNothing,
+        );
 
         await chatBloc.close();
         await audioService.dispose();
@@ -1256,6 +1328,112 @@ void main() {
         );
         expect(await convRepo.getConversationById(emptyConvId), isNull);
         expect(await convRepo.getAllConversations(), isEmpty);
+      },
+    );
+
+    testWidgets(
+      'displays (userSummary ?? generatedSummary) on list views instead of last message and supports editing summary on ActiveChatView',
+      (tester) async {
+        configureDependencies();
+        final convRepo = GetIt.I<ConversationRepository>();
+
+        final conv1 = await convRepo.createConversation(
+          id: 'conv_sum_1',
+          baseLanguage: 'en',
+          targetLanguage: 'es',
+          previewText: 'Last raw translated message 1',
+          generatedSummary: 'Ordering tapas in Madrid',
+        );
+        await convRepo.saveMessage(
+          Message(
+            id: 'm_sum_1',
+            conversationId: conv1.id,
+            timestamp: DateTime.utc(2026, 6, 1, 10),
+            isBaseLanguage: true,
+            originalText: 'Two tapas please',
+            translatedText: 'Last raw translated message 1',
+          ),
+        );
+
+        final conv2 = await convRepo.createConversation(
+          id: 'conv_sum_2',
+          baseLanguage: 'en',
+          targetLanguage: 'ko',
+          previewText: 'Last raw translated message 2',
+          generatedSummary: 'Auto generated summary',
+          userSummary: 'Seoul subway directions',
+        );
+        await convRepo.saveMessage(
+          Message(
+            id: 'm_sum_2',
+            conversationId: conv2.id,
+            timestamp: DateTime.utc(2026, 6, 1, 11),
+            isBaseLanguage: true,
+            originalText: 'Subway please',
+            translatedText: 'Last raw translated message 2',
+          ),
+        );
+
+        await tester.pumpWidget(const MyApp());
+        await tester.pumpAndSettle();
+
+        // 1. On HomeScreen list view, (userSummary ?? generatedSummary) is shown instead of previewText
+        expect(find.text('Ordering tapas in Madrid'), findsOneWidget);
+        expect(find.text('Seoul subway directions'), findsOneWidget);
+        expect(find.text('Last raw translated message 1'), findsNothing);
+        expect(find.text('Last raw translated message 2'), findsNothing);
+
+        // 2. Open HistoryScreen -> also shows (userSummary ?? generatedSummary)
+        await tester.tap(
+          find.byKey(const ValueKey('home_see_all_history_button')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Ordering tapas in Madrid'), findsOneWidget);
+        expect(find.text('Seoul subway directions'), findsOneWidget);
+
+        // 3. Tap conv1 to open ActiveChatView and edit its summary
+        await tester.tap(find.text('Ordering tapas in Madrid'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('chat_appbar_summary_text')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('chat_edit_summary_button')),
+          findsOneWidget,
+        );
+
+        await tester.tap(
+          find.byKey(const ValueKey('chat_edit_summary_button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('edit_summary_dialog')),
+          findsOneWidget,
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('edit_summary_text_field')),
+          'Dinner reservation at eight',
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('edit_summary_save_button')),
+        );
+        await tester.pumpAndSettle();
+
+        // Verify updated summary is shown in ActiveChatView and saved in generatedSummary
+        expect(find.text('Dinner reservation at eight'), findsOneWidget);
+        final updatedConv1 = await convRepo.getConversationById(conv1.id);
+        expect(
+          updatedConv1?.generatedSummary,
+          'Dinner reservation at eight',
+        );
+
+        // Return to HistoryScreen -> list view now shows the edited summary
+        await tester.tap(find.byKey(const ValueKey('chat_back_button')));
+        await tester.pumpAndSettle();
+        expect(find.text('Dinner reservation at eight'), findsOneWidget);
       },
     );
   });

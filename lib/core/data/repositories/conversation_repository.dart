@@ -132,6 +132,8 @@ class ConversationRepository extends Repository<Conversation> {
     required String baseLanguage,
     required String targetLanguage,
     String previewText = '',
+    String? generatedSummary,
+    String? userSummary,
     String? id,
   }) async {
     final sw = Stopwatch()..start();
@@ -144,6 +146,8 @@ class ConversationRepository extends Repository<Conversation> {
       baseLanguage: baseLanguage,
       targetLanguage: targetLanguage,
       previewText: previewText,
+      generatedSummary: generatedSummary,
+      userSummary: userSummary,
     );
     final saved = await setItem(
       draft,

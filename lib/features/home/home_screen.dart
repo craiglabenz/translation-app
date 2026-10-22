@@ -383,10 +383,12 @@ class _RecentConversationsSection extends StatelessWidget {
         .map(
           (c) => FlowThreadListItem(
             id: c.id,
-            title: c.previewText.trim().isNotEmpty
-                ? c.previewText
-                : '${AppSettings.languageNameFor(c.baseLanguage)} ⇄ '
-                      '${AppSettings.languageNameFor(c.targetLanguage)}',
+            title:
+                (c.userSummary ?? c.generatedSummary) ??
+                (c.previewText.trim().isNotEmpty
+                    ? c.previewText
+                    : '${AppSettings.languageNameFor(c.baseLanguage)} ⇄ '
+                          '${AppSettings.languageNameFor(c.targetLanguage)}'),
             icon: Icons.chat_bubble_outline_rounded,
           ),
         )

@@ -6,6 +6,7 @@ import 'package:translation_app/core/ai/model_manager.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
 import 'package:translation_app/core/data/models/exchange_rate_cache.dart';
+import 'package:translation_app/core/data/models/message.dart';
 import 'package:translation_app/core/data/repositories/settings_repository.dart';
 import 'package:translation_app/features/settings/bloc/settings_bloc.dart';
 import 'package:translation_app/features/settings/bloc/settings_state.dart';
@@ -32,6 +33,15 @@ class _TrackingTranslationEngine implements TranslationEngine {
       sourceLanguage: 'en',
       translatedText: 'Hola',
     );
+  }
+
+  @override
+  Future<String> summarizeConversation({
+    required List<Message> messages,
+    required String baseLanguage,
+    required String targetLanguage,
+  }) async {
+    return 'Quick test summary';
   }
 
   @override

@@ -34,6 +34,8 @@ class _ConfigurableTranslationEngine implements TranslationEngine {
 
   List<TranslationResult> partialResultsToEmit = const <TranslationResult>[];
   int translateCallCount = 0;
+  int summarizeCallCount = 0;
+  String nextSummary = 'Asking about item price';
 
   @override
   Future<TranslationResult> translateAudioChunk({
@@ -53,6 +55,16 @@ class _ConfigurableTranslationEngine implements TranslationEngine {
       onPartialResult?.call(partial);
     }
     return nextResult;
+  }
+
+  @override
+  Future<String> summarizeConversation({
+    required List<Message> messages,
+    required String baseLanguage,
+    required String targetLanguage,
+  }) async {
+    summarizeCallCount++;
+    return nextSummary;
   }
 
   @override
@@ -644,6 +656,67 @@ void main() {
       expect(
         bloc.stateValue.messages.single.translatedText,
         '¿Dónde está la estación?',
+      );
+    });
+
+    test('generates and saves 3 to 5 word generatedSummary after each new message and supports manual summary editing', () async {
+      await bloc.startNewSession();
+      final convId = bloc.stateValue.conversation!.id;
+
+      // 1. First message -> engine summarizes thread into 3-5 words and saves in generatedSummary
+      fakeEngine.nextSummary = 'Buying train ticket downtown';
+      await bloc.onAudioChunkReceived(
+        Float32List.fromList(<double>[0.25, -0.25, 0.3]),
+      );
+
+      expect(fakeEngine.summarizeCallCount, 1);
+      expect(
+        bloc.stateValue.conversation?.generatedSummary,
+        'Buying train ticket downtown',
+      );
+      expect(bloc.stateValue.conversation?.userSummary, isNull);
+
+      final persistedAfterMsg1 = await conversationRepo.getConversationById(
+        convId,
+      );
+      expect(
+        persistedAfterMsg1?.generatedSummary,
+        'Buying train ticket downtown',
+      );
+
+      // 2. Second message -> engine updates generatedSummary
+      fakeEngine.nextSummary = 'Train ticket price inquiry';
+      await bloc.onAudioChunkReceived(
+        Float32List.fromList(<double>[0.3, -0.3, 0.25]),
+      );
+
+      expect(fakeEngine.summarizeCallCount, 2);
+      expect(
+        bloc.stateValue.conversation?.generatedSummary,
+        'Train ticket price inquiry',
+      );
+
+      // 3. User edits summary via updateSummary -> persisted in generatedSummary and userSummary
+      await bloc.updateSummary('Madrid station ticket chat');
+      expect(
+        bloc.stateValue.conversation?.generatedSummary,
+        'Madrid station ticket chat',
+      );
+      expect(
+        bloc.stateValue.conversation?.userSummary,
+        'Madrid station ticket chat',
+      );
+
+      final persistedAfterEdit = await conversationRepo.getConversationById(
+        convId,
+      );
+      expect(
+        persistedAfterEdit?.generatedSummary,
+        'Madrid station ticket chat',
+      );
+      expect(
+        persistedAfterEdit?.userSummary,
+        'Madrid station ticket chat',
       );
     });
   });

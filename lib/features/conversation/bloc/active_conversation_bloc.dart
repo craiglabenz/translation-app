@@ -698,6 +698,12 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           streamingIsBaseLanguage: null,
         ),
       );
+
+      await _updateGeneratedSummary(
+        conversation: updatedConversation,
+        messages: updatedMessages,
+        settings: settings,
+      );
     } catch (e, st) {
       _log.severe('Translation failed in onAudioChunkReceived()', e, st);
       if (isClosed) return;
@@ -713,6 +719,63 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       _isFinalChunkTranslating = false;
       _lastCompletedSnapshotChunk = null;
       _lastCompletedSnapshotResult = null;
+    }
+  }
+
+  Future<void> _updateGeneratedSummary({
+    required Conversation conversation,
+    required List<Message> messages,
+    required AppSettings settings,
+  }) async {
+    try {
+      final effectiveBaseLang = conversation.baseLanguage.trim().isNotEmpty
+          ? conversation.baseLanguage
+          : settings.baseLanguage;
+      final effectiveTargetLang = conversation.targetLanguage.trim().isNotEmpty
+          ? conversation.targetLanguage
+          : settings.targetLanguage;
+      final summary = await _translationEngine.summarizeConversation(
+        messages: messages,
+        baseLanguage: AppSettings.languageNameFor(effectiveBaseLang),
+        targetLanguage: AppSettings.languageNameFor(effectiveTargetLang),
+      );
+      if (isClosed) return;
+      final trimmedSummary = summary.trim();
+      if (trimmedSummary.isEmpty) return;
+
+      final currentConv = stateValue.conversation ?? conversation;
+      final convWithSummary = currentConv.copyWith(
+        generatedSummary: trimmedSummary,
+      );
+      final savedConv = await _conversationRepository.updateConversation(
+        convWithSummary,
+      );
+      if (isClosed) return;
+      emit(stateValue.copyWith(conversation: savedConv));
+    } catch (e, st) {
+      _log.warning('Failed to generate conversation summary: $e', e, st);
+    }
+  }
+
+  /// Updates the conversation summary when edited by the user on the chat
+  /// detail screen, persisting the new summary in [Conversation.generatedSummary]
+  /// and [Conversation.userSummary].
+  Future<void> updateSummary(String newSummary) async {
+    final trimmed = newSummary.trim();
+    if (trimmed.isEmpty) return;
+    final currentConv = stateValue.conversation;
+    if (currentConv == null || currentConv.id.isEmpty) return;
+
+    _log.info(
+      'updateSummary(): updating summary for conversation=${currentConv.id} to "$trimmed"',
+    );
+    final updated = currentConv.copyWith(
+      generatedSummary: trimmed,
+      userSummary: trimmed,
+    );
+    final saved = await _conversationRepository.updateConversation(updated);
+    if (!isClosed) {
+      emit(stateValue.copyWith(conversation: saved));
     }
   }
 

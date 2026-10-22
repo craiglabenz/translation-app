@@ -1,7 +1,9 @@
 import 'package:translation_app/core/ai/language_detector.dart';
+import 'package:translation_app/core/data/models/app_settings.dart';
+import 'package:translation_app/core/data/models/message.dart';
 
 /// Prompt templates and JSON schema instructions for Gemma 4 multimodal audio
-/// translation.
+/// translation and conversation summarization.
 class PromptTemplates {
   const PromptTemplates._();
 
@@ -88,5 +90,62 @@ CRITICAL RULES:
 
 $sourceLanguage text: "$textToTranslate"
 $targetLanguage translation:''';
+  }
+
+  /// Builds the system instruction for summarizing a chat thread into a
+  /// concise 3 to 5 word description in the user's native language
+  /// ([baseLanguage]).
+  static String buildSummarySystemPrompt({
+    required String baseLanguage,
+  }) {
+    final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
+    final baseName = AppSettings.languageNameFor(baseLanguage);
+    final nativeName = AppSettings.nativeLanguageNameFor(baseLanguage);
+    final nativeLabel = nativeName != baseName && nativeName.isNotEmpty
+        ? '$baseName ($nativeName)'
+        : baseLanguage;
+    return '''
+You summarize bilingual conversations into a concise 3 to 5 word description written strictly in the user's native language: $nativeLabel ($baseCode).
+CRITICAL LANGUAGE RULE: Always write the summary in $nativeLabel ($baseCode). Do NOT default to English when the user's native language is not English.
+Output ONLY a 3 to 5 word summary title in $nativeLabel with no quotes, no markdown, and no trailing period.''';
+  }
+
+  /// Builds a prompt asking the translation engine to summarize [messages]
+  /// with a 3 to 5 word description in the user's native language
+  /// ([baseLanguage]).
+  static String buildConversationSummaryPrompt({
+    required List<Message> messages,
+    required String baseLanguage,
+    required String targetLanguage,
+  }) {
+    final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
+    final baseName = AppSettings.languageNameFor(baseLanguage);
+    final nativeName = AppSettings.nativeLanguageNameFor(baseLanguage);
+    final nativeLabel = nativeName != baseName && nativeName.isNotEmpty
+        ? '$baseName ($nativeName)'
+        : baseLanguage;
+
+    final transcriptBuffer = StringBuffer();
+    for (final msg in messages) {
+      final speaker = msg.isBaseLanguage ? baseLanguage : targetLanguage;
+      final original = msg.originalText.trim();
+      final translated = msg.effectiveTranslatedText.trim();
+      final text = original.isNotEmpty && original != translated
+          ? '$original -> $translated'
+          : translated;
+      transcriptBuffer.writeln('- [$speaker]: $text');
+    }
+
+    return '''
+Summarize the following conversation between $baseLanguage and $targetLanguage with a 3 to 5 word description written strictly in $nativeLabel ($baseCode).
+Rules:
+1. Must be 3 to 5 words long.
+2. CRITICAL: Write the summary ONLY in the user's native language: $nativeLabel ($baseCode). Do NOT use English unless the native language is English, and do NOT use $targetLanguage.
+3. Output ONLY the 3 to 5 word description in $nativeLabel, with no quotes, no labels, and no punctuation at the end.
+
+Conversation:
+${transcriptBuffer.toString().trimRight()}
+
+3 to 5 word summary in $nativeLabel ($baseCode):''';
   }
 }

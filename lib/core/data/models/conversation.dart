@@ -19,9 +19,25 @@ abstract class Conversation with _$Conversation {
     required String baseLanguage,
     required String targetLanguage,
     @Default('') String previewText,
+    String? generatedSummary,
+    String? userSummary,
   }) = _Conversation;
 
   const Conversation._();
+
+  /// Returns `userSummary ?? generatedSummary` (ignoring empty/whitespace-only
+  /// values), or `null` if neither summary is present.
+  String? get effectiveSummary {
+    final user = userSummary?.trim();
+    if (user != null && user.isNotEmpty) {
+      return user;
+    }
+    final generated = generatedSummary?.trim();
+    if (generated != null && generated.isNotEmpty) {
+      return generated;
+    }
+    return null;
+  }
 
   factory Conversation.fromJson(Map<String, Object?> json) =>
       _$ConversationFromJson(json);
