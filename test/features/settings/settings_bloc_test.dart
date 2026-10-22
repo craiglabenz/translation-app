@@ -1,11 +1,42 @@
+import 'dart:typed_data';
+
 import 'package:data_layer/data_layer.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
+import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
 import 'package:translation_app/core/data/models/exchange_rate_cache.dart';
 import 'package:translation_app/core/data/repositories/settings_repository.dart';
 import 'package:translation_app/features/settings/bloc/settings_bloc.dart';
 import 'package:translation_app/features/settings/bloc/settings_state.dart';
+
+class _TrackingTranslationEngine implements TranslationEngine {
+  int initializeCallCount = 0;
+
+  @override
+  Future<void> initialize() async {
+    initializeCallCount++;
+  }
+
+  @override
+  Future<TranslationResult> translateAudioChunk({
+    required Float32List audioWavChunk,
+    required String baseLanguage,
+    required String targetLanguage,
+    required double exchangeRate,
+    required String baseCurrency,
+    required String targetCurrency,
+    void Function(TranslationResult partialResult)? onPartialResult,
+  }) async {
+    return const TranslationResult(
+      sourceLanguage: 'en',
+      translatedText: 'Hola',
+    );
+  }
+
+  @override
+  Future<void> dispose() async {}
+}
 
 void main() {
   group('SettingsState', () {
@@ -119,7 +150,9 @@ void main() {
       expect(modelManager.stateValue.isInstalled, isTrue);
     });
 
-    test('updateBaseLanguage and updateTargetLanguage persist to repository', () async {
+    test('updateBaseLanguage and updateTargetLanguage persist to repository and link currencies one-way', () async {
+      await seedRemoteRate('EUR', 'KRW', 1480.0);
+      await seedRemoteRate('CHF', 'KRW', 1520.0);
       await bloc.load();
 
       const french = SupportedLanguage(
@@ -127,19 +160,41 @@ void main() {
         name: 'French',
         nativeName: 'Français',
       );
-      const german = SupportedLanguage(
-        code: 'de',
-        name: 'German',
-        nativeName: 'Deutsch',
+      const korean = SupportedLanguage(
+        code: 'ko',
+        name: 'Korean',
+        nativeName: '한국어',
       );
 
+      // Changing baseLanguage to French ('fr') automatically updates baseCurrency to 'EUR'
       await bloc.updateBaseLanguage(french);
       expect(bloc.stateValue.settings.baseLanguage, 'fr');
+      expect(bloc.stateValue.settings.baseCurrency, 'EUR');
       expect((await settingsRepo.getSettings()).baseLanguage, 'fr');
+      expect((await settingsRepo.getSettings()).baseCurrency, 'EUR');
 
-      await bloc.updateTargetLanguage(german);
-      expect(bloc.stateValue.settings.targetLanguage, 'de');
-      expect((await settingsRepo.getSettings()).targetLanguage, 'de');
+      // Changing targetLanguage to Korean ('ko') automatically updates targetCurrency to 'KRW'
+      // and refreshes the exchange rate (EUR -> KRW = 1480.0)
+      await bloc.updateTargetLanguage(korean);
+      expect(bloc.stateValue.settings.targetLanguage, 'ko');
+      expect(bloc.stateValue.settings.targetCurrency, 'KRW');
+      expect((await settingsRepo.getSettings()).targetLanguage, 'ko');
+      expect((await settingsRepo.getSettings()).targetCurrency, 'KRW');
+      expect(bloc.stateValue.exchangeRate?.baseCurrency, 'EUR');
+      expect(bloc.stateValue.exchangeRate?.targetCurrency, 'KRW');
+      expect(bloc.stateValue.exchangeRate?.rate, 1480.0);
+
+      // Changing currency does NOT change the language (e.g. French & Korean speakers in Switzerland)
+      const chf = SupportedCurrency(
+        code: 'CHF',
+        name: 'Swiss Franc',
+        symbol: 'CHF',
+      );
+      await bloc.updateBaseCurrency(chf);
+      expect(bloc.stateValue.settings.baseCurrency, 'CHF');
+      expect(bloc.stateValue.settings.baseLanguage, 'fr');
+      expect(bloc.stateValue.settings.targetLanguage, 'ko');
+      expect(bloc.stateValue.exchangeRate?.rate, 1520.0);
     });
 
     test('updateBaseCurrency and updateTargetCurrency refresh the exchange rate', () async {
@@ -231,6 +286,44 @@ void main() {
       final success = await bloc.downloadModel();
       expect(success, isTrue);
       expect(lastDownloadedUrl, 'https://custom.host/model.litertlm');
+    });
+
+    test('optimistically warms up TranslationEngine on load() and downloadModel()', () async {
+      final trackingEngine = _TrackingTranslationEngine();
+      final warmupBloc = SettingsBloc(
+        settingsRepository: settingsRepo,
+        modelManager: modelManager,
+        translationEngine: trackingEngine,
+      );
+
+      await warmupBloc.load();
+      await Future<void>.delayed(Duration.zero);
+      expect(trackingEngine.initializeCallCount, 1);
+
+      await warmupBloc.downloadModel();
+      await Future<void>.delayed(Duration.zero);
+      expect(trackingEngine.initializeCallCount, 2);
+
+      await warmupBloc.close();
+    });
+
+    test('updateTextScaleFactor clamps between 0.5 and 3.0 and persists to SettingsRepository', () async {
+      await bloc.load();
+      expect(bloc.stateValue.settings.textScaleFactor, 1.0);
+
+      await bloc.updateTextScaleFactor(1.75);
+      expect(bloc.stateValue.settings.textScaleFactor, 1.75);
+      expect((await settingsRepo.getSettings()).textScaleFactor, 1.75);
+
+      // Below minimum (0.5) clamps to 0.5
+      await bloc.updateTextScaleFactor(0.1);
+      expect(bloc.stateValue.settings.textScaleFactor, 0.5);
+      expect((await settingsRepo.getSettings()).textScaleFactor, 0.5);
+
+      // Above maximum (3.0) clamps to 3.0
+      await bloc.updateTextScaleFactor(5.0);
+      expect(bloc.stateValue.settings.textScaleFactor, 3.0);
+      expect((await settingsRepo.getSettings()).textScaleFactor, 3.0);
     });
   });
 }

@@ -7,6 +7,7 @@ import 'package:translation_app/core/ai/local_translation_engine.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/audio/native_audio_service.dart';
+import 'package:translation_app/core/audio/vad_buffer.dart';
 import 'package:translation_app/core/auth/auth.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
 import 'package:translation_app/core/data/models/conversation.dart';
@@ -111,7 +112,13 @@ void configureDependencies({
 
   if (!getIt.isRegistered<NativeAudioService>()) {
     getIt.registerLazySingleton<NativeAudioService>(
-      NativeAudioService.new,
+      () => NativeAudioService(
+        vadBuffer: VadBuffer(
+          silenceCutoff: VadBuffer.interactiveSilenceCutoff,
+          minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
+          silenceThreshold: VadBuffer.interactiveSilenceThreshold,
+        ),
+      ),
       dispose: (service) => service.dispose(),
     );
   }
@@ -121,6 +128,7 @@ void configureDependencies({
       () => SettingsBloc(
         settingsRepository: getIt<SettingsRepository>(),
         modelManager: getIt<ModelManager>(),
+        translationEngine: getIt<TranslationEngine>(),
       ),
       dispose: (bloc) => bloc.close(),
     );

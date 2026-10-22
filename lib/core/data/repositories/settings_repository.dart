@@ -51,15 +51,27 @@ class SettingsRepository extends Repository<AppSettings> {
 
   /// Loads the persisted [AppSettings], initializing defaults if none exist.
   Future<AppSettings> getSettings() async {
+    final sw = Stopwatch()..start();
+    _log.info('[PERF] SettingsRepository.getSettings() START');
     final existing = await getById(
       AppSettings.defaultId,
       details: RequestDetails.read(requestType: RequestType.local),
     );
     if (existing != null) {
+      sw.stop();
+      _log.info(
+        '[PERF] SettingsRepository.getSettings() FINISH '
+        '(${sw.elapsedMilliseconds}ms, cached=true)',
+      );
       return existing;
     }
     const defaults = AppSettings();
     await saveSettings(defaults);
+    sw.stop();
+    _log.info(
+      '[PERF] SettingsRepository.getSettings() FINISH '
+      '(${sw.elapsedMilliseconds}ms, initializedDefaults=true)',
+    );
     return defaults;
   }
 
@@ -155,10 +167,17 @@ class SettingsRepository extends Repository<AppSettings> {
 
   /// Eagerly loads settings and hydrates current exchange rates on app startup.
   Future<(AppSettings, ExchangeRateCache)> hydrateOnStartup() async {
+    final sw = Stopwatch()..start();
+    _log.info('[PERF] SettingsRepository.hydrateOnStartup() START');
     final settings = await getSettings();
     final rate = await getExchangeRate(
       baseCurrency: settings.baseCurrency,
       targetCurrency: settings.targetCurrency,
+    );
+    sw.stop();
+    _log.info(
+      '[PERF] SettingsRepository.hydrateOnStartup() FINISH '
+      '(${sw.elapsedMilliseconds}ms)',
     );
     return (settings, rate);
   }

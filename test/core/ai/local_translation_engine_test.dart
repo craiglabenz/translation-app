@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:translation_app/core/ai/language_detector.dart';
 import 'package:translation_app/core/ai/local_translation_engine.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
 import 'package:translation_app/core/ai/network_translation_engine.dart';
@@ -504,6 +505,372 @@ Let me know if you need anything else!
       expect(manager.stateValue.isInstalled, isTrue);
 
       await manager.close();
+    });
+  });
+
+  group('LanguageDetector & Bidirectional Reliability', () {
+    test('normalizeLanguageCode normalizes codes, regional tags, English names, and native names', () {
+      expect(LanguageDetector.normalizeLanguageCode('en'), 'en');
+      expect(LanguageDetector.normalizeLanguageCode('en-US'), 'en');
+      expect(LanguageDetector.normalizeLanguageCode('English'), 'en');
+      expect(LanguageDetector.normalizeLanguageCode('ko'), 'ko');
+      expect(LanguageDetector.normalizeLanguageCode('ko-KR'), 'ko');
+      expect(LanguageDetector.normalizeLanguageCode('Korean'), 'ko');
+      expect(LanguageDetector.normalizeLanguageCode('한국어'), 'ko');
+      expect(LanguageDetector.normalizeLanguageCode('Korean (ko)'), 'ko');
+      expect(LanguageDetector.normalizeLanguageCode('Japanese'), 'ja');
+      expect(LanguageDetector.normalizeLanguageCode('日本語'), 'ja');
+      expect(LanguageDetector.normalizeLanguageCode('Chinese'), 'zh');
+      expect(LanguageDetector.normalizeLanguageCode('中文'), 'zh');
+      expect(LanguageDetector.normalizeLanguageCode('Mandarin'), 'zh');
+      expect(LanguageDetector.normalizeLanguageCode('Español'), 'es');
+      expect(LanguageDetector.normalizeLanguageCode('Français'), 'fr');
+      expect(LanguageDetector.normalizeLanguageCode('Deutsch'), 'de');
+      expect(LanguageDetector.normalizeLanguageCode('Italiano'), 'it');
+      expect(LanguageDetector.normalizeLanguageCode('Português'), 'pt');
+    });
+
+    test('detectLanguage accurately distinguishes Korean, Japanese, Chinese, and Latin languages', () {
+      expect(
+        LanguageDetector.detectLanguage(
+          '안녕하세요, 지하철역이 어디에 있나요? (10.00 USD)',
+          candidateA: 'en',
+          candidateB: 'ko',
+        ),
+        'ko',
+      );
+      expect(
+        LanguageDetector.detectLanguage(
+          'Excuse me, where is the subway station?',
+          candidateA: 'en',
+          candidateB: 'ko',
+        ),
+        'en',
+      );
+      expect(
+        LanguageDetector.detectLanguage(
+          '駅はどこですか？',
+          candidateA: 'en',
+          candidateB: 'ja',
+        ),
+        'ja',
+      );
+      expect(
+        LanguageDetector.detectLanguage(
+          '请问地铁站在哪里？',
+          candidateA: 'en',
+          candidateB: 'zh',
+        ),
+        'zh',
+      );
+      expect(
+        LanguageDetector.detectLanguage(
+          '¿Dónde está la estación de tren?',
+          candidateA: 'en',
+          candidateB: 'es',
+        ),
+        'es',
+      );
+      expect(
+        LanguageDetector.detectLanguage(
+          'Wo ist der Bahnhof bitte?',
+          candidateA: 'en',
+          candidateB: 'de',
+        ),
+        'de',
+      );
+      expect(
+        LanguageDetector.detectLanguage(
+          'Où est la gare, merci beaucoup',
+          candidateA: 'en',
+          candidateB: 'fr',
+        ),
+        'fr',
+      );
+    });
+
+    test('analyzeTranslation resolves direction accurately even when LLM mislabels detected_language', () {
+      // 1. Host spoke English -> translated into Korean, but LLM mislabeled detected_language as "ko"
+      final hostAnalysis = LanguageDetector.analyzeTranslation(
+        result: const TranslationResult(
+          sourceLanguage: 'ko',
+          originalText: 'Where is the bathroom?',
+          translatedText: '화장실이 어디에 있나요?',
+        ),
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+      );
+      expect(hostAnalysis.isBaseLanguage, isTrue);
+      expect(hostAnalysis.resolvedSourceCode, 'en');
+      expect(hostAnalysis.targetOutputCode, 'ko');
+      expect(hostAnalysis.needsFallbackTranslation, isFalse);
+
+      // 2. Guest spoke Korean -> translated into English, but LLM copied "en" from schema
+      final guestAnalysis = LanguageDetector.analyzeTranslation(
+        result: const TranslationResult(
+          sourceLanguage: 'en',
+          originalText: '화장실은 저쪽에 있어요',
+          translatedText: 'The bathroom is over there',
+        ),
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+      );
+      expect(guestAnalysis.isBaseLanguage, isFalse);
+      expect(guestAnalysis.resolvedSourceCode, 'ko');
+      expect(guestAnalysis.targetOutputCode, 'en');
+      expect(guestAnalysis.needsFallbackTranslation, isFalse);
+    });
+
+    test('analyzeTranslation flags untranslated English echo when Host speaks English', () {
+      final echoedEnglish = LanguageDetector.analyzeTranslation(
+        result: const TranslationResult(
+          sourceLanguage: 'en',
+          originalText: 'How much does this cost?',
+          translatedText: 'How much does this cost?',
+        ),
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+      );
+      expect(echoedEnglish.needsFallbackTranslation, isTrue);
+      expect(echoedEnglish.isBaseLanguage, isTrue);
+      expect(echoedEnglish.resolvedSourceCode, 'en');
+      expect(echoedEnglish.targetOutputCode, 'ko');
+      expect(echoedEnglish.sourceTextForFallback, 'How much does this cost?');
+
+      // Also when originalText is omitted and translatedText is in English
+      final omittedOriginalEcho = LanguageDetector.analyzeTranslation(
+        result: const TranslationResult(
+          sourceLanguage: 'en',
+          translatedText: 'Hello, can you help me please?',
+        ),
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+      );
+      expect(omittedOriginalEcho.needsFallbackTranslation, isTrue);
+      expect(omittedOriginalEcho.isBaseLanguage, isTrue);
+      expect(omittedOriginalEcho.targetOutputCode, 'ko');
+    });
+
+    test('translateAudioChunk automatically runs text fallback when audio pass echoes English', () async {
+      var textFallbackCalled = false;
+      String? capturedFallbackPrompt;
+
+      final modelManager = ModelManager(initialInstalled: true);
+      final engine = LocalTranslationEngine(
+        modelManager: modelManager,
+        // Simulate the bug where the audio pass prints English instead of translating to Korean
+        inferenceRunner: ({required wavBytes, required systemPrompt}) async {
+          return '{"detected_language": "en", "original_transcript": "Where is the station?", "translated_text": "Where is the station?"}';
+        },
+        textInferenceRunner: ({required prompt, required systemPrompt}) async {
+          textFallbackCalled = true;
+          capturedFallbackPrompt = prompt;
+          return '역이 어디에 있나요?';
+        },
+      );
+
+      final streamedPartials = <TranslationResult>[];
+      final result = await engine.translateAudioChunk(
+        audioWavChunk: Float32List.fromList(<double>[0.2, -0.2, 0.3]),
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+        exchangeRate: 0.0007,
+        baseCurrency: 'USD',
+        targetCurrency: 'KRW',
+        onPartialResult: streamedPartials.add,
+      );
+
+      expect(textFallbackCalled, isTrue);
+      expect(capturedFallbackPrompt, contains('Where is the station?'));
+      expect(capturedFallbackPrompt, contains('Korean'));
+      expect(result.sourceLanguage, 'en');
+      expect(result.originalText, 'Where is the station?');
+      expect(result.translatedText, '역이 어디에 있나요?');
+      // Verify the untranslated English echo was never streamed to onPartialResult
+      expect(
+        streamedPartials.map((p) => p.translatedText),
+        isNot(contains('Where is the station?')),
+      );
+      expect(streamedPartials.last.translatedText, '역이 어디에 있나요?');
+
+      await engine.dispose();
+      await modelManager.close();
+    });
+
+    test('translateAudioChunk streams partial translated tokens in real time', () async {
+      final modelManager = ModelManager(initialInstalled: true);
+      final engine = LocalTranslationEngine(
+        modelManager: modelManager,
+        streamingInferenceRunner:
+            ({
+              required wavBytes,
+              required systemPrompt,
+              required userPrompt,
+            }) async* {
+              yield '{"original_transcript": "Hello friend", ';
+              yield '"detected_language": "en", ';
+              yield '"translated_text": "안녕하';
+              yield '세요 친구';
+              yield '"}';
+            },
+      );
+
+      final partials = <TranslationResult>[];
+      final result = await engine.translateAudioChunk(
+        audioWavChunk: Float32List.fromList(<double>[0.25, -0.25]),
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+        exchangeRate: 0.0007,
+        baseCurrency: 'USD',
+        targetCurrency: 'KRW',
+        onPartialResult: partials.add,
+      );
+
+      expect(
+        partials.map((p) => p.translatedText).toList(),
+        <String>['안녕하', '안녕하세요 친구'],
+      );
+      expect(partials.every((p) => p.sourceLanguage == 'en'), isTrue);
+      expect(result.sourceLanguage, 'en');
+      expect(result.translatedText, '안녕하세요 친구');
+
+      await engine.dispose();
+      await modelManager.close();
+    });
+
+    test('trimTrailingSilence trims multi-second trailing silence down to 4000 samples', () {
+      final speech = List<double>.filled(8000, 0.25);
+      final silence = List<double>.filled(24000, 0.0); // 1.5s silence
+      final combined = Float32List.fromList(<double>[...speech, ...silence]);
+
+      final trimmed = LocalTranslationEngine.trimTrailingSilence(combined);
+      expect(trimmed.length, 8000 + 4000);
+    });
+
+    test('encodeAudioChunkInIsolate offloads silence trimming and WAV encoding to a background isolate', () async {
+      final speech = List<double>.filled(8000, 0.25);
+      final silence = List<double>.filled(16000, 0.0);
+      final samples = Float32List.fromList(<double>[...speech, ...silence]);
+
+      final (wavBytes, trimmedCount) =
+          await LocalTranslationEngine.encodeAudioChunkInIsolate(samples);
+      expect(trimmedCount, 8000 + 4000);
+      expect(wavBytes.length, 44 + trimmedCount * 2);
+    });
+
+    test('isNonSpeechOrHallucination detects empty strings, silence markers, meta-refusals, and milk hallucinations', () {
+      expect(
+        LocalTranslationEngine.isNonSpeechOrHallucination(
+          translatedText: '',
+        ),
+        isTrue,
+      );
+      expect(
+        LocalTranslationEngine.isNonSpeechOrHallucination(
+          translatedText: '[silence]',
+        ),
+        isTrue,
+      );
+      expect(
+        LocalTranslationEngine.isNonSpeechOrHallucination(
+          translatedText: 'There was no audio file, please provide an audio file.',
+        ),
+        isTrue,
+      );
+      expect(
+        LocalTranslationEngine.isNonSpeechOrHallucination(
+          originalText: 'There is no speech in this audio clip.',
+          translatedText: '이 오디오 클립에는 음성이 없습니다.',
+        ),
+        isTrue,
+      );
+      expect(
+        LocalTranslationEngine.isNonSpeechOrHallucination(
+          originalText: 'I am going to the store to buy some milk.',
+          translatedText: '나는 우유를 사러 가게에 간다.',
+        ),
+        isTrue,
+      );
+      expect(
+        LocalTranslationEngine.isNonSpeechOrHallucination(
+          translatedText: 'I am going to the store to buy some milk',
+        ),
+        isTrue,
+      );
+      expect(
+        LocalTranslationEngine.isNonSpeechOrHallucination(
+          originalText: 'Where is the nearest subway station?',
+          translatedText: '가장 가까운 지하철역이 어디인가요?',
+        ),
+        isFalse,
+      );
+    });
+
+    test('translateAudioChunk suppresses pause hallucinations and missing-audio refusals without streaming or fallback', () async {
+      var textFallbackCalled = false;
+      var nextModelOutput =
+          '{"detected_language": "en", "original_transcript": "", "translated_text": ""}';
+
+      final modelManager = ModelManager(initialInstalled: true);
+      final engine = LocalTranslationEngine(
+        modelManager: modelManager,
+        inferenceRunner: ({required wavBytes, required systemPrompt}) async =>
+            nextModelOutput,
+        textInferenceRunner: ({required prompt, required systemPrompt}) async {
+          textFallbackCalled = true;
+          return 'Fallback should not run';
+        },
+      );
+
+      final partials = <TranslationResult>[];
+
+      // 1. Explicit empty JSON for conversational pause
+      final emptyPauseResult = await engine.translateAudioChunk(
+        audioWavChunk: Float32List.fromList(<double>[0.1, -0.1]),
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+        exchangeRate: 0.0007,
+        baseCurrency: 'USD',
+        targetCurrency: 'KRW',
+        onPartialResult: partials.add,
+      );
+      expect(emptyPauseResult.translatedText, isEmpty);
+      expect(partials, isEmpty);
+      expect(textFallbackCalled, isFalse);
+
+      // 2. Classic audio-encoder silence hallucination ("I am going to the store to buy some milk")
+      nextModelOutput =
+          '{"detected_language": "en", "original_transcript": "I am going to the store to buy some milk.", "translated_text": "저는 우유를 사러 가게에 갑니다."}';
+      final milkHallucinationResult = await engine.translateAudioChunk(
+        audioWavChunk: Float32List.fromList(<double>[0.1, -0.1]),
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+        exchangeRate: 0.0007,
+        baseCurrency: 'USD',
+        targetCurrency: 'KRW',
+        onPartialResult: partials.add,
+      );
+      expect(milkHallucinationResult.translatedText, isEmpty);
+      expect(partials, isEmpty);
+      expect(textFallbackCalled, isFalse);
+
+      // 3. Meta-refusal ("There was no audio file, please provide an audio file.")
+      nextModelOutput = 'There was no audio file, please provide an audio file.';
+      final noAudioRefusalResult = await engine.translateAudioChunk(
+        audioWavChunk: Float32List.fromList(<double>[0.1, -0.1]),
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+        exchangeRate: 0.0007,
+        baseCurrency: 'USD',
+        targetCurrency: 'KRW',
+        onPartialResult: partials.add,
+      );
+      expect(noAudioRefusalResult.translatedText, isEmpty);
+      expect(partials, isEmpty);
+      expect(textFallbackCalled, isFalse);
+
+      await engine.dispose();
+      await modelManager.close();
     });
   });
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show FrameTiming;
 
 import 'package:bloc_signals_flutter/bloc_signals_flutter.dart';
 import 'package:flow_ui/flow_ui.dart';
@@ -7,6 +8,7 @@ import 'package:kaisel/kaisel.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
+import 'package:translation_app/core/data/models/message.dart';
 import 'package:translation_app/core/logging/app_logger.dart';
 import 'package:translation_app/core/routing/routing.dart';
 import 'package:translation_app/core/theme/tokens.dart';
@@ -32,6 +34,20 @@ class ActiveChatView extends StatefulWidget {
   final ActiveConversationBloc? conversationBloc;
   final SettingsBloc? settingsBloc;
 
+  /// Multiplies the user-selected [userMultiplier] (`0.5` to `3.0`) against the
+  /// ambient OS-level [osTextScaler] instead of overwriting it.
+  static TextScaler computeEffectiveTextScaler(
+    TextScaler osTextScaler,
+    double userMultiplier,
+  ) {
+    final clampedMultiplier = userMultiplier.clamp(
+      AppSettings.minTextScaleFactor,
+      AppSettings.maxTextScaleFactor,
+    );
+    final osScaleFactor = osTextScaler.scale(1.0);
+    return TextScaler.linear(osScaleFactor * clampedMultiplier);
+  }
+
   @override
   State<ActiveChatView> createState() => _ActiveChatViewState();
 }
@@ -43,40 +59,168 @@ class _ActiveChatViewState extends State<ActiveChatView> {
   late final SettingsBloc _settingsBloc;
   late final bool _ownsConversationBloc;
   final ScrollController _scrollController = ScrollController();
+  final Stopwatch _mountStopwatch = Stopwatch();
+  final List<FrameTiming> _transitionFrameTimings = <FrameTiming>[];
+
+  Animation<double>? _routeAnimation;
+  bool _didScheduleInitialize = false;
+  bool _didRunInitialize = false;
+  bool _isMonitoringFrames = false;
+  int _buildCount = 0;
 
   @override
   void initState() {
     super.initState();
+    _mountStopwatch.start();
+    final initSw = Stopwatch()..start();
     _log.info(
-      'ActiveChatView.initState(conversationId=${widget.conversationId}, '
+      '[PERF] ActiveChatView.initState START '
+      '(conversationId=${widget.conversationId}, '
       'autoStartListening=${widget.autoStartListening})',
     );
     _ownsConversationBloc = widget.conversationBloc == null;
     _conversationBloc =
         widget.conversationBloc ?? GetIt.I<ActiveConversationBloc>();
     _settingsBloc = widget.settingsBloc ?? GetIt.I<SettingsBloc>();
+    initSw.stop();
+    _log.info(
+      '[PERF] ActiveChatView.initState FINISH (${initSw.elapsedMicroseconds}us)',
+    );
+  }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didScheduleInitialize) return;
+    _didScheduleInitialize = true;
+
+    final animation = ModalRoute.of(context)?.animation;
+    _log.info(
+      '[PERF] ActiveChatView.didChangeDependencies '
+      '(elapsedSinceMount=${_mountStopwatch.elapsedMilliseconds}ms, '
+      'hasRouteAnimation=${animation != null}, '
+      'animationStatus=${animation?.status}, '
+      'animationValue=${animation?.value.toStringAsFixed(2)})',
+    );
+    if (animation != null && !animation.isCompleted) {
+      _log.info(
+        '[PERF] Deferring chat session initialization until page transition completes...',
+      );
+      _routeAnimation = animation;
+      _startFrameTimingMonitor();
+      animation.addStatusListener(_onRouteAnimationStatusChanged);
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _triggerInitializeIfNeeded();
+      });
+    }
+  }
+
+  void _startFrameTimingMonitor() {
+    if (_isMonitoringFrames) return;
+    _isMonitoringFrames = true;
+    _transitionFrameTimings.clear();
+    WidgetsBinding.instance.addTimingsCallback(_onFrameTimings);
+  }
+
+  void _stopFrameTimingMonitor() {
+    if (!_isMonitoringFrames) return;
+    _isMonitoringFrames = false;
+    WidgetsBinding.instance.removeTimingsCallback(_onFrameTimings);
+    if (_transitionFrameTimings.isEmpty) return;
+
+    var maxBuildUs = 0;
+    var maxRasterUs = 0;
+    var jankyCount = 0;
+    for (final timing in _transitionFrameTimings) {
+      final buildUs = timing.buildDuration.inMicroseconds;
+      final rasterUs = timing.rasterDuration.inMicroseconds;
+      if (buildUs > maxBuildUs) maxBuildUs = buildUs;
+      if (rasterUs > maxRasterUs) maxRasterUs = rasterUs;
+      if (timing.totalSpan.inMilliseconds > 16) {
+        jankyCount++;
+      }
+    }
+    _log.info(
+      '[PERF] ActiveChatView route transition frame summary: '
+      'frames=${_transitionFrameTimings.length}, '
+      'jankyFrames(>16ms)=$jankyCount, '
+      'maxBuild=${(maxBuildUs / 1000.0).toStringAsFixed(2)}ms, '
+      'maxRaster=${(maxRasterUs / 1000.0).toStringAsFixed(2)}ms',
+    );
+    _transitionFrameTimings.clear();
+  }
+
+  void _onFrameTimings(List<FrameTiming> timings) {
+    _transitionFrameTimings.addAll(timings);
+    for (final t in timings) {
+      if (t.totalSpan.inMilliseconds > 32) {
+        _log.warning(
+          '[PERF] Slow frame during ActiveChatView transition: '
+          'build=${(t.buildDuration.inMicroseconds / 1000.0).toStringAsFixed(2)}ms, '
+          'raster=${(t.rasterDuration.inMicroseconds / 1000.0).toStringAsFixed(2)}ms, '
+          'total=${(t.totalSpan.inMicroseconds / 1000.0).toStringAsFixed(2)}ms',
+        );
+      }
+    }
+  }
+
+  void _onRouteAnimationStatusChanged(AnimationStatus status) {
+    _log.info(
+      '[PERF] ActiveChatView route animation status -> $status '
+      '(elapsedSinceMount=${_mountStopwatch.elapsedMilliseconds}ms)',
+    );
+    if (status == AnimationStatus.completed ||
+        status == AnimationStatus.dismissed) {
+      _routeAnimation?.removeStatusListener(_onRouteAnimationStatusChanged);
+      _routeAnimation = null;
+      _stopFrameTimingMonitor();
+      if (status == AnimationStatus.completed) {
+        _triggerInitializeIfNeeded();
+      }
+    }
+  }
+
+  void _triggerInitializeIfNeeded() {
+    if (_didRunInitialize || !mounted) return;
+    _didRunInitialize = true;
+    _log.info(
+      '[PERF] ActiveChatView._triggerInitializeIfNeeded() START '
+      '(elapsedSinceMount=${_mountStopwatch.elapsedMilliseconds}ms)',
+    );
     unawaited(
-      _conversationBloc.initialize(
-        conversationId: widget.conversationId,
-        autoStartListening: widget.autoStartListening,
-      ),
+      _conversationBloc
+          .initialize(
+            conversationId: widget.conversationId,
+            autoStartListening: widget.autoStartListening,
+          )
+          .whenComplete(() {
+            _log.info(
+              '[PERF] ActiveChatView._triggerInitializeIfNeeded() FINISH '
+              '(elapsedSinceMount=${_mountStopwatch.elapsedMilliseconds}ms)',
+            );
+          }),
     );
   }
 
   @override
   void dispose() {
     _log.info('ActiveChatView.dispose()');
+    _stopFrameTimingMonitor();
+    _routeAnimation?.removeStatusListener(_onRouteAnimationStatusChanged);
+    _routeAnimation = null;
     _scrollController.dispose();
     if (_ownsConversationBloc) {
       unawaited(_conversationBloc.close());
+    } else {
+      unawaited(_conversationBloc.exitSession());
     }
     super.dispose();
   }
 
   Future<void> _handleBack() async {
     _log.info('ActiveChatView._handleBack() tapped.');
-    await _conversationBloc.stopListening();
+    await _conversationBloc.exitSession();
     if (!mounted) return;
     final scope = RouterScope.maybeOf<AppRoute>(context);
     if (scope != null) {
@@ -95,6 +239,13 @@ class _ActiveChatViewState extends State<ActiveChatView> {
     }
   }
 
+  Future<void> _handleDeleteConversation() async {
+    _log.info('ActiveChatView._handleDeleteConversation() tapped.');
+    final deleted = await _conversationBloc.deleteCurrentConversation();
+    if (!deleted || !mounted) return;
+    await _handleBack();
+  }
+
   void _openSettings() {
     _log.info('ActiveChatView._openSettings() tapped.');
     final scope = RouterScope.maybeOf<AppRoute>(context);
@@ -105,8 +256,127 @@ class _ActiveChatViewState extends State<ActiveChatView> {
     }
   }
 
+  Future<void> _showOriginalMessageModal(
+    BuildContext context, {
+    required Message message,
+    required String baseLanguageName,
+    required String targetLanguageName,
+    required String baseLanguageFlag,
+    required String targetLanguageFlag,
+  }) async {
+    final spokenLanguageName = message.isBaseLanguage
+        ? baseLanguageName
+        : targetLanguageName;
+    final spokenLanguageFlag = message.isBaseLanguage
+        ? baseLanguageFlag
+        : targetLanguageFlag;
+    final originalDisplay = message.originalText.trim().isNotEmpty
+        ? message.originalText.trim()
+        : message.translatedText.trim();
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        final colors = dialogContext.flowColors;
+        final typography = dialogContext.flowTypography;
+
+        return GestureDetector(
+          key: const ValueKey('original_message_modal_dismiss_area'),
+          behavior: HitTestBehavior.opaque,
+          onTap: () => Navigator.of(dialogContext).pop(),
+          child: Material(
+            type: MaterialType.transparency,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: Container(
+                    key: const ValueKey('original_message_modal'),
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: colors.surface,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: colors.outline),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.2),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              spokenLanguageFlag,
+                              style: typography.titleMedium,
+                            ),
+                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.record_voice_over_rounded,
+                              size: 18,
+                              color: colors.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Original ($spokenLanguageName)',
+                                style: typography.labelLarge.copyWith(
+                                  color: colors.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          originalDisplay,
+                          key: const ValueKey('original_message_modal_text'),
+                          style: typography.titleMedium.copyWith(
+                            color: colors.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          'Tap anywhere to close',
+                          style: typography.labelSmall.copyWith(
+                            color: colors.onSurfaceMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    _buildCount++;
+    if (_buildCount == 1) {
+      _log.info(
+        '[PERF] ActiveChatView first build() START '
+        '(elapsedSinceMount=${_mountStopwatch.elapsedMilliseconds}ms)',
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _log.info(
+          '[PERF] ActiveChatView first frame rendered '
+          '(elapsedSinceMount=${_mountStopwatch.elapsedMilliseconds}ms)',
+        );
+      });
+    }
     final colors = context.flowColors;
     final typography = context.flowTypography;
 
@@ -122,28 +392,57 @@ class _ActiveChatViewState extends State<ActiveChatView> {
         >(
           bloc: _conversationBloc,
           builder: (context, state) {
+            final messageById = <String, Message>{
+              for (final msg in state.messages) msg.id: msg,
+            };
+
             final flowMessages = <FlowMessageData>[
               for (final msg in state.messages)
                 FlowMessageData.text(
                   id: msg.id,
+                  // Host messages (isBaseLanguage == true, e.g. English translated
+                  // into Korean for a guest on the street) are placed on the LEFT
+                  // (FlowMessageRole.assistant, the "other party" position).
+                  // Guest messages (isBaseLanguage == false, e.g. Korean translated
+                  // into English for the host) are placed on the RIGHT
+                  // (FlowMessageRole.user, the "your own messages" position).
                   role: msg.isBaseLanguage
-                      ? FlowMessageRole.user
-                      : FlowMessageRole.assistant,
-                  // Per user specification, chat bubbles display ONLY translatedText.
-                  text: msg.translatedText,
+                      ? FlowMessageRole.assistant
+                      : FlowMessageRole.user,
+                  // Displays the post-processed annotated translation (falling
+                  // back to translatedText for legacy records).
+                  text: msg.effectiveTranslatedText,
                   timestamp: msg.timestamp,
                 ),
               if (state.isLoading)
-                const FlowMessageData(
-                  id: '__translating_pending__',
-                  role: FlowMessageRole.assistant,
-                  status: FlowMessageStatus.pending,
-                ),
+                if (state.streamingTranslatedText != null &&
+                    state.streamingTranslatedText!.isNotEmpty)
+                  FlowMessageData.text(
+                    id: '__translating_streaming__',
+                    role: (state.streamingIsBaseLanguage ?? true)
+                        ? FlowMessageRole.assistant
+                        : FlowMessageRole.user,
+                    text: state.streamingTranslatedText!,
+                  )
+                else
+                  const FlowMessageData(
+                    id: '__translating_pending__',
+                    role: FlowMessageRole.assistant,
+                    status: FlowMessageStatus.pending,
+                  ),
             ];
 
-            final baseName = AppSettings.languageNameFor(settings.baseLanguage);
+            final effectiveBaseLanguage =
+                state.conversation?.baseLanguage ?? settings.baseLanguage;
+            final effectiveTargetLanguage =
+                state.conversation?.targetLanguage ?? settings.targetLanguage;
+            final baseName = AppSettings.languageNameFor(effectiveBaseLanguage);
             final targetName = AppSettings.languageNameFor(
-              settings.targetLanguage,
+              effectiveTargetLanguage,
+            );
+            final baseFlag = AppSettings.languageFlagFor(effectiveBaseLanguage);
+            final targetFlag = AppSettings.languageFlagFor(
+              effectiveTargetLanguage,
             );
 
             return Scaffold(
@@ -179,6 +478,13 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                   ],
                 ),
                 actions: [
+                  if (state.conversation != null)
+                    IconButton(
+                      key: const ValueKey('chat_delete_conversation_button'),
+                      tooltip: 'Delete conversation',
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      onPressed: _handleDeleteConversation,
+                    ),
                   IconButton(
                     key: const ValueKey('chat_settings_button'),
                     tooltip: 'Settings',
@@ -277,34 +583,106 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                       ),
                     ),
                   Expanded(
-                    child: FlowChatView(
-                      empty: flowMessages.isEmpty,
-                      greeting: FlowGreeting(
-                        icon: state.isListening
-                            ? Icons.graphic_eq_rounded
-                            : Icons.mic_none_rounded,
-                        text: state.isListening
-                            ? 'Speak in $baseName or $targetName'
-                            : 'Tap Resume to translate',
-                        textStyle: typography.titleLarge.copyWith(
-                          color: colors.onSurface,
-                        ),
-                      ),
-                      threadController: _scrollController,
-                      thread: FlowThread(
-                        key: const ValueKey('active_flow_thread'),
-                        messages: flowMessages,
-                        controller: _scrollController,
-                        thinkingLabel: 'Translating…',
-                        markdown: false,
-                      ),
-                      composer: PulsingMicIndicator(
-                        key: const ValueKey('active_pulsing_mic_indicator'),
-                        isListening: state.isListening,
-                        isLoading: state.isLoading,
-                        amplitude: state.amplitude,
-                        onToggleListening: _conversationBloc.toggleListening,
-                      ),
+                    child: Builder(
+                      builder: (context) {
+                        final osMediaQuery = MediaQuery.of(context);
+                        final transcriptTextScaler =
+                            ActiveChatView.computeEffectiveTextScaler(
+                              osMediaQuery.textScaler,
+                              settings.textScaleFactor,
+                            );
+                        return FlowChatView(
+                          empty: flowMessages.isEmpty,
+                          greeting: FlowGreeting(
+                            icon: state.isListening
+                                ? Icons.graphic_eq_rounded
+                                : Icons.mic_none_rounded,
+                            text: state.isListening
+                                ? 'Speak in $baseName or $targetName'
+                                : 'Tap mic to translate',
+                            textStyle: typography.titleLarge.copyWith(
+                              color: colors.onSurface,
+                            ),
+                          ),
+                          threadController: _scrollController,
+                          thread: MediaQuery(
+                            key: const ValueKey('chat_transcript_media_query'),
+                            data: osMediaQuery.copyWith(
+                              textScaler: transcriptTextScaler,
+                            ),
+                            child: FlowThread(
+                              key: const ValueKey('active_flow_thread'),
+                              messages: flowMessages,
+                              controller: _scrollController,
+                              thinkingLabel: 'Translating…',
+                              markdown: false,
+                              messageBuilder: (context, flowMessage) {
+                                final domainMessage =
+                                    messageById[flowMessage.id];
+                                Widget? leadingBadge;
+                                if (domainMessage != null) {
+                                  final isBase = domainMessage.isBaseLanguage;
+                                  leadingBadge = _DetectedLanguageFlagBadge(
+                                    key: ValueKey(
+                                      'chat_message_flag_${domainMessage.id}',
+                                    ),
+                                    flagEmoji: isBase ? baseFlag : targetFlag,
+                                    languageName: isBase
+                                        ? baseName
+                                        : targetName,
+                                  );
+                                } else if (flowMessage.id ==
+                                    '__translating_streaming__') {
+                                  final isBase =
+                                      state.streamingIsBaseLanguage ?? true;
+                                  leadingBadge = _DetectedLanguageFlagBadge(
+                                    key: const ValueKey(
+                                      'chat_message_flag_streaming',
+                                    ),
+                                    flagEmoji: isBase ? baseFlag : targetFlag,
+                                    languageName: isBase
+                                        ? baseName
+                                        : targetName,
+                                  );
+                                }
+
+                                final bubble = FlowMessage(
+                                  flowMessage,
+                                  markdown: false,
+                                  thinkingLabel: 'Translating…',
+                                  leading: leadingBadge,
+                                );
+                                if (domainMessage == null) {
+                                  return bubble;
+                                }
+                                return GestureDetector(
+                                  key: ValueKey(
+                                    'chat_message_bubble_${domainMessage.id}',
+                                  ),
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () => _showOriginalMessageModal(
+                                    context,
+                                    message: domainMessage,
+                                    baseLanguageName: baseName,
+                                    targetLanguageName: targetName,
+                                    baseLanguageFlag: baseFlag,
+                                    targetLanguageFlag: targetFlag,
+                                  ),
+                                  child: bubble,
+                                );
+                              },
+                            ),
+                          ),
+                          composer: PulsingMicIndicator(
+                            key: const ValueKey('active_pulsing_mic_indicator'),
+                            isListening: state.isListening,
+                            isLoading: state.isLoading,
+                            amplitude: state.amplitude,
+                            onToggleListening:
+                                _conversationBloc.toggleListening,
+                          ),
+                        );
+                      },
                     ),
                   ),
                 ],
@@ -313,6 +691,49 @@ class _ActiveChatViewState extends State<ActiveChatView> {
           },
         );
       },
+    );
+  }
+}
+
+/// Circular flag badge displayed beside each chat message indicating the
+/// detected (spoken) source language of that utterance.
+class _DetectedLanguageFlagBadge extends StatelessWidget {
+  const _DetectedLanguageFlagBadge({
+    required this.flagEmoji,
+    required this.languageName,
+    super.key,
+  });
+
+  final String flagEmoji;
+  final String languageName;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.flowColors;
+    final typography = context.flowTypography;
+
+    return SelectionContainer.disabled(
+      child: Tooltip(
+        message: 'Detected language: $languageName',
+        child: Semantics(
+          label: 'Detected language: $languageName',
+          child: Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: colors.surfaceContainerLow,
+              shape: BoxShape.circle,
+              border: Border.all(color: colors.outline),
+            ),
+            child: Text(
+              flagEmoji,
+              textScaler: TextScaler.noScaling,
+              style: typography.bodyMedium.copyWith(height: 1),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

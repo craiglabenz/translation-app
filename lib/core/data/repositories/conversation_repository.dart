@@ -39,25 +39,82 @@ class ConversationRepository extends Repository<Conversation> {
 
   @override
   Future<void> performInitialization() async {
+    final sw = Stopwatch()..start();
+    _log.info('[PERF] ConversationRepository.performInitialization() START');
     await _messageRepository.ready;
     await super.performInitialization();
+    sw.stop();
+    _log.info(
+      '[PERF] ConversationRepository.performInitialization() FINISH '
+      '(${sw.elapsedMilliseconds}ms)',
+    );
+  }
+
+  /// Eagerly warms up both the conversation and message local sources (opening
+  /// all underlying Hive boxes on startup so the first chat thread transition
+  /// never pays disk box-open overhead).
+  Future<void> warmup() async {
+    final sw = Stopwatch()..start();
+    _log.info(
+      '[PERF] ConversationRepository.warmup() START '
+      '(opening conversations_box & messages_box)...',
+    );
+    await ready;
+    final convSw = Stopwatch()..start();
+    final conversations = await getItems(
+      details: RequestDetails.read(requestType: RequestType.allLocal),
+    );
+    convSw.stop();
+    _log.info(
+      '[PERF] ConversationRepository.warmup(): conversations_box opened & read '
+      '(${conversations.length} conversations in ${convSw.elapsedMilliseconds}ms)',
+    );
+
+    final msgSw = Stopwatch()..start();
+    final messages = await _messageRepository.getItems(
+      details: RequestDetails.read(requestType: RequestType.allLocal),
+    );
+    msgSw.stop();
+    sw.stop();
+    _log.info(
+      '[PERF] ConversationRepository.warmup() FINISH: messages_box opened & read '
+      '(${messages.length} messages in ${msgSw.elapsedMilliseconds}ms; '
+      'total warmup=${sw.elapsedMilliseconds}ms)',
+    );
   }
 
   /// Loads a single [Conversation] by [conversationId].
-  Future<Conversation?> getConversationById(String conversationId) {
-    return getById(
+  Future<Conversation?> getConversationById(String conversationId) async {
+    final sw = Stopwatch()..start();
+    _log.info(
+      '[PERF] ConversationRepository.getConversationById($conversationId) START',
+    );
+    final result = await getById(
       conversationId,
       details: RequestDetails.read(requestType: RequestType.local),
     );
+    sw.stop();
+    _log.info(
+      '[PERF] ConversationRepository.getConversationById($conversationId) FINISH '
+      '(${sw.elapsedMilliseconds}ms, found=${result != null})',
+    );
+    return result;
   }
 
   /// Returns all persisted conversations sorted newest-first.
   Future<List<Conversation>> getAllConversations() async {
+    final sw = Stopwatch()..start();
+    _log.info('[PERF] ConversationRepository.getAllConversations() START');
     final items = await getItems(
       details: RequestDetails.read(requestType: RequestType.allLocal),
     );
     final sorted = List<Conversation>.of(items)
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    sw.stop();
+    _log.info(
+      '[PERF] ConversationRepository.getAllConversations() FINISH '
+      '(${sw.elapsedMilliseconds}ms, count=${sorted.length})',
+    );
     return sorted;
   }
 
@@ -77,6 +134,10 @@ class ConversationRepository extends Repository<Conversation> {
     String previewText = '',
     String? id,
   }) async {
+    final sw = Stopwatch()..start();
+    _log.info(
+      '[PERF] ConversationRepository.createConversation($baseLanguage <-> $targetLanguage) START',
+    );
     final draft = Conversation(
       id: id ?? '',
       createdAt: getTime(),
@@ -89,8 +150,11 @@ class ConversationRepository extends Repository<Conversation> {
       details: RequestDetails.write(requestType: RequestType.local),
     );
     final result = saved ?? Conversation.bindings.save(draft);
+    sw.stop();
     _log.info(
-      'Created conversation id=${result.id} (${result.baseLanguage} <-> ${result.targetLanguage})',
+      '[PERF] ConversationRepository.createConversation FINISH '
+      '(${sw.elapsedMilliseconds}ms, id=${result.id}, '
+      '${result.baseLanguage} <-> ${result.targetLanguage})',
     );
     _notifyChanged();
     return result;
@@ -136,12 +200,22 @@ class ConversationRepository extends Repository<Conversation> {
   Future<List<Message>> getMessagesForConversation(
     String conversationId,
   ) async {
+    final sw = Stopwatch()..start();
+    _log.info(
+      '[PERF] ConversationRepository.getMessagesForConversation($conversationId) START',
+    );
     final allMessages = await _messageRepository.getItems(
       details: RequestDetails.read(requestType: RequestType.allLocal),
     );
     final matching =
         allMessages.where((m) => m.conversationId == conversationId).toList()
           ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    sw.stop();
+    _log.info(
+      '[PERF] ConversationRepository.getMessagesForConversation($conversationId) FINISH '
+      '(${sw.elapsedMilliseconds}ms, totalInBox=${allMessages.length}, '
+      'matching=${matching.length})',
+    );
     return matching;
   }
 

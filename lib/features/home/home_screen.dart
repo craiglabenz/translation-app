@@ -49,7 +49,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _conversationRepository =
         widget.conversationRepository ?? GetIt.I<ConversationRepository>();
 
-    unawaited(_settingsBloc.load());
+    Future<void>.microtask(() {
+      if (mounted && !_settingsBloc.isClosed) {
+        unawaited(_settingsBloc.load());
+      }
+    });
     unawaited(_loadRecentConversations());
     _conversationsSub = _conversationRepository.onConversationsChanged.listen((
       _,
@@ -88,6 +92,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _deleteConversation(String conversationId) async {
+    _log.info('HomeScreen deleting conversation id=$conversationId');
+    await _conversationRepository.deleteConversation(conversationId);
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.flowColors;
@@ -121,13 +130,18 @@ class _HomeScreenState extends State<HomeScreen> {
                           Expanded(
                             child: Align(
                               alignment: AlignmentDirectional.centerStart,
-                              child: FlowPill(
-                                key: const ValueKey('home_language_pill'),
-                                icon: Icons.translate_rounded,
-                                label: settings.pairLabel,
-                                showLabel: true,
-                                tooltip: 'Configure languages and currencies',
-                                onTap: () => _navigateTo(const SettingsRoute()),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: AlignmentDirectional.centerStart,
+                                child: FlowPill(
+                                  key: const ValueKey('home_language_pill'),
+                                  icon: Icons.translate_rounded,
+                                  label: settings.pairLabel,
+                                  showLabel: true,
+                                  tooltip: 'Configure languages and currencies',
+                                  onTap: () =>
+                                      _navigateTo(const SettingsRoute()),
+                                ),
                               ),
                             ),
                           ),
@@ -242,6 +256,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             autoStartListening: false,
                           ),
                         ),
+                        onDeleteConversation: _deleteConversation,
                         onSeeAll: () => _navigateTo(const HistoryRoute()),
                       ),
                     ],
@@ -350,11 +365,13 @@ class _RecentConversationsSection extends StatelessWidget {
   const _RecentConversationsSection({
     required this.conversations,
     required this.onSelectConversation,
+    required this.onDeleteConversation,
     required this.onSeeAll,
   });
 
   final List<Conversation> conversations;
   final ValueChanged<String> onSelectConversation;
+  final ValueChanged<String> onDeleteConversation;
   final VoidCallback onSeeAll;
 
   @override
@@ -389,11 +406,15 @@ class _RecentConversationsSection extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Recent Conversations',
-                style: typography.labelLarge.copyWith(
-                  color: colors.onSurface,
-                  fontWeight: FontWeight.w600,
+              Expanded(
+                child: Text(
+                  'Recent Conversations',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: typography.labelLarge.copyWith(
+                    color: colors.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               TextButton(
@@ -414,11 +435,46 @@ class _RecentConversationsSection extends StatelessWidget {
               ),
             )
           else
-            FlowThreadList.flat(
-              key: const ValueKey('home_recent_threads_list'),
-              items: threadItems,
-              shrinkWrap: true,
-              onThreadSelected: onSelectConversation,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: FlowThreadList.flat(
+                    key: const ValueKey('home_recent_threads_list'),
+                    items: threadItems,
+                    shrinkWrap: true,
+                    onThreadSelected: onSelectConversation,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var i = 0; i < conversations.length; i++)
+                      Padding(
+                        padding: EdgeInsets.only(top: i == 0 ? 0 : 2),
+                        child: SizedBox(
+                          width: 36,
+                          height: 36,
+                          child: IconButton(
+                            key: ValueKey(
+                              'home_delete_conv_${conversations[i].id}',
+                            ),
+                            padding: EdgeInsets.zero,
+                            tooltip: 'Delete conversation',
+                            icon: Icon(
+                              Icons.delete_outline_rounded,
+                              size: 18,
+                              color: colors.onSurfaceMuted,
+                            ),
+                            onPressed: () =>
+                                onDeleteConversation(conversations[i].id),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
             ),
         ],
       ),

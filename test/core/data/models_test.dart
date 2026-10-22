@@ -42,7 +42,45 @@ void main() {
         expect(lang.code, isNotEmpty);
         expect(lang.name, isNotEmpty);
         expect(lang.nativeName, isNotEmpty);
+        expect(lang.flagEmoji, isNot('🌐'));
       }
+      expect(AppSettings.languageFlagFor('en'), '🇺🇸');
+      expect(AppSettings.languageFlagFor('en-US'), '🇺🇸');
+      expect(AppSettings.languageFlagFor('English'), '🇺🇸');
+      expect(AppSettings.languageFlagFor('ko'), '🇰🇷');
+      expect(AppSettings.languageFlagFor('ko-KR'), '🇰🇷');
+      expect(AppSettings.languageFlagFor('Korean'), '🇰🇷');
+      expect(AppSettings.languageFlagFor('es'), '🇪🇸');
+      expect(AppSettings.languageFlagFor('ja'), '🇯🇵');
+      expect(AppSettings.languageFlagFor('zh'), '🇨🇳');
+
+      // Verify every supported language maps to a supported currency
+      final currencyCodes = AppSettings.supportedCurrencies
+          .map((c) => c.code)
+          .toSet();
+      for (final lang in AppSettings.supportedLanguages) {
+        expect(
+          currencyCodes,
+          contains(lang.defaultCurrencyCode),
+          reason: '${lang.code} should map to a valid SupportedCurrency',
+        );
+      }
+      expect(AppSettings.defaultCurrencyForLanguage('en'), 'USD');
+      expect(AppSettings.defaultCurrencyForLanguage('en-GB'), 'GBP');
+      expect(AppSettings.defaultCurrencyForLanguage('en-CA'), 'CAD');
+      expect(AppSettings.defaultCurrencyForLanguage('en-AU'), 'AUD');
+      expect(AppSettings.defaultCurrencyForLanguage('es'), 'EUR');
+      expect(AppSettings.defaultCurrencyForLanguage('es-MX'), 'MXN');
+      expect(AppSettings.defaultCurrencyForLanguage('fr'), 'EUR');
+      expect(AppSettings.defaultCurrencyForLanguage('fr-CH'), 'CHF');
+      expect(AppSettings.defaultCurrencyForLanguage('de'), 'EUR');
+      expect(AppSettings.defaultCurrencyForLanguage('it'), 'EUR');
+      expect(AppSettings.defaultCurrencyForLanguage('pt'), 'EUR');
+      expect(AppSettings.defaultCurrencyForLanguage('pt-BR'), 'BRL');
+      expect(AppSettings.defaultCurrencyForLanguage('ja'), 'JPY');
+      expect(AppSettings.defaultCurrencyForLanguage('ko'), 'KRW');
+      expect(AppSettings.defaultCurrencyForLanguage('zh'), 'CNY');
+      expect(AppSettings.defaultCurrencyForLanguage('unknown'), isNull);
     });
   });
 
@@ -293,6 +331,46 @@ void main() {
       final json = bindings.toJson(saved1);
       final restored = bindings.fromJson(json);
       expect(restored, equals(saved1));
+    });
+
+    test('stores 3 strings (originalText, translatedText, annotatedText) and resolves effectiveTranslatedText', () {
+      final timestamp = DateTime.utc(2026, 6, 1, 9, 10);
+      final msgWithAnnotation = Message(
+        id: 'msg_3_strings',
+        conversationId: 'conv_123',
+        timestamp: timestamp,
+        isBaseLanguage: true,
+        originalText: 'It costs 10 dollars at 6 PM.',
+        translatedText: 'Cuesta 10 dólares a las 6 PM.',
+        annotatedText: r'Cuesta 10 dólares (€9.20 EUR) a las 6 PM (18:00).',
+      );
+
+      expect(msgWithAnnotation.originalText, 'It costs 10 dollars at 6 PM.');
+      expect(msgWithAnnotation.translatedText, 'Cuesta 10 dólares a las 6 PM.');
+      expect(
+        msgWithAnnotation.annotatedText,
+        r'Cuesta 10 dólares (€9.20 EUR) a las 6 PM (18:00).',
+      );
+      expect(
+        msgWithAnnotation.effectiveTranslatedText,
+        r'Cuesta 10 dólares (€9.20 EUR) a las 6 PM (18:00).',
+      );
+
+      final json = msgWithAnnotation.toJson();
+      final restored = Message.fromJson(json);
+      expect(restored, equals(msgWithAnnotation));
+
+      // Legacy message without annotatedText falls back to translatedText
+      final legacyMsg = Message(
+        id: 'msg_legacy',
+        conversationId: 'conv_123',
+        timestamp: timestamp,
+        isBaseLanguage: false,
+        originalText: 'Hola',
+        translatedText: 'Hello',
+      );
+      expect(legacyMsg.annotatedText, isEmpty);
+      expect(legacyMsg.effectiveTranslatedText, 'Hello');
     });
   });
 

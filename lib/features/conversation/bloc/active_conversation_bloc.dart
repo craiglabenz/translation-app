@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:bloc_signals/bloc_signals.dart';
+import 'package:translation_app/core/ai/language_detector.dart';
+import 'package:translation_app/core/ai/local_translation_engine.dart';
+import 'package:translation_app/core/ai/translation_annotator.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/audio/audio_exceptions.dart';
 import 'package:translation_app/core/audio/native_audio_service.dart';
@@ -33,6 +36,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
 
   StreamSubscription<Float32List>? _speechChunkSub;
   StreamSubscription<double>? _amplitudeSub;
+  Future<bool>? _ongoingExitFuture;
 
   /// Initializes the session either for an existing [conversationId] or a new
   /// live translation session.
@@ -40,8 +44,10 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     String? conversationId,
     bool autoStartListening = true,
   }) async {
+    final sw = Stopwatch()..start();
     _log.info(
-      'initialize(conversationId=$conversationId, autoStartListening=$autoStartListening)',
+      '[PERF] ActiveConversationBloc.initialize START '
+      '(conversationId=$conversationId, autoStartListening=$autoStartListening)',
     );
     if (conversationId != null) {
       await loadConversation(
@@ -51,13 +57,21 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     } else if (autoStartListening) {
       await startNewSession();
     } else {
-      _log.info('initialize(): staying idle (no conversationId and autoStartListening=false).');
+      _log.info(
+        'initialize(): staying idle (no conversationId and autoStartListening=false).',
+      );
     }
+    sw.stop();
+    _log.info(
+      '[PERF] ActiveConversationBloc.initialize FINISH '
+      '(${sw.elapsedMilliseconds}ms, conversationId=$conversationId)',
+    );
   }
 
   /// Creates a fresh [Conversation] using current settings and starts listening.
   Future<void> startNewSession() async {
-    _log.info('startNewSession() called...');
+    final sw = Stopwatch()..start();
+    _log.info('[PERF] ActiveConversationBloc.startNewSession() START');
     emit(stateValue.copyWith(error: null));
     final settings = await _settingsRepository.getSettings();
     final conversation = await _conversationRepository.createConversation(
@@ -67,18 +81,25 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     if (isClosed) return;
 
     _log.info(
-      'Created new conversation id=${conversation.id} '
-      '(${conversation.baseLanguage} <-> ${conversation.targetLanguage}).',
+      '[PERF] startNewSession(): created conversation id=${conversation.id} '
+      'in ${sw.elapsedMilliseconds}ms (${conversation.baseLanguage} <-> ${conversation.targetLanguage}).',
     );
     emit(
       stateValue.copyWith(
         conversation: conversation,
         messages: const <Message>[],
+        streamingTranslatedText: null,
+        streamingIsBaseLanguage: null,
         error: null,
       ),
     );
 
     await startListening(conversation);
+    sw.stop();
+    _log.info(
+      '[PERF] ActiveConversationBloc.startNewSession() FINISH '
+      '(${sw.elapsedMilliseconds}ms)',
+    );
   }
 
   /// Loads an existing [Conversation] and its messages from local storage.
@@ -90,8 +111,10 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     String conversationId, {
     bool autoStartListening = false,
   }) async {
+    final sw = Stopwatch()..start();
     _log.info(
-      'loadConversation(conversationId=$conversationId, autoStartListening=$autoStartListening)',
+      '[PERF] ActiveConversationBloc.loadConversation START '
+      '(conversationId=$conversationId, autoStartListening=$autoStartListening)',
     );
     emit(stateValue.copyWith(error: null));
     try {
@@ -104,8 +127,9 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       if (isClosed) return;
 
       _log.info(
-        'Loaded conversation id=$conversationId: found=${conversation != null}, '
-        'messages=${messages.length}',
+        '[PERF] ActiveConversationBloc.loadConversation data fetched '
+        '(${sw.elapsedMilliseconds}ms, id=$conversationId, '
+        'found=${conversation != null}, messages=${messages.length})',
       );
       emit(
         stateValue.copyWith(
@@ -113,6 +137,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           messages: messages,
           isLoading: false,
           isListening: false,
+          streamingTranslatedText: null,
+          streamingIsBaseLanguage: null,
           error: conversation == null ? 'Conversation not found.' : null,
         ),
       );
@@ -120,8 +146,18 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       if (autoStartListening && conversation != null) {
         await startListening(conversation);
       }
+      sw.stop();
+      _log.info(
+        '[PERF] ActiveConversationBloc.loadConversation FINISH '
+        '(${sw.elapsedMilliseconds}ms, id=$conversationId)',
+      );
     } catch (e, st) {
-      _log.severe('Failed to load conversation $conversationId', e, st);
+      sw.stop();
+      _log.severe(
+        '[PERF] Failed to load conversation $conversationId (${sw.elapsedMilliseconds}ms)',
+        e,
+        st,
+      );
       if (isClosed) return;
       emit(
         stateValue.copyWith(
@@ -134,8 +170,10 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
 
   /// Starts or resumes microphone capture and VAD speech segmentation.
   Future<void> startListening([Conversation? targetConversation]) async {
+    final sw = Stopwatch()..start();
     _log.info(
-      'startListening() called (currentIsListening=${stateValue.isListening}, '
+      '[PERF] ActiveConversationBloc.startListening() START '
+      '(currentIsListening=${stateValue.isListening}, '
       'targetConversationId=${targetConversation?.id ?? stateValue.conversation?.id})',
     );
     var conversation = targetConversation ?? stateValue.conversation;
@@ -146,25 +184,40 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         targetLanguage: settings.targetLanguage,
       );
       if (isClosed) return;
-      _log.info('Auto-created conversation id=${conversation.id} for startListening().');
+      _log.info(
+        'Auto-created conversation id=${conversation.id} for startListening().',
+      );
       emit(stateValue.copyWith(conversation: conversation));
     }
 
     _ensureAudioSubscriptions();
 
     try {
-      _log.info('startListening(): starting NativeAudioService capture...');
+      final audioSw = Stopwatch()..start();
+      _log.info(
+        '[PERF] startListening(): NativeAudioService.startCapture() START...',
+      );
       await _audioService.startCapture();
+      audioSw.stop();
+      _log.info(
+        '[PERF] startListening(): NativeAudioService.startCapture() FINISH '
+        '(${audioSw.elapsedMilliseconds}ms)',
+      );
       if (isClosed) return;
 
       emit(stateValue.copyWith(isListening: true, error: null));
-      _log.info(
-        'startListening(): microphone capture active (isListening=true). '
-        'Initializing TranslationEngine...',
-      );
 
+      final engineSw = Stopwatch()..start();
+      _log.info(
+        '[PERF] startListening(): TranslationEngine.initialize() START...',
+      );
       await _translationEngine.initialize();
-      _log.info('startListening(): TranslationEngine initialized and ready.');
+      engineSw.stop();
+      sw.stop();
+      _log.info(
+        '[PERF] startListening(): TranslationEngine.initialize() FINISH '
+        '(${engineSw.elapsedMilliseconds}ms; total startListening=${sw.elapsedMilliseconds}ms)',
+      );
     } on MicrophonePermissionException catch (e, st) {
       _log.severe('MicrophonePermissionException in startListening()', e, st);
       await _audioService.stopCapture();
@@ -203,7 +256,9 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
 
   /// Pauses microphone capture and flushes any buffered speech.
   Future<void> stopListening() async {
-    _log.info('stopListening() called (isListening=${stateValue.isListening})...');
+    _log.info(
+      'stopListening() called (isListening=${stateValue.isListening})...',
+    );
     await _audioService.stopCapture();
     if (isClosed) return;
     emit(stateValue.copyWith(isListening: false, amplitude: 0.0));
@@ -240,6 +295,17 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       '(~${durationSec}s @ 16kHz, chunkRms=${rms.toStringAsFixed(4)})',
     );
 
+    if (audioChunk.length >= 4000 &&
+        !VadBuffer.hasMeaningfulSpeech(
+          audioChunk,
+          sampleRate: _audioService.vadBuffer.sampleRate,
+        )) {
+      _log.info(
+        'onAudioChunkReceived(): chunk contains only pause/silence or transient noise -> ignoring gracefully.',
+      );
+      return;
+    }
+
     var conversation = stateValue.conversation;
     final settings = await _settingsRepository.getSettings();
     if (conversation == null) {
@@ -254,6 +320,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       stateValue.copyWith(
         conversation: conversation,
         isLoading: true,
+        streamingTranslatedText: null,
+        streamingIsBaseLanguage: null,
         error: null,
       ),
     );
@@ -278,20 +346,68 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         exchangeRate: exchangeRate.rate,
         baseCurrency: settings.baseCurrency,
         targetCurrency: settings.targetCurrency,
+        onPartialResult: (partial) {
+          if (isClosed || !stateValue.isLoading) return;
+          final partialIsBase = _resolveIsBaseLanguage(
+            result: partial,
+            baseLanguageCode: settings.baseLanguage,
+            targetLanguageCode: settings.targetLanguage,
+          );
+          emit(
+            stateValue.copyWith(
+              streamingTranslatedText: partial.translatedText,
+              streamingIsBaseLanguage: partialIsBase,
+            ),
+          );
+        },
       );
       if (isClosed) return;
 
-      final isBaseLanguage = _matchesLanguage(
-        detectedLanguage: result.sourceLanguage,
-        languageCode: settings.baseLanguage,
-        languageName: AppSettings.languageNameFor(settings.baseLanguage),
+      if (result.translatedText.trim().isEmpty ||
+          LocalTranslationEngine.isNonSpeechOrHallucination(
+            originalText: result.originalText,
+            translatedText: result.translatedText,
+          )) {
+        _log.info(
+          'onAudioChunkReceived(): pause / no speech detected in turn '
+          '(original="${result.originalText}", translated="${result.translatedText}") '
+          '-> returning to listening state without adding a message.',
+        );
+        emit(
+          stateValue.copyWith(
+            isLoading: false,
+            streamingTranslatedText: null,
+            streamingIsBaseLanguage: null,
+            error: null,
+          ),
+        );
+        return;
+      }
+
+      final isBaseLanguage = _resolveIsBaseLanguage(
+        result: result,
+        baseLanguageCode: settings.baseLanguage,
+        targetLanguageCode: settings.targetLanguage,
+      );
+
+      final rawOriginal = result.originalText?.trim() ?? '';
+      final rawTranslated = result.translatedText.trim();
+      final annotatedText = TranslationAnnotator.annotate(
+        originalText: rawOriginal,
+        translatedText: rawTranslated,
+        exchangeRate: exchangeRate.rate,
+        baseCurrency: settings.baseCurrency,
+        targetCurrency: settings.targetCurrency,
+        isBaseLanguage: isBaseLanguage,
       );
 
       _log.info(
         'onAudioChunkReceived(): translation succeeded! '
-        'detectedSource="${result.sourceLanguage}" (isBaseLanguage=$isBaseLanguage), '
-        'originalText="${result.originalText}", '
-        'translatedText="${result.translatedText}"',
+        'detectedSource="${result.sourceLanguage}" (isBaseLanguage=$isBaseLanguage -> '
+        '${isBaseLanguage ? "Host/LEFT" : "Guest/RIGHT"}), '
+        'originalText="$rawOriginal", '
+        'translatedText="$rawTranslated", '
+        'annotatedText="$annotatedText"',
       );
 
       final draftMessage = Message(
@@ -299,8 +415,9 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         conversationId: conversation.id,
         timestamp: DateTime.now(),
         isBaseLanguage: isBaseLanguage,
-        originalText: result.originalText ?? '',
-        translatedText: result.translatedText,
+        originalText: rawOriginal,
+        translatedText: rawTranslated,
+        annotatedText: annotatedText,
       );
 
       final savedMessage = await _conversationRepository.saveMessage(
@@ -308,10 +425,12 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       );
       if (isClosed) return;
 
-      _log.info('Saved translated message id=${savedMessage.id} to local storage.');
+      _log.info(
+        'Saved translated message id=${savedMessage.id} to local storage.',
+      );
 
       final updatedConversation = conversation.copyWith(
-        previewText: result.translatedText,
+        previewText: annotatedText,
       );
       final updatedMessages = <Message>[...stateValue.messages, savedMessage];
 
@@ -320,6 +439,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           conversation: updatedConversation,
           messages: updatedMessages,
           isLoading: false,
+          streamingTranslatedText: null,
+          streamingIsBaseLanguage: null,
         ),
       );
     } catch (e, st) {
@@ -328,29 +449,101 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       emit(
         stateValue.copyWith(
           isLoading: false,
+          streamingTranslatedText: null,
+          streamingIsBaseLanguage: null,
           error: 'Translation failed: $e',
         ),
       );
     }
   }
 
-  /// Stops audio capture and cleans up active session resources.
-  Future<void> cancelSession() async {
-    _log.info('cancelSession() called.');
-    await _speechChunkSub?.cancel();
-    _speechChunkSub = null;
-    await _amplitudeSub?.cancel();
-    _amplitudeSub = null;
-    await _audioService.stopCapture();
+  /// Deletes the currently active or loaded conversation from local storage.
+  Future<bool> deleteCurrentConversation() async {
+    final currentConv = stateValue.conversation;
+    if (currentConv == null || currentConv.id.isEmpty) {
+      return false;
+    }
+    _log.info('deleteCurrentConversation(): deleting id=${currentConv.id}...');
+    await stopListening();
+    await _conversationRepository.deleteConversation(currentConv.id);
     if (!isClosed) {
       emit(
         stateValue.copyWith(
+          conversation: null,
+          messages: const <Message>[],
           isListening: false,
           isLoading: false,
           amplitude: 0.0,
+          streamingTranslatedText: null,
+          streamingIsBaseLanguage: null,
         ),
       );
     }
+    return true;
+  }
+
+  /// Stops audio capture, cleans up active session resources, and automatically
+  /// deletes the current [Conversation] if it still has no messages upon exit.
+  ///
+  /// Returns `true` if an empty conversation was deleted.
+  Future<bool> exitSession() {
+    final inFlight = _ongoingExitFuture;
+    if (inFlight != null) return inFlight;
+    final future = _performExitSession();
+    _ongoingExitFuture = future;
+    return future.whenComplete(() {
+      if (identical(_ongoingExitFuture, future)) {
+        _ongoingExitFuture = null;
+      }
+    });
+  }
+
+  Future<bool> _performExitSession() async {
+    _log.info('exitSession() called.');
+    final chunkSub = _speechChunkSub;
+    _speechChunkSub = null;
+    final ampSub = _amplitudeSub;
+    _amplitudeSub = null;
+    if (chunkSub != null) unawaited(chunkSub.cancel());
+    if (ampSub != null) unawaited(ampSub.cancel());
+    await _audioService.stopCapture();
+
+    final currentConv = stateValue.conversation;
+    var deletedEmpty = false;
+    if (currentConv != null &&
+        currentConv.id.isNotEmpty &&
+        stateValue.messages.isEmpty) {
+      final persistedMessages = await _conversationRepository
+          .getMessagesForConversation(currentConv.id);
+      if (persistedMessages.isEmpty) {
+        _log.info(
+          'exitSession(): conversation id=${currentConv.id} is empty (0 messages) -> automatically deleting upon exit.',
+        );
+        await _conversationRepository.deleteConversation(currentConv.id);
+        deletedEmpty = true;
+      }
+    }
+
+    if (!isClosed) {
+      emit(
+        stateValue.copyWith(
+          conversation: deletedEmpty ? null : currentConv,
+          isListening: false,
+          isLoading: false,
+          amplitude: 0.0,
+          streamingTranslatedText: null,
+          streamingIsBaseLanguage: null,
+        ),
+      );
+    }
+    return deletedEmpty;
+  }
+
+  /// Stops audio capture and cleans up active session resources, deleting the
+  /// conversation if it is still empty.
+  Future<void> cancelSession() async {
+    _log.info('cancelSession() called.');
+    await exitSession();
   }
 
   void _ensureAudioSubscriptions() {
@@ -382,6 +575,28 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     });
   }
 
+  bool _resolveIsBaseLanguage({
+    required TranslationResult result,
+    required String baseLanguageCode,
+    required String targetLanguageCode,
+  }) {
+    final analysis = LanguageDetector.analyzeTranslation(
+      result: result,
+      baseLanguage: baseLanguageCode,
+      targetLanguage: targetLanguageCode,
+    );
+    if (!analysis.needsFallbackTranslation &&
+        (analysis.detectedTranslatedCode != null ||
+            analysis.detectedOriginalCode != null)) {
+      return analysis.isBaseLanguage;
+    }
+    return _matchesLanguage(
+      detectedLanguage: result.sourceLanguage,
+      languageCode: baseLanguageCode,
+      languageName: AppSettings.languageNameFor(baseLanguageCode),
+    );
+  }
+
   bool _matchesLanguage({
     required String detectedLanguage,
     required String languageCode,
@@ -396,13 +611,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   @override
   Future<void> close() async {
     _log.info('Closing ActiveConversationBloc...');
-    final chunkSub = _speechChunkSub;
-    _speechChunkSub = null;
-    final ampSub = _amplitudeSub;
-    _amplitudeSub = null;
-    if (chunkSub != null) unawaited(chunkSub.cancel());
-    if (ampSub != null) unawaited(ampSub.cancel());
-    await _audioService.stopCapture();
+    await exitSession();
     return super.close();
   }
 }

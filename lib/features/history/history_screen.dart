@@ -160,43 +160,49 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(color: colors.outline),
                         ),
-                        child: FlowThreadList.flat(
-                          key: const ValueKey('history_thread_list'),
-                          items: threadItems,
-                          shrinkWrap: true,
-                          onThreadSelected: _openConversation,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      ..._conversations.map(
-                        (conv) => Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  '${AppSettings.languageNameFor(conv.baseLanguage)} ⇄ '
-                                  '${AppSettings.languageNameFor(conv.targetLanguage)} • '
-                                  '${conv.previewText.isEmpty ? "Empty thread" : conv.previewText}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: typography.labelSmall.copyWith(
-                                    color: colors.onSurfaceVariant,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: FlowThreadList.flat(
+                                key: const ValueKey('history_thread_list'),
+                                items: threadItems,
+                                shrinkWrap: true,
+                                onThreadSelected: _openConversation,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                for (var i = 0; i < _conversations.length; i++)
+                                  Padding(
+                                    padding: EdgeInsets.only(
+                                      top: i == 0 ? 0 : 2,
+                                    ),
+                                    child: SizedBox(
+                                      width: 36,
+                                      height: 36,
+                                      child: IconButton(
+                                        key: ValueKey(
+                                          'delete_conv_${_conversations[i].id}',
+                                        ),
+                                        padding: EdgeInsets.zero,
+                                        tooltip: 'Delete conversation',
+                                        icon: Icon(
+                                          Icons.delete_outline_rounded,
+                                          size: 18,
+                                          color: colors.onSurfaceMuted,
+                                        ),
+                                        onPressed: () => _deleteConversation(
+                                          _conversations[i].id,
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ),
-                              IconButton(
-                                key: ValueKey('delete_conv_${conv.id}'),
-                                tooltip: 'Delete conversation',
-                                icon: Icon(
-                                  Icons.delete_outline_rounded,
-                                  size: 18,
-                                  color: colors.onSurfaceMuted,
-                                ),
-                                onPressed: () => _deleteConversation(conv.id),
-                              ),
-                            ],
-                          ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
                     ],

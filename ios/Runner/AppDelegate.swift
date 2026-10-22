@@ -37,6 +37,10 @@ import UIKit
 final class NativeAudioCaptureController: NSObject, FlutterStreamHandler {
   private let controlChannel: FlutterMethodChannel
   private let streamChannel: FlutterEventChannel
+  private let audioQueue = DispatchQueue(
+    label: "com.translation_app.native_audio_queue",
+    qos: .userInitiated
+  )
   private var eventSink: FlutterEventSink?
   private var audioEngine: AVAudioEngine?
   private var isRunning = false
@@ -83,8 +87,12 @@ final class NativeAudioCaptureController: NSObject, FlutterStreamHandler {
       requestPermissionAndStart(targetSampleRate: Double(sampleRate), result: result)
     case "stop":
       NSLog("[NativeAudioCapture] 'stop' invoked.")
-      stopEngine()
-      result(nil)
+      audioQueue.async { [weak self] in
+        self?.stopEngine()
+        DispatchQueue.main.async {
+          result(nil)
+        }
+      }
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -95,10 +103,10 @@ final class NativeAudioCaptureController: NSObject, FlutterStreamHandler {
     result: @escaping FlutterResult
   ) {
     AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
-      DispatchQueue.main.async {
-        guard let self = self else { return }
-        if !granted {
-          NSLog("[NativeAudioCapture] Microphone permission DENIED.")
+      guard let self = self else { return }
+      if !granted {
+        NSLog("[NativeAudioCapture] Microphone permission DENIED.")
+        DispatchQueue.main.async {
           result(
             FlutterError(
               code: "PERMISSION_DENIED",
@@ -106,10 +114,16 @@ final class NativeAudioCaptureController: NSObject, FlutterStreamHandler {
               details: nil
             )
           )
-          return
         }
-        NSLog("[NativeAudioCapture] Microphone permission GRANTED. Starting AVAudioEngine...")
-        self.startEngine(targetSampleRate: targetSampleRate, result: result)
+        return
+      }
+      NSLog("[NativeAudioCapture] Microphone permission GRANTED. Starting AVAudioEngine on background queue...")
+      self.audioQueue.async { [weak self] in
+        self?.startEngine(targetSampleRate: targetSampleRate) { flutterOutcome in
+          DispatchQueue.main.async {
+            result(flutterOutcome)
+          }
+        }
       }
     }
   }

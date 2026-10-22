@@ -6,6 +6,7 @@ import 'package:translation_app/core/data/models/app_settings.dart';
 import 'package:translation_app/core/data/models/conversation.dart';
 import 'package:translation_app/core/data/models/exchange_rate_cache.dart';
 import 'package:translation_app/core/data/models/message.dart';
+import 'package:translation_app/core/logging/app_logger.dart';
 
 /// Initializes Hive and registers all domain [TypeAdapter]s.
 class AppHiveInitializer extends HiveInitializer {
@@ -14,6 +15,8 @@ class AppHiveInitializer extends HiveInitializer {
     this.storagePath,
   }) : _hive = hive ?? Hive;
 
+  static final _log = AppLogger.of('AppHiveInitializer');
+
   final HiveInterface _hive;
   final String? storagePath;
 
@@ -21,6 +24,11 @@ class AppHiveInitializer extends HiveInitializer {
 
   @override
   Future<void> performInitialization() async {
+    final sw = Stopwatch()..start();
+    _log.info(
+      '[PERF] AppHiveInitializer.performInitialization() START '
+      '(storagePath=${storagePath ?? "defaultFlutterDir"})',
+    );
     if (storagePath != null) {
       _hive.init(storagePath);
     } else {
@@ -36,6 +44,11 @@ class AppHiveInitializer extends HiveInitializer {
 
     registerAdapters(_hive);
     markReady(null);
+    sw.stop();
+    _log.info(
+      '[PERF] AppHiveInitializer.performInitialization() FINISH '
+      '(${sw.elapsedMilliseconds}ms)',
+    );
   }
 
   /// Registers all Hive adapters on [hive] idempotently.

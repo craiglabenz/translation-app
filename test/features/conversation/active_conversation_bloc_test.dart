@@ -32,6 +32,8 @@ class _ConfigurableTranslationEngine implements TranslationEngine {
     }
   }
 
+  List<TranslationResult> partialResultsToEmit = const <TranslationResult>[];
+
   @override
   Future<TranslationResult> translateAudioChunk({
     required Float32List audioWavChunk,
@@ -40,9 +42,13 @@ class _ConfigurableTranslationEngine implements TranslationEngine {
     required double exchangeRate,
     required String baseCurrency,
     required String targetCurrency,
+    void Function(TranslationResult partialResult)? onPartialResult,
   }) async {
     if (translateError != null) {
       throw translateError!;
+    }
+    for (final partial in partialResultsToEmit) {
+      onPartialResult?.call(partial);
     }
     return nextResult;
   }
@@ -380,6 +386,221 @@ void main() {
       await bloc.cancelSession();
       expect(bloc.stateValue.isListening, isFalse);
       expect(bloc.stateValue.amplitude, 0.0);
+    });
+
+    test('emits streamingTranslatedText and streamingIsBaseLanguage during live translation', () async {
+      await settingsRepo.saveSettings(
+        const AppSettings(
+          baseLanguage: 'en',
+          targetLanguage: 'ko',
+          baseCurrency: 'USD',
+          targetCurrency: 'KRW',
+        ),
+      );
+      await bloc.startNewSession();
+
+      fakeEngine.partialResultsToEmit = const <TranslationResult>[
+        TranslationResult(
+          sourceLanguage: 'en',
+          originalText: 'Where is the subway?',
+          translatedText: '지하철이',
+        ),
+        TranslationResult(
+          sourceLanguage: 'en',
+          originalText: 'Where is the subway?',
+          translatedText: '지하철이 어디에 있나요?',
+        ),
+      ];
+      fakeEngine.nextResult = const TranslationResult(
+        sourceLanguage: 'en',
+        originalText: 'Where is the subway?',
+        translatedText: '지하철이 어디에 있나요?',
+      );
+
+      final observedStreamingTexts = <String?>[];
+      final observedStreamingRoles = <bool?>[];
+      final unsub = bloc.state.subscribe((s) {
+        if (s.streamingTranslatedText != null) {
+          observedStreamingTexts.add(s.streamingTranslatedText);
+          observedStreamingRoles.add(s.streamingIsBaseLanguage);
+        }
+      });
+
+      await bloc.onAudioChunkReceived(
+        Float32List.fromList(<double>[0.2, -0.2, 0.3]),
+      );
+      unsub();
+
+      expect(
+        observedStreamingTexts,
+        <String?>['지하철이', '지하철이 어디에 있나요?'],
+      );
+      expect(observedStreamingRoles, <bool?>[true, true]);
+      // Cleared once final message is saved
+      expect(bloc.stateValue.streamingTranslatedText, isNull);
+      expect(bloc.stateValue.streamingIsBaseLanguage, isNull);
+      expect(bloc.stateValue.messages.single.isBaseLanguage, isTrue);
+      expect(
+        bloc.stateValue.messages.single.translatedText,
+        '지하철이 어디에 있나요?',
+      );
+    });
+
+    test('accurately classifies Host (en->ko) vs Guest (ko->en) even if sourceLanguage was mislabeled', () async {
+      await settingsRepo.saveSettings(
+        const AppSettings(
+          baseLanguage: 'en',
+          targetLanguage: 'ko',
+          baseCurrency: 'USD',
+          targetCurrency: 'KRW',
+        ),
+      );
+      await bloc.startNewSession();
+
+      // 1. Guest spoke Korean, translated to English, but LLM mislabeled sourceLanguage as 'en'
+      fakeEngine.nextResult = const TranslationResult(
+        sourceLanguage: 'en',
+        originalText: '안녕하세요',
+        translatedText: 'Hello there, how are you?',
+      );
+      await bloc.onAudioChunkReceived(Float32List.fromList(<double>[0.25]));
+      expect(bloc.stateValue.messages.last.isBaseLanguage, isFalse);
+
+      // 2. Host spoke English, translated to Korean, but LLM mislabeled sourceLanguage as 'ko'
+      fakeEngine.nextResult = const TranslationResult(
+        sourceLanguage: 'ko',
+        originalText: 'Thank you very much',
+        translatedText: '정말 감사합니다',
+      );
+      await bloc.onAudioChunkReceived(Float32List.fromList(<double>[0.25]));
+      expect(bloc.stateValue.messages.last.isBaseLanguage, isTrue);
+    });
+
+    test('populates all 3 strings (originalText, translatedText, annotatedText) and avoids redundant annotations', () async {
+      await settingsRepo.saveSettings(
+        const AppSettings(
+          baseLanguage: 'en',
+          targetLanguage: 'es',
+          baseCurrency: 'USD',
+          targetCurrency: 'EUR',
+        ),
+      );
+      await bloc.startNewSession();
+
+      // 1. Model missed price and time conversion -> post-processor populates annotatedText
+      fakeEngine.nextResult = const TranslationResult(
+        sourceLanguage: 'en',
+        originalText: r'Dinner is $20 at 7 PM.',
+        translatedText: r'La cena cuesta $20 a las 7 PM.',
+      );
+      await bloc.onAudioChunkReceived(Float32List.fromList(<double>[0.25]));
+
+      final msg1 = bloc.stateValue.messages.last;
+      expect(msg1.originalText, r'Dinner is $20 at 7 PM.');
+      expect(msg1.translatedText, r'La cena cuesta $20 a las 7 PM.');
+      expect(
+        msg1.annotatedText,
+        r'La cena cuesta $20 (€20.00 EUR) a las 7 PM (19:00).',
+      );
+      expect(bloc.stateValue.conversation?.previewText, msg1.annotatedText);
+
+      // 2. Model already annotated price and time -> post-processor does not add redundant annotation
+      fakeEngine.nextResult = const TranslationResult(
+        sourceLanguage: 'en',
+        originalText: r'Dinner is $20 at 7 PM.',
+        translatedText: r'La cena cuesta $20 (€18.40 EUR) a las 19:00 (7PM).',
+      );
+      await bloc.onAudioChunkReceived(Float32List.fromList(<double>[0.25]));
+
+      final msg2 = bloc.stateValue.messages.last;
+      expect(
+        msg2.translatedText,
+        r'La cena cuesta $20 (€18.40 EUR) a las 19:00 (7PM).',
+      );
+      expect(msg2.annotatedText, msg2.translatedText);
+    });
+
+    test('deleteCurrentConversation stops listening and removes conversation from repository', () async {
+      await bloc.startNewSession();
+      final convId = bloc.stateValue.conversation!.id;
+      expect(await conversationRepo.getConversationById(convId), isNotNull);
+
+      final deleted = await bloc.deleteCurrentConversation();
+      expect(deleted, isTrue);
+      expect(bloc.stateValue.conversation, isNull);
+      expect(bloc.stateValue.messages, isEmpty);
+      expect(bloc.stateValue.isListening, isFalse);
+      expect(await conversationRepo.getConversationById(convId), isNull);
+    });
+
+    test('onAudioChunkReceived gracefully ignores silent pauses and hallucinated turns without saving messages or setting errors', () async {
+      await bloc.startNewSession();
+
+      // 1. A full-length silent audio chunk (1 second at 16kHz of pure silence) is ignored before inference
+      await bloc.onAudioChunkReceived(Float32List(16000));
+      expect(bloc.stateValue.messages, isEmpty);
+      expect(bloc.stateValue.isLoading, isFalse);
+      expect(bloc.stateValue.error, isNull);
+
+      // 2. Engine returns empty translation for a conversational pause
+      fakeEngine.nextResult = const TranslationResult(
+        sourceLanguage: 'en',
+        originalText: '',
+        translatedText: '',
+      );
+      await bloc.onAudioChunkReceived(Float32List.fromList(<double>[0.25, -0.25]));
+      expect(bloc.stateValue.messages, isEmpty);
+      expect(bloc.stateValue.isLoading, isFalse);
+      expect(bloc.stateValue.error, isNull);
+
+      // 3. Engine returns "There was no audio file, please provide an audio file."
+      fakeEngine.nextResult = const TranslationResult(
+        sourceLanguage: 'en',
+        originalText: 'There was no audio file, please provide an audio file.',
+        translatedText: 'There was no audio file, please provide an audio file.',
+      );
+      await bloc.onAudioChunkReceived(Float32List.fromList(<double>[0.25, -0.25]));
+      expect(bloc.stateValue.messages, isEmpty);
+      expect(bloc.stateValue.isLoading, isFalse);
+      expect(bloc.stateValue.error, isNull);
+
+      // 4. Engine returns "I am going to the store to buy some milk"
+      fakeEngine.nextResult = const TranslationResult(
+        sourceLanguage: 'en',
+        originalText: 'I am going to the store to buy some milk.',
+        translatedText: 'Voy a la tienda a comprar leche.',
+      );
+      await bloc.onAudioChunkReceived(Float32List.fromList(<double>[0.25, -0.25]));
+      expect(bloc.stateValue.messages, isEmpty);
+      expect(bloc.stateValue.isLoading, isFalse);
+      expect(bloc.stateValue.error, isNull);
+    });
+
+    test('exitSession automatically deletes conversation if it is still empty and preserves non-empty conversations', () async {
+      // 1. Start a new session and exit without adding any messages -> deleted automatically
+      await bloc.startNewSession();
+      final emptyConvId = bloc.stateValue.conversation!.id;
+      expect(await conversationRepo.getConversationById(emptyConvId), isNotNull);
+
+      final deletedEmpty = await bloc.exitSession();
+      expect(deletedEmpty, isTrue);
+      expect(bloc.stateValue.conversation, isNull);
+      expect(bloc.stateValue.isListening, isFalse);
+      expect(await conversationRepo.getConversationById(emptyConvId), isNull);
+
+      // 2. Start a new session, speak 1 message, and exit -> preserved in storage
+      await bloc.startNewSession();
+      final nonEmptyConvId = bloc.stateValue.conversation!.id;
+      await bloc.onAudioChunkReceived(
+        Float32List.fromList(<double>[0.25, -0.25, 0.3]),
+      );
+      expect(bloc.stateValue.messages, hasLength(1));
+
+      final deletedNonEmpty = await bloc.exitSession();
+      expect(deletedNonEmpty, isFalse);
+      expect(bloc.stateValue.conversation?.id, nonEmptyConvId);
+      expect(bloc.stateValue.isListening, isFalse);
+      expect(await conversationRepo.getConversationById(nonEmptyConvId), isNotNull);
     });
   });
 }

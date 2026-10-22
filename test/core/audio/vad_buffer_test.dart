@@ -262,6 +262,65 @@ void main() {
       await sub.cancel();
       await vad.dispose();
     });
+
+    test('minSpeechDuration discards brief transient clicks or breaths during pauses', () async {
+      final vad = VadBuffer(
+        sampleRate: 1000,
+        silenceCutoff: const Duration(seconds: 2),
+        maxChunkDuration: const Duration(seconds: 15),
+        minSpeechDuration: const Duration(milliseconds: 350),
+        silenceThreshold: 0.02,
+      );
+
+      final streamChunks = <Float32List>[];
+      final sub = vad.onChunkReady.listen(streamChunks.add);
+
+      // 50ms mic pop / breath (50 samples @ 0.25 < 350 required speech samples)
+      // followed by 2.5s of silence
+      final transientAndSilence = Float32List.fromList(<double>[
+        ...List<double>.filled(50, 0.25),
+        ...List<double>.filled(2500, 0.0),
+      ]);
+
+      final emitted = vad.addSamples(transientAndSilence);
+      expect(emitted, isEmpty);
+      expect(vad.bufferedSampleCount, 0);
+      expect(vad.hasDetectedSpeech, isFalse);
+
+      // Now 500ms of real speech (>= 350ms) followed by 2s of silence -> emitted!
+      final realSpeechAndSilence = Float32List.fromList(<double>[
+        ...List<double>.filled(500, 0.25),
+        ...List<double>.filled(2000, 0.0),
+      ]);
+      final realEmitted = vad.addSamples(realSpeechAndSilence);
+      expect(realEmitted, hasLength(1));
+      expect(realEmitted.first.length, 2500);
+
+      await Future<void>.delayed(Duration.zero);
+      expect(streamChunks, hasLength(1));
+      await sub.cancel();
+      await vad.dispose();
+    });
+
+    test('VadBuffer.hasMeaningfulSpeech rejects silence and short clicks in full-length buffers', () {
+      // 1 second of pure silence at 16kHz -> false
+      final oneSecSilence = Float32List(16000);
+      expect(VadBuffer.hasMeaningfulSpeech(oneSecSilence), isFalse);
+
+      // 1 second buffer with only a 50ms transient click (800 samples) -> false (< 350ms)
+      final clickInSilence = Float32List(16000);
+      for (var i = 0; i < 800; i++) {
+        clickInSilence[i] = 0.25;
+      }
+      expect(VadBuffer.hasMeaningfulSpeech(clickInSilence), isFalse);
+
+      // 1 second buffer with 500ms of speech (8000 samples) -> true (>= 350ms)
+      final validSpeech = Float32List(16000);
+      for (var i = 0; i < 8000; i++) {
+        validSpeech[i] = 0.25;
+      }
+      expect(VadBuffer.hasMeaningfulSpeech(validSpeech), isTrue);
+    });
   });
 
   group('NativeAudioService', () {

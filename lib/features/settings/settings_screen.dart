@@ -277,117 +277,179 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // On-Device AI Model Management Card
-                    BlocSignalBuilder<ModelManager, ModelDownloadState>(
-                      bloc: _settingsBloc.modelManager,
-                      builder: (context, modelState) {
-                        return _SectionCard(
-                          title: 'On-Device AI Model (Gemma 4 E2B)',
-                          subtitle:
-                              'Powered by flutter_edge_ai & LiteRT-LM (~1.6 GB).',
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    modelState.isInstalled
-                                        ? Icons.check_circle_rounded
-                                        : Icons.cloud_download_outlined,
-                                    color: modelState.isInstalled
-                                        ? AppTokens.listeningAccent
-                                        : colors.primary,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
+                      // On-Device AI Model Management Card
+                      BlocSignalBuilder<ModelManager, ModelDownloadState>(
+                        bloc: _settingsBloc.modelManager,
+                        builder: (context, modelState) {
+                          return _SectionCard(
+                            title: 'On-Device AI Model (Gemma 4 E2B)',
+                            subtitle:
+                                'Powered by flutter_edge_ai & LiteRT-LM (~1.6 GB).',
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
                                       modelState.isInstalled
-                                          ? 'Installed & Ready (${modelState.modelId})'
-                                          : modelState.isDownloading
-                                          ? 'Downloading (${(modelState.progress * 100).toStringAsFixed(0)}%)…'
-                                          : 'Not installed on device',
-                                      style: typography.labelLarge.copyWith(
-                                        color: colors.onSurface,
-                                      ),
+                                          ? Icons.check_circle_rounded
+                                          : Icons.cloud_download_outlined,
+                                      color: modelState.isInstalled
+                                          ? AppTokens.listeningAccent
+                                          : colors.primary,
                                     ),
-                                  ),
-                                  if (modelState.isDownloading)
-                                    OutlinedButton(
-                                      onPressed: _settingsBloc
-                                          .modelManager
-                                          .cancelDownload,
-                                      child: const Text('Cancel'),
-                                    )
-                                  else if (modelState.isInstalled)
-                                    TextButton(
-                                      onPressed: _settingsBloc
-                                          .modelManager
-                                          .markUninstalled,
-                                      child: const Text('Re-download'),
-                                    )
-                                  else
-                                    FilledButton.icon(
-                                      key: const ValueKey(
-                                        'settings_download_model_button',
-                                      ),
-                                      onPressed: _settingsBloc.downloadModel,
-                                      icon: const Icon(
-                                        Icons.download_rounded,
-                                        size: 18,
-                                      ),
-                                      label: const Text('Download Model'),
-                                    ),
-                                ],
-                              ),
-                              if (modelState.isDownloading) ...[
-                                const SizedBox(height: 12),
-                                LinearProgressIndicator(
-                                  value: modelState.progress > 0
-                                      ? modelState.progress
-                                      : null,
-                                ),
-                              ],
-                              if (modelState.error != null) ...[
-                                const SizedBox(height: 8),
-                                Text(
-                                  modelState.error!,
-                                  style: typography.bodySmall.copyWith(
-                                    color: AppTokens.errorRed,
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 12),
-                              TextField(
-                                key: const ValueKey('model_url_text_field'),
-                                controller: _urlController,
-                                decoration: InputDecoration(
-                                  labelText: 'Model Download URL Override',
-                                  helperText:
-                                      'Default: Hugging Face (${AppSettings.defaultHuggingFaceRepo})',
-                                  border: const OutlineInputBorder(),
-                                  suffixIcon: IconButton(
-                                    tooltip: 'Save URL',
-                                    icon: const Icon(Icons.save_outlined),
-                                    onPressed: () {
-                                      unawaited(
-                                        _settingsBloc.updateModelDownloadUrl(
-                                          _urlController.text,
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        modelState.isInstalled
+                                            ? 'Installed & Ready (${modelState.modelId})'
+                                            : modelState.isDownloading
+                                            ? 'Downloading (${(modelState.progress * 100).toStringAsFixed(0)}%)…'
+                                            : 'Not installed on device',
+                                        style: typography.labelLarge.copyWith(
+                                          color: colors.onSurface,
                                         ),
-                                      );
-                                    },
+                                      ),
+                                    ),
+                                    if (modelState.isDownloading)
+                                      OutlinedButton(
+                                        onPressed: _settingsBloc
+                                            .modelManager
+                                            .cancelDownload,
+                                        child: const Text('Cancel'),
+                                      )
+                                    else if (modelState.isInstalled)
+                                      TextButton(
+                                        onPressed: _settingsBloc
+                                            .modelManager
+                                            .markUninstalled,
+                                        child: const Text('Re-download'),
+                                      )
+                                    else
+                                      FilledButton.icon(
+                                        key: const ValueKey(
+                                          'settings_download_model_button',
+                                        ),
+                                        onPressed: _settingsBloc.downloadModel,
+                                        icon: const Icon(
+                                          Icons.download_rounded,
+                                          size: 18,
+                                        ),
+                                        label: const Text('Download Model'),
+                                      ),
+                                  ],
+                                ),
+                                if (modelState.isDownloading) ...[
+                                  const SizedBox(height: 12),
+                                  LinearProgressIndicator(
+                                    value: modelState.progress > 0
+                                        ? modelState.progress
+                                        : null,
+                                  ),
+                                ],
+                                if (modelState.error != null) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    modelState.error!,
+                                    style: typography.bodySmall.copyWith(
+                                      color: AppTokens.errorRed,
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 12),
+                                TextField(
+                                  key: const ValueKey('model_url_text_field'),
+                                  controller: _urlController,
+                                  decoration: InputDecoration(
+                                    labelText: 'Model Download URL Override',
+                                    helperText:
+                                        'Default: Hugging Face (${AppSettings.defaultHuggingFaceRepo})',
+                                    border: const OutlineInputBorder(),
+                                    suffixIcon: IconButton(
+                                      tooltip: 'Save URL',
+                                      icon: const Icon(Icons.save_outlined),
+                                      onPressed: () {
+                                        unawaited(
+                                          _settingsBloc.updateModelDownloadUrl(
+                                            _urlController.text,
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  onSubmitted: (value) {
+                                    unawaited(
+                                      _settingsBloc.updateModelDownloadUrl(
+                                        value,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Multiplicative Text Scaling Card
+                      _SectionCard(
+                        title: 'Text Scaling',
+                        subtitle:
+                            'Multiplies against your OS-level text size (0.5x – 3.0x, default 1.0x).',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Multiplier: ${settings.textScaleFactor.toStringAsFixed(1)}x',
+                                    key: const ValueKey(
+                                      'text_scale_value_label',
+                                    ),
+                                    style: typography.labelLarge.copyWith(
+                                      color: colors.onSurface,
+                                    ),
                                   ),
                                 ),
-                                onSubmitted: (value) {
-                                  unawaited(
-                                    _settingsBloc.updateModelDownloadUrl(value),
-                                  );
-                                },
+                                TextButton(
+                                  key: const ValueKey(
+                                    'text_scale_reset_button',
+                                  ),
+                                  onPressed: settings.textScaleFactor ==
+                                          AppSettings.defaultTextScaleFactor
+                                      ? null
+                                      : () => unawaited(
+                                            _settingsBloc.updateTextScaleFactor(
+                                              AppSettings.defaultTextScaleFactor,
+                                            ),
+                                          ),
+                                  child: const Text('Reset (1.0x)'),
+                                ),
+                              ],
+                            ),
+                            Slider(
+                              key: const ValueKey('text_scale_slider'),
+                              value: settings.textScaleFactor.clamp(
+                                AppSettings.minTextScaleFactor,
+                                AppSettings.maxTextScaleFactor,
                               ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                              min: AppSettings.minTextScaleFactor,
+                              max: AppSettings.maxTextScaleFactor,
+                              divisions: 25,
+                              label:
+                                  '${settings.textScaleFactor.toStringAsFixed(1)}x',
+                              onChanged: (value) {
+                                unawaited(
+                                  _settingsBloc.updateTextScaleFactor(value),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
               ),

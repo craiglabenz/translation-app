@@ -11,8 +11,9 @@ _Message _$MessageFromJson(Map<String, dynamic> json) => _Message(
   conversationId: json['conversationId'] as String,
   timestamp: DateTime.parse(json['timestamp'] as String),
   isBaseLanguage: json['isBaseLanguage'] as bool,
-  originalText: json['originalText'] as String,
-  translatedText: json['translatedText'] as String,
+  originalText: json['originalText'] as String? ?? '',
+  translatedText: json['translatedText'] as String? ?? '',
+  annotatedText: json['annotatedText'] as String? ?? '',
 );
 
 Map<String, dynamic> _$MessageToJson(_Message instance) => <String, dynamic>{
@@ -22,4 +23,5 @@ Map<String, dynamic> _$MessageToJson(_Message instance) => <String, dynamic>{
   'isBaseLanguage': instance.isBaseLanguage,
   'originalText': instance.originalText,
   'translatedText': instance.translatedText,
+  'annotatedText': instance.annotatedText,
 };

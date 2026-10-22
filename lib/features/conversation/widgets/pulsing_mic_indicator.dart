@@ -137,16 +137,6 @@ class PulsingMicIndicator extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          TextButton.icon(
-            key: const ValueKey('mic_action_text_button'),
-            onPressed: () => _handleTap('mic_action_text_button'),
-            icon: Icon(
-              isListening ? Icons.stop_circle_outlined : Icons.play_arrow_rounded,
-              size: 18,
-            ),
-            label: Text(isListening ? 'Pause' : 'Resume'),
-          ),
         ],
       ),
     );

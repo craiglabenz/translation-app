@@ -43,6 +43,9 @@ _AppSettings _$AppSettingsFromJson(Map<String, dynamic> json) => _AppSettings(
   modelDownloadUrl:
       json['modelDownloadUrl'] as String? ??
       AppSettings.defaultModelDownloadUrl,
+  textScaleFactor:
+      (json['textScaleFactor'] as num?)?.toDouble() ??
+      AppSettings.defaultTextScaleFactor,
 );
 
 Map<String, dynamic> _$AppSettingsToJson(_AppSettings instance) =>
@@ -53,4 +56,5 @@ Map<String, dynamic> _$AppSettingsToJson(_AppSettings instance) =>
       'baseCurrency': instance.baseCurrency,
       'targetCurrency': instance.targetCurrency,
       'modelDownloadUrl': instance.modelDownloadUrl,
+      'textScaleFactor': instance.textScaleFactor,
     };

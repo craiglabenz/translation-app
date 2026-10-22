@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:data_layer/data_layer.dart';
+import 'package:flow_ui/flow_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:material_ui/material_ui.dart';
@@ -37,6 +38,7 @@ class _StubTranslationEngine implements TranslationEngine {
     required double exchangeRate,
     required String baseCurrency,
     required String targetCurrency,
+    void Function(TranslationResult partialResult)? onPartialResult,
   }) async {
     return const TranslationResult(
       sourceLanguage: 'en',
@@ -106,7 +108,7 @@ void main() {
   });
 
   group('PulsingMicIndicator widget tests', () {
-    testWidgets('renders listening state and invokes callback on mic or Pause tap', (
+    testWidgets('renders listening state and invokes callback on mic avatar tap', (
       tester,
     ) async {
       var toggleCount = 0;
@@ -126,16 +128,15 @@ void main() {
         find.text('Pause for 3 seconds to translate • Tap mic to stop'),
         findsOneWidget,
       );
-      expect(find.text('Pause'), findsOneWidget);
+      expect(find.byKey(const ValueKey('mic_action_text_button')), findsNothing);
+      expect(find.text('Pause'), findsNothing);
+      expect(find.text('Resume'), findsNothing);
 
       await tester.tap(find.byKey(const ValueKey('mic_toggle_button')));
       expect(toggleCount, 1);
-
-      await tester.tap(find.byKey(const ValueKey('mic_action_text_button')));
-      expect(toggleCount, 2);
     });
 
-    testWidgets('renders paused state with Resume action', (tester) async {
+    testWidgets('renders paused state and toggles via microphone avatar', (tester) async {
       var toggleCount = 0;
       await tester.pumpWidget(
         _wrapWithTheme(
@@ -153,9 +154,10 @@ void main() {
         find.text('Tap the microphone to resume live translation in this thread'),
         findsOneWidget,
       );
-      expect(find.text('Resume'), findsOneWidget);
+      expect(find.byKey(const ValueKey('mic_action_text_button')), findsNothing);
+      expect(find.text('Resume'), findsNothing);
 
-      await tester.tap(find.byKey(const ValueKey('mic_action_text_button')));
+      await tester.tap(find.byKey(const ValueKey('mic_toggle_button')));
       expect(toggleCount, 1);
     });
 
@@ -385,20 +387,33 @@ void main() {
         expect(find.text('Should NOT appear in bubble'), findsNothing);
         expect(find.text('Tampoco debe aparecer'), findsNothing);
 
-        // Verify read-only state shows "Microphone paused" and "Resume" button
-        expect(find.text('Microphone paused'), findsOneWidget);
-        expect(find.text('Resume'), findsOneWidget);
+        // Verify bubble alignment / FlowMessageRole:
+        // - Host message (m1, isBaseLanguage: true, English translated to target language)
+        //   is placed on the LEFT (FlowMessageRole.assistant).
+        // - Guest message (m2, isBaseLanguage: false, target language translated to English)
+        //   is placed on the RIGHT (FlowMessageRole.user).
+        final threadWidget = tester.widget<FlowThread>(
+          find.byKey(const ValueKey('active_flow_thread')),
+        );
+        expect(threadWidget.messages, hasLength(2));
+        expect(threadWidget.messages[0].id, 'm1');
+        expect(threadWidget.messages[0].role, FlowMessageRole.assistant);
+        expect(threadWidget.messages[1].id, 'm2');
+        expect(threadWidget.messages[1].role, FlowMessageRole.user);
 
-        // Tap Resume to start listening in this historical conversation
-        await tester.tap(find.byKey(const ValueKey('mic_action_text_button')));
+        // Verify read-only state shows "Microphone paused" and no separate Resume button
+        expect(find.text('Microphone paused'), findsOneWidget);
+        expect(find.text('Resume'), findsNothing);
+
+        // Tap microphone avatar to start listening in this historical conversation
+        await tester.tap(find.byKey(const ValueKey('mic_toggle_button')));
         await tester.pumpAndSettle();
 
         expect(chatBloc.stateValue.isListening, isTrue);
         expect(find.text('Listening continuously'), findsOneWidget);
-        expect(find.text('Pause'), findsOneWidget);
 
-        // Tap Pause to pause listening again
-        await tester.tap(find.byKey(const ValueKey('mic_action_text_button')));
+        // Tap microphone avatar to pause listening again
+        await tester.tap(find.byKey(const ValueKey('mic_toggle_button')));
         await tester.pumpAndSettle();
         expect(chatBloc.stateValue.isListening, isFalse);
 
@@ -459,6 +474,78 @@ void main() {
       await chatBloc.close();
       await audioService.dispose();
     });
+
+    testWidgets(
+      'renders live streaming partial translation on left for Host and on right for Guest',
+      (tester) async {
+        configureDependencies();
+        final convRepo = GetIt.I<ConversationRepository>();
+        final settingsRepo = GetIt.I<SettingsRepository>();
+        final settingsBloc = GetIt.I<SettingsBloc>();
+        final audioService = NativeAudioService();
+        final chatBloc = ActiveConversationBloc(
+          conversationRepository: convRepo,
+          settingsRepository: settingsRepo,
+          translationEngine: _StubTranslationEngine(),
+          audioService: audioService,
+        );
+
+        final conv = await convRepo.createConversation(
+          baseLanguage: 'en',
+          targetLanguage: 'ko',
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light(),
+            home: ActiveChatView(
+              conversationId: conv.id,
+              autoStartListening: false,
+              conversationBloc: chatBloc,
+              settingsBloc: settingsBloc,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // 1. Emit in-progress Host streaming translation (English -> Korean on LEFT)
+        chatBloc.emit(
+          chatBloc.stateValue.copyWith(
+            isLoading: true,
+            streamingTranslatedText: '지하철역이 어디에…',
+            streamingIsBaseLanguage: true,
+          ),
+        );
+        await tester.pump();
+
+        expect(find.text('지하철역이 어디에…'), findsOneWidget);
+        var thread = tester.widget<FlowThread>(
+          find.byKey(const ValueKey('active_flow_thread')),
+        );
+        expect(thread.messages.single.id, '__translating_streaming__');
+        expect(thread.messages.single.role, FlowMessageRole.assistant);
+
+        // 2. Emit in-progress Guest streaming translation (Korean -> English on RIGHT)
+        chatBloc.emit(
+          chatBloc.stateValue.copyWith(
+            isLoading: true,
+            streamingTranslatedText: 'Go straight two blocks…',
+            streamingIsBaseLanguage: false,
+          ),
+        );
+        await tester.pump();
+
+        expect(find.text('Go straight two blocks…'), findsOneWidget);
+        thread = tester.widget<FlowThread>(
+          find.byKey(const ValueKey('active_flow_thread')),
+        );
+        expect(thread.messages.single.id, '__translating_streaming__');
+        expect(thread.messages.single.role, FlowMessageRole.user);
+
+        await chatBloc.close();
+        await audioService.dispose();
+      },
+    );
   });
 
   group('HistoryScreen widget tests', () {
@@ -654,33 +741,37 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Change Primary (Base) Language to French
+      // Change Primary (Base) Language to French -> also updates baseCurrency to EUR
       await tester.tap(find.byKey(const ValueKey('base_language_dropdown')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('French (Français)').last);
       await tester.pumpAndSettle();
       expect(settingsBloc.stateValue.settings.baseLanguage, 'fr');
+      expect(settingsBloc.stateValue.settings.baseCurrency, 'EUR');
 
-      // Change Target Language to Japanese
+      // Change Target Language to Japanese -> also updates targetCurrency to JPY
       await tester.tap(find.byKey(const ValueKey('target_language_dropdown')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Japanese (日本語)').last);
       await tester.pumpAndSettle();
       expect(settingsBloc.stateValue.settings.targetLanguage, 'ja');
+      expect(settingsBloc.stateValue.settings.targetCurrency, 'JPY');
 
-      // Change Primary Currency to GBP
+      // Change Primary Currency to GBP -> does NOT alter baseLanguage ('fr')
       await tester.tap(find.byKey(const ValueKey('base_currency_dropdown')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('GBP — British Pound (£)').last);
       await tester.pumpAndSettle();
       expect(settingsBloc.stateValue.settings.baseCurrency, 'GBP');
+      expect(settingsBloc.stateValue.settings.baseLanguage, 'fr');
 
-      // Change Target Currency to JPY
+      // Change Target Currency to CHF -> does NOT alter targetLanguage ('ja')
       await tester.tap(find.byKey(const ValueKey('target_currency_dropdown')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('JPY — Japanese Yen (¥)').last);
+      await tester.tap(find.text('CHF — Swiss Franc (CHF)').last);
       await tester.pumpAndSettle();
-      expect(settingsBloc.stateValue.settings.targetCurrency, 'JPY');
+      expect(settingsBloc.stateValue.settings.targetCurrency, 'CHF');
+      expect(settingsBloc.stateValue.settings.targetLanguage, 'ja');
     });
 
     testWidgets('HomeScreen model banner shows progress percentage and error message states', (
@@ -776,13 +867,396 @@ void main() {
         const ChatRoute(autoStartListening: true),
       );
 
-      // Tap Back button in ActiveChatView AppBar to return to HomeRoute
-      await tester.tap(find.byKey(const ValueKey('chat_back_button')));
-      await tester.pumpAndSettle();
-      expect(
-        GetIt.I<AppRouter>().config.router.stack.last,
-        const HomeRoute(),
-      );
-    });
+        // Tap Back button in ActiveChatView AppBar to return to HomeRoute
+        await tester.tap(find.byKey(const ValueKey('chat_back_button')));
+        await tester.pumpAndSettle();
+        expect(
+          GetIt.I<AppRouter>().config.router.stack.last,
+          const HomeRoute(),
+        );
+      },
+    );
+
+    testWidgets(
+      'tapping a message bubble shows modal with originalText and tapping anywhere dismisses it',
+      (tester) async {
+        configureDependencies();
+        final convRepo = GetIt.I<ConversationRepository>();
+        final settingsRepo = GetIt.I<SettingsRepository>();
+        final settingsBloc = GetIt.I<SettingsBloc>();
+        final audioService = NativeAudioService();
+        final chatBloc = ActiveConversationBloc(
+          conversationRepository: convRepo,
+          settingsRepository: settingsRepo,
+          translationEngine: _StubTranslationEngine(),
+          audioService: audioService,
+        );
+
+        final conv = await convRepo.createConversation(
+          baseLanguage: 'en',
+          targetLanguage: 'ko',
+        );
+        await convRepo.saveMessage(
+          Message(
+            id: 'msg_tap_1',
+            conversationId: conv.id,
+            timestamp: DateTime.utc(2026, 6, 1, 12),
+            isBaseLanguage: true,
+            originalText: 'How much is this souvenir?',
+            translatedText: '이 기념품은 얼마인가요?',
+            annotatedText: '이 기념품은 얼마인가요?',
+          ),
+        );
+        await convRepo.saveMessage(
+          Message(
+            id: 'msg_tap_2',
+            conversationId: conv.id,
+            timestamp: DateTime.utc(2026, 6, 1, 12, 1),
+            isBaseLanguage: false,
+            originalText: '15,000원입니다.',
+            translatedText: 'It is 15,000 won.',
+            annotatedText: r'It is 15,000 won ($10.87 USD).',
+          ),
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light(),
+            home: ActiveChatView(
+              conversationId: conv.id,
+              autoStartListening: false,
+              conversationBloc: chatBloc,
+              settingsBloc: settingsBloc,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Bubbles display annotatedText, NOT originalText
+        expect(find.text('이 기념품은 얼마인가요?'), findsOneWidget);
+        expect(find.text(r'It is 15,000 won ($10.87 USD).'), findsOneWidget);
+        expect(find.text('How much is this souvenir?'), findsNothing);
+
+        // 1. Tap the first message bubble -> modal opens showing originalText
+        await tester.tap(
+          find.byKey(const ValueKey('chat_message_bubble_msg_tap_1')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('original_message_modal')),
+          findsOneWidget,
+        );
+        expect(find.text('How much is this souvenir?'), findsOneWidget);
+
+        // Tap directly inside the modal card text -> hides the modal
+        await tester.tap(
+          find.byKey(const ValueKey('original_message_modal_text')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('original_message_modal')),
+          findsNothing,
+        );
+
+        // 2. Tap the second message bubble -> modal opens showing Korean originalText
+        await tester.tap(
+          find.byKey(const ValueKey('chat_message_bubble_msg_tap_2')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('15,000원입니다.'), findsOneWidget);
+
+        // Tap outside on the dismiss area -> hides the modal
+        await tester.tapAt(const Offset(10, 10));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('original_message_modal')),
+          findsNothing,
+        );
+
+        await chatBloc.close();
+        await audioService.dispose();
+      },
+    );
+
+    testWidgets(
+      'SettingsScreen text scaling slider updates multiplier and applies ONLY to chat transcripts',
+      (tester) async {
+        configureDependencies();
+        final convRepo = GetIt.I<ConversationRepository>();
+        final settingsBloc = GetIt.I<SettingsBloc>();
+        await settingsBloc.load();
+
+        final conv = await convRepo.createConversation(
+          id: 'conv_scale_1',
+          baseLanguage: 'en',
+          targetLanguage: 'ko',
+          previewText: '안녕하세요',
+        );
+        await convRepo.saveMessage(
+          Message(
+            id: 'msg_scale_1',
+            conversationId: conv.id,
+            timestamp: DateTime.utc(2026, 6, 1, 12),
+            isBaseLanguage: true,
+            originalText: 'Hello!',
+            translatedText: '안녕하세요!',
+          ),
+        );
+
+        // Verify multiplicative math: OS 1.25x * user 2.0x = 2.5x
+        const osScaler = TextScaler.linear(1.25);
+        final effective = ActiveChatView.computeEffectiveTextScaler(
+          osScaler,
+          2.0,
+        );
+        expect(effective.scale(10.0), closeTo(25.0, 1e-4));
+
+        // Verify default 1.0x preserves OS 1.25x exactly
+        final defaultEffective = ActiveChatView.computeEffectiveTextScaler(
+          osScaler,
+          1.0,
+        );
+        expect(defaultEffective.scale(10.0), closeTo(12.5, 1e-4));
+
+        await tester.pumpWidget(
+          MediaQuery(
+            data: const MediaQueryData(textScaler: TextScaler.linear(1.2)),
+            child: const MyApp(),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Update user text scale multiplier to 3.0x (max)
+        await settingsBloc.updateTextScaleFactor(3.0);
+        await tester.pumpAndSettle();
+
+        // 1. HomeScreen remains at OS textScaler (1.2x), unaffected by user multiplier
+        final homeContext = tester.element(
+          find.byKey(const ValueKey('home_language_pill')),
+        );
+        expect(
+          MediaQuery.of(homeContext).textScaler.scale(1.0),
+          closeTo(1.2, 1e-3),
+        );
+
+        // 2. Navigate to SettingsScreen at 3.0x multiplier -> remains at OS 1.2x with no overflow
+        await tester.tap(find.byKey(const ValueKey('home_language_pill')));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+
+        final settingsContext = tester.element(
+          find.byKey(const ValueKey('base_language_dropdown')),
+        );
+        expect(
+          MediaQuery.of(settingsContext).textScaler.scale(1.0),
+          closeTo(1.2, 1e-3),
+        );
+
+        // Return to HomeScreen and open the saved conversation in ActiveChatView
+        await tester.tap(find.byKey(const ValueKey('settings_back_button')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('안녕하세요!'));
+        await tester.pumpAndSettle();
+
+        // 3. Inside ActiveChatView, the control bar stays at OS 1.2x while ONLY the chat transcript scales to 1.2 * 3.0 = 3.6x
+        final composerContext = tester.element(
+          find.byKey(const ValueKey('active_pulsing_mic_indicator')),
+        );
+        expect(
+          MediaQuery.of(composerContext).textScaler.scale(1.0),
+          closeTo(1.2, 1e-3),
+        );
+
+        final transcriptBubbleContext = tester.element(
+          find.byKey(const ValueKey('chat_message_bubble_msg_scale_1')),
+        );
+        expect(
+          MediaQuery.of(transcriptBubbleContext).textScaler.scale(1.0),
+          closeTo(1.2 * 3.0, 1e-3),
+        );
+      },
+    );
+
+    testWidgets(
+      'supports deleting a past conversation from HomeScreen and ActiveChatView',
+      (tester) async {
+        configureDependencies();
+        final convRepo = GetIt.I<ConversationRepository>();
+        final c1 = await convRepo.createConversation(
+          id: 'conv_home_del_1',
+          baseLanguage: 'en',
+          targetLanguage: 'es',
+          previewText: 'Delete me from Home',
+        );
+        final c2 = await convRepo.createConversation(
+          id: 'conv_chat_del_2',
+          baseLanguage: 'en',
+          targetLanguage: 'es',
+          previewText: 'Delete me from Chat',
+        );
+
+        await tester.pumpWidget(const MyApp());
+        await tester.pumpAndSettle();
+
+        expect(find.text('Delete me from Home'), findsOneWidget);
+        expect(find.text('Delete me from Chat'), findsOneWidget);
+
+        // 1. Delete c1 directly from HomeScreen recent conversations
+        await tester.tap(
+          find.byKey(ValueKey('home_delete_conv_${c1.id}')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Delete me from Home'), findsNothing);
+        expect(await convRepo.getConversationById(c1.id), isNull);
+
+        // 2. Open c2 in ActiveChatView and delete it via AppBar delete button
+        await tester.tap(find.text('Delete me from Chat'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('chat_delete_conversation_button')),
+          findsOneWidget,
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('chat_delete_conversation_button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(await convRepo.getConversationById(c2.id), isNull);
+        expect(
+          GetIt.I<AppRouter>().config.router.stack.last,
+          const HomeRoute(),
+        );
+      },
+    );
+
+    testWidgets(
+      'ActiveChatView displays the detected source language flag by each message (e.g. American flag for English -> Korean, Korean flag for Korean -> English)',
+      (tester) async {
+        configureDependencies();
+        final convRepo = GetIt.I<ConversationRepository>();
+        final settingsRepo = GetIt.I<SettingsRepository>();
+        final settingsBloc = GetIt.I<SettingsBloc>();
+
+        await settingsRepo.saveSettings(
+          const AppSettings(
+            baseLanguage: 'en',
+            targetLanguage: 'ko',
+            baseCurrency: 'USD',
+            targetCurrency: 'KRW',
+          ),
+        );
+        await settingsBloc.load();
+
+        final conv = await convRepo.createConversation(
+          baseLanguage: 'en',
+          targetLanguage: 'ko',
+          previewText: '안녕하세요',
+        );
+        // 1. English message translated into Korean -> should show American flag (🇺🇸)
+        await convRepo.saveMessage(
+          Message(
+            id: 'msg_en_to_ko',
+            conversationId: conv.id,
+            timestamp: DateTime.utc(2026, 1, 1, 10),
+            isBaseLanguage: true,
+            originalText: 'Where is the subway station?',
+            translatedText: '지하철역이 어디에 있나요?',
+          ),
+        );
+        // 2. Korean message translated into English -> should show Korean flag (🇰🇷)
+        await convRepo.saveMessage(
+          Message(
+            id: 'msg_ko_to_en',
+            conversationId: conv.id,
+            timestamp: DateTime.utc(2026, 1, 1, 10, 1),
+            isBaseLanguage: false,
+            originalText: '저기 모퉁이를 돌면 있어요.',
+            translatedText: 'It is just around that corner.',
+          ),
+        );
+
+        final audioService = NativeAudioService();
+        final chatBloc = ActiveConversationBloc(
+          conversationRepository: convRepo,
+          settingsRepository: settingsRepo,
+          translationEngine: _StubTranslationEngine(),
+          audioService: audioService,
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light(),
+            home: ActiveChatView(
+              conversationId: conv.id,
+              autoStartListening: false,
+              conversationBloc: chatBloc,
+              settingsBloc: settingsBloc,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final enBadgeFinder = find.byKey(
+          const ValueKey('chat_message_flag_msg_en_to_ko'),
+        );
+        final koBadgeFinder = find.byKey(
+          const ValueKey('chat_message_flag_msg_ko_to_en'),
+        );
+
+        expect(enBadgeFinder, findsOneWidget);
+        expect(koBadgeFinder, findsOneWidget);
+
+        // Verify the English -> Korean message displays the American flag (🇺🇸)
+        expect(
+          find.descendant(of: enBadgeFinder, matching: find.text('🇺🇸')),
+          findsOneWidget,
+        );
+        // Verify the Korean -> English message displays the Korean flag (🇰🇷)
+        expect(
+          find.descendant(of: koBadgeFinder, matching: find.text('🇰🇷')),
+          findsOneWidget,
+        );
+
+        await chatBloc.close();
+        await audioService.dispose();
+      },
+    );
+
+    testWidgets(
+      'automatically deletes a new conversation if it is still empty upon exiting ActiveChatView',
+      (tester) async {
+        configureDependencies();
+        final convRepo = GetIt.I<ConversationRepository>();
+
+        await tester.pumpWidget(const MyApp());
+        await tester.pumpAndSettle();
+
+        expect(await convRepo.getAllConversations(), isEmpty);
+
+        // Tap RippleStartButton on HomeScreen to start a new live conversation
+        await tester.tap(find.byIcon(Icons.mic_rounded));
+        await tester.pumpAndSettle();
+
+        // While inside ActiveChatView, a draft Conversation record exists
+        final duringChat = await convRepo.getAllConversations();
+        expect(duringChat, hasLength(1));
+        final emptyConvId = duringChat.single.id;
+
+        // Exit ActiveChatView via back button without speaking any messages
+        await tester.tap(find.byKey(const ValueKey('chat_back_button')));
+        await tester.pumpAndSettle();
+
+        // Verify we returned to HomeRoute and the empty conversation was deleted
+        expect(
+          GetIt.I<AppRouter>().config.router.stack.last,
+          const HomeRoute(),
+        );
+        expect(await convRepo.getConversationById(emptyConvId), isNull);
+        expect(await convRepo.getAllConversations(), isEmpty);
+      },
+    );
   });
 }

@@ -18,18 +18,35 @@ class VadBuffer {
     this.silenceCutoff = const Duration(seconds: 3),
     this.maxChunkDuration = const Duration(seconds: 15),
     this.silenceThreshold = 0.015,
+    this.minSpeechDuration = Duration.zero,
   }) : assert(sampleRate > 0, 'sampleRate must be positive');
 
   static const int defaultSampleRate = 16000;
+
+  /// Responsive 1.6-second silence cutoff for live interactive conversation,
+  /// allowing natural mid-sentence breathing pauses without premature flushes.
+  static const Duration interactiveSilenceCutoff = Duration(milliseconds: 1600);
+
+  /// Minimum active speech duration required in live interactive mode so brief
+  /// clicks, taps, or breaths during a pause do not trigger hallucinated turns.
+  static const Duration interactiveMinSpeechDuration = Duration(
+    milliseconds: 350,
+  );
+
+  /// Slightly higher RMS threshold for live microphone capture to reject room hum.
+  static const double interactiveSilenceThreshold = 0.022;
+
   static final _log = AppLogger.of('VadBuffer');
 
   final int sampleRate;
   final Duration silenceCutoff;
   final Duration maxChunkDuration;
   final double silenceThreshold;
+  final Duration minSpeechDuration;
 
   final List<double> _buffer = <double>[];
   int _trailingSilenceSamples = 0;
+  int _activeSpeechSamples = 0;
   bool _hasDetectedSpeech = false;
 
   final StreamController<Float32List> _chunkController =
@@ -48,11 +65,19 @@ class VadBuffer {
       (sampleRate * silenceCutoff.inMicroseconds) ~/
       Duration.microsecondsPerSecond;
 
+  /// Minimum number of active speech samples required before a chunk is emitted.
+  int get minSpeechSamples =>
+      (sampleRate * minSpeechDuration.inMicroseconds) ~/
+      Duration.microsecondsPerSecond;
+
   /// Current number of buffered samples.
   int get bufferedSampleCount => _buffer.length;
 
   /// Current number of consecutive trailing silent samples.
   int get trailingSilenceSamples => _trailingSilenceSamples;
+
+  /// Current number of active speech samples accumulated in the buffer.
+  int get activeSpeechSamples => _activeSpeechSamples;
 
   /// True if speech has been detected in the current accumulation window.
   bool get hasDetectedSpeech => _hasDetectedSpeech;
@@ -66,6 +91,41 @@ class VadBuffer {
       sumSquares += s * s;
     }
     return math.sqrt(sumSquares / samples.length);
+  }
+
+  /// Returns `true` if [samples] contains enough above-threshold energy to
+  /// represent human speech rather than silence or a brief click.
+  static bool hasMeaningfulSpeech(
+    Float32List samples, {
+    double silenceThreshold = 0.015,
+    int sampleRate = defaultSampleRate,
+    Duration minSpeechDuration = const Duration(milliseconds: 250),
+  }) {
+    if (samples.isEmpty) return false;
+    final minWindowLength = sampleRate ~/ 4; // 250ms
+    if (samples.length < minWindowLength) {
+      return computeRms(samples) >= silenceThreshold;
+    }
+
+    final windowSize = math.max(1, sampleRate ~/ 50); // 20ms
+    final requiredActiveSamples = math.min(
+      samples.length ~/ 2,
+      (sampleRate * minSpeechDuration.inMicroseconds) ~/
+          Duration.microsecondsPerSecond,
+    );
+
+    var activeSamples = 0;
+    for (var start = 0; start < samples.length; start += windowSize) {
+      final end = math.min(start + windowSize, samples.length);
+      final view = Float32List.sublistView(samples, start, end);
+      if (computeRms(view) >= silenceThreshold) {
+        activeSamples += (end - start);
+        if (activeSamples >= requiredActiveSamples) {
+          return true;
+        }
+      }
+    }
+    return activeSamples >= requiredActiveSamples;
   }
 
   /// Feeds 16kHz mono [samples] into the VAD buffer and returns any chunks
@@ -95,8 +155,9 @@ class VadBuffer {
 
       for (var i = windowStart; i < windowEnd; i++) {
         final sample = samples[i];
-        final isSampleSilent =
-            isWindowSilent && sample.abs() < silenceThreshold;
+        final isSampleSilent = windowSize > 1
+            ? isWindowSilent
+            : (isWindowSilent && sample.abs() < silenceThreshold);
 
         if (!isSampleSilent) {
           if (!_hasDetectedSpeech) {
@@ -107,6 +168,7 @@ class VadBuffer {
           }
           _hasDetectedSpeech = true;
           _trailingSilenceSamples = 0;
+          _activeSpeechSamples++;
           _buffer.add(sample);
         } else if (_hasDetectedSpeech) {
           _buffer.add(sample);
@@ -120,9 +182,10 @@ class VadBuffer {
         if (_buffer.length >= maxSamples) {
           final durationSec = (_buffer.length / sampleRate).toStringAsFixed(2);
           _log.info(
-            'VAD hard ceiling reached (${_buffer.length} samples / ${durationSec}s) -> flushing chunk.',
+            'VAD hard ceiling reached (${_buffer.length} samples / ${durationSec}s, '
+            'activeSpeechSamples=$_activeSpeechSamples) -> flushing chunk.',
           );
-          final chunk = _drainBuffer();
+          final chunk = _drainBufferIfValid();
           if (chunk != null) {
             emitted.add(chunk);
           }
@@ -135,9 +198,10 @@ class VadBuffer {
           final durationSec = (_buffer.length / sampleRate).toStringAsFixed(2);
           _log.info(
             'VAD silence cutoff reached (trailingSilence=$_trailingSilenceSamples samples, '
-            'totalChunk=${_buffer.length} samples / ${durationSec}s) -> flushing chunk.',
+            'activeSpeechSamples=$_activeSpeechSamples, '
+            'totalChunk=${_buffer.length} samples / ${durationSec}s) -> evaluating chunk.',
           );
-          final chunk = _drainBuffer();
+          final chunk = _drainBufferIfValid();
           if (chunk != null) {
             emitted.add(chunk);
           }
@@ -152,6 +216,7 @@ class VadBuffer {
   Float32List? flush() {
     _log.info(
       'flush() called: hasDetectedSpeech=$_hasDetectedSpeech, '
+      'activeSpeechSamples=$_activeSpeechSamples, '
       'bufferedSamples=${_buffer.length} '
       '(${(_buffer.length / sampleRate).toStringAsFixed(2)}s)',
     );
@@ -159,18 +224,28 @@ class VadBuffer {
       reset();
       return null;
     }
-    return _drainBuffer();
+    return _drainBufferIfValid();
   }
 
   /// Resets the buffer without emitting a chunk.
   void reset() {
     _buffer.clear();
     _trailingSilenceSamples = 0;
+    _activeSpeechSamples = 0;
     _hasDetectedSpeech = false;
   }
 
-  Float32List? _drainBuffer() {
+  Float32List? _drainBufferIfValid() {
     if (_buffer.isEmpty) {
+      reset();
+      return null;
+    }
+    final requiredSpeech = minSpeechSamples;
+    if (requiredSpeech > 0 && _activeSpeechSamples < requiredSpeech) {
+      _log.info(
+        'Discarding transient noise during pause: activeSpeechSamples=$_activeSpeechSamples '
+        '< minSpeechSamples=$requiredSpeech (${minSpeechDuration.inMilliseconds}ms).',
+      );
       reset();
       return null;
     }

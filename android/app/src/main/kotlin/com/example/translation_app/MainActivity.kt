@@ -17,6 +17,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : FlutterActivity() {
@@ -28,6 +29,9 @@ class MainActivity : FlutterActivity() {
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val audioControlExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "NativeAudioControlExecutor").apply { isDaemon = true }
+    }
     private val isRecording = AtomicBoolean(false)
     private var eventSink: EventChannel.EventSink? = null
     private var audioRecord: AudioRecord? = null
@@ -84,8 +88,10 @@ class MainActivity : FlutterActivity() {
             }
             "stop" -> {
                 Log.i(TAG, "'stop' invoked")
-                stopAudioRecord()
-                result.success(null)
+                audioControlExecutor.execute {
+                    stopAudioRecord()
+                    mainHandler.post { result.success(null) }
+                }
             }
             else -> result.notImplemented()
         }
@@ -119,70 +125,74 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun startAudioRecord(sampleRate: Int, result: MethodChannel.Result) {
-        stopAudioRecord()
-        try {
-            val minBuffer = AudioRecord.getMinBufferSize(
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT
-            )
-            val bufferSize = maxOf(minBuffer, sampleRate / 10 * 2)
-            val recorder = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize
-            )
-
-            if (recorder.state != AudioRecord.STATE_INITIALIZED) {
-                recorder.release()
-                result.error(
-                    "AUDIO_RECORD_INIT_FAILED",
-                    "AudioRecord failed to initialize at ${sampleRate}Hz.",
-                    null
+        audioControlExecutor.execute {
+            stopAudioRecord()
+            try {
+                val minBuffer = AudioRecord.getMinBufferSize(
+                    sampleRate,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
                 )
-                return
-            }
+                val bufferSize = maxOf(minBuffer, sampleRate / 10 * 2)
+                val recorder = AudioRecord(
+                    MediaRecorder.AudioSource.MIC,
+                    sampleRate,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    bufferSize
+                )
 
-            audioRecord = recorder
-            isRecording.set(true)
-            recorder.startRecording()
+                if (recorder.state != AudioRecord.STATE_INITIALIZED) {
+                    recorder.release()
+                    mainHandler.post {
+                        result.error(
+                            "AUDIO_RECORD_INIT_FAILED",
+                            "AudioRecord failed to initialize at ${sampleRate}Hz.",
+                            null
+                        )
+                    }
+                    return@execute
+                }
 
-            recordingThread = Thread {
-                val frameSamples = 1024
-                val shortBuffer = ShortArray(frameSamples)
-                var frameCount = 0
-                while (isRecording.get()) {
-                    val read = recorder.read(shortBuffer, 0, frameSamples)
-                    if (read > 0) {
-                        val byteBuffer = ByteBuffer
-                            .allocate(read * 2)
-                            .order(ByteOrder.LITTLE_ENDIAN)
-                        for (i in 0 until read) {
-                            byteBuffer.putShort(shortBuffer[i])
-                        }
-                        val bytes = byteBuffer.array()
-                        frameCount++
-                        if (frameCount == 1 || frameCount % 50 == 0) {
-                            Log.d(TAG, "Streaming 16kHz PCM frame #$frameCount ($read samples)")
-                        }
-                        mainHandler.post {
-                            eventSink?.success(bytes)
+                audioRecord = recorder
+                isRecording.set(true)
+                recorder.startRecording()
+
+                recordingThread = Thread {
+                    val frameSamples = 1024
+                    val shortBuffer = ShortArray(frameSamples)
+                    var frameCount = 0
+                    while (isRecording.get()) {
+                        val read = recorder.read(shortBuffer, 0, frameSamples)
+                        if (read > 0) {
+                            val byteBuffer = ByteBuffer
+                                .allocate(read * 2)
+                                .order(ByteOrder.LITTLE_ENDIAN)
+                            for (i in 0 until read) {
+                                byteBuffer.putShort(shortBuffer[i])
+                            }
+                            val bytes = byteBuffer.array()
+                            frameCount++
+                            if (frameCount == 1 || frameCount % 50 == 0) {
+                                Log.d(TAG, "Streaming 16kHz PCM frame #$frameCount ($read samples)")
+                            }
+                            mainHandler.post {
+                                eventSink?.success(bytes)
+                            }
                         }
                     }
+                }.apply {
+                    name = "NativeAudioCaptureThread"
+                    start()
                 }
-            }.apply {
-                name = "NativeAudioCaptureThread"
-                start()
-            }
 
-            Log.i(TAG, "AudioRecord started successfully at ${sampleRate}Hz")
-            result.success(null)
-        } catch (e: SecurityException) {
-            result.error("PERMISSION_DENIED", e.message, null)
-        } catch (e: Exception) {
-            result.error("AUDIO_CAPTURE_ERROR", e.message, null)
+                Log.i(TAG, "AudioRecord started successfully at ${sampleRate}Hz")
+                mainHandler.post { result.success(null) }
+            } catch (e: SecurityException) {
+                mainHandler.post { result.error("PERMISSION_DENIED", e.message, null) }
+            } catch (e: Exception) {
+                mainHandler.post { result.error("AUDIO_CAPTURE_ERROR", e.message, null) }
+            }
         }
     }
 

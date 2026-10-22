@@ -15,6 +15,8 @@ abstract class ActiveConversationState with _$ActiveConversationState {
     @Default(false) bool isListening,
     @Default(false) bool isLoading,
     @Default(0.0) double amplitude,
+    String? streamingTranslatedText,
+    bool? streamingIsBaseLanguage,
     String? error,
   }) = _ActiveConversationState;
 
