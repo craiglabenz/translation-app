@@ -1,0 +1,38 @@
+name: CI — Analyze & Test
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze-and-test:
+    name: Dart Analyze & Flutter Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run dart analyze
+        run: ./scripts/test_and_analyze.sh --analyze-only --skip-pub-get
+
+      - name: Run all tests
+        run: ./scripts/test_and_analyze.sh --test-only --skip-pub-get

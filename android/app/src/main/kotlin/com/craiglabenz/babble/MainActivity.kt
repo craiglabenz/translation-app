@@ -1,4 +1,4 @@
-package com.example.translation_app
+package com.craiglabenz.babble
 
 import android.Manifest
 import android.content.pm.PackageManager

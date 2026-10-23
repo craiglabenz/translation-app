@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
-        android:label="translation_app"
+        android:label="Babble"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
