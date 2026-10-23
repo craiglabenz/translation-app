@@ -5,7 +5,15 @@ on:
     branches:
       - main
       - master
+    paths:
+      - "pubspec.yaml"
+      - "lib/**"
+      - "test/**"
   pull_request:
+    paths:
+      - "pubspec.yaml"
+      - "lib/**"
+      - "test/**"
   workflow_dispatch:
 
 concurrency:
