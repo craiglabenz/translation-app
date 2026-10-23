@@ -152,6 +152,34 @@ elif [[ -n "${RELEASE_NOTES}" ]]; then
   FIREBASE_CMD+=("--release-notes" "${RELEASE_NOTES}")
 fi
 
+# Auto-separate any email addresses (containing '@') accidentally set in
+# FIREBASE_GROUPS into TESTERS so '--groups' only receives group aliases and
+# '--testers' receives email addresses.
+if [[ -n "${GROUPS}" ]]; then
+  CLEAN_GROUPS=()
+  EXTRACTED_EMAILS=()
+  IFS=',' read -ra RAW_GROUP_ITEMS <<< "${GROUPS}"
+  for item in "${RAW_GROUP_ITEMS[@]}"; do
+    trimmed="$(echo "${item}" | xargs)"
+    [[ -z "${trimmed}" ]] && continue
+    if [[ "${trimmed}" == *"@"* ]]; then
+      EXTRACTED_EMAILS+=("${trimmed}")
+    else
+      CLEAN_GROUPS+=("${trimmed}")
+    fi
+  done
+  GROUPS="$(IFS=','; echo "${CLEAN_GROUPS[*]:-}")"
+  if [[ ${#EXTRACTED_EMAILS[@]} -gt 0 ]]; then
+    EMAIL_CSV="$(IFS=','; echo "${EXTRACTED_EMAILS[*]}")"
+    echo "ℹ️ Detected email address(es) in FIREBASE_GROUPS; routing to --testers."
+    if [[ -n "${TESTERS}" ]]; then
+      TESTERS="${TESTERS},${EMAIL_CSV}"
+    else
+      TESTERS="${EMAIL_CSV}"
+    fi
+  fi
+fi
+
 if [[ -n "${TESTERS}" ]]; then
   FIREBASE_CMD+=("--testers" "${TESTERS}")
 fi
