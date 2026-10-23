@@ -31,7 +31,7 @@ PLATFORM=""
 ARTIFACT_PATH=""
 APP_ID="${FIREBASE_APP_ID:-}"
 TESTERS="${FIREBASE_TESTERS:-}"
-GROUPS="${FIREBASE_GROUPS:-}"
+TARGET_GROUPS="${FIREBASE_GROUPS:-}"
 RELEASE_NOTES="${RELEASE_NOTES:-}"
 RELEASE_NOTES_FILE="${RELEASE_NOTES_FILE:-}"
 DRY_RUN=false
@@ -59,7 +59,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --groups)
-      GROUPS="$2"
+      TARGET_GROUPS="$2"
       shift 2
       ;;
     --release-notes)
@@ -155,10 +155,10 @@ fi
 # Auto-separate any email addresses (containing '@') accidentally set in
 # FIREBASE_GROUPS into TESTERS so '--groups' only receives group aliases and
 # '--testers' receives email addresses.
-if [[ -n "${GROUPS}" ]]; then
+if [[ -n "${TARGET_GROUPS}" ]]; then
   CLEAN_GROUPS=()
   EXTRACTED_EMAILS=()
-  IFS=',' read -ra RAW_GROUP_ITEMS <<< "${GROUPS}"
+  IFS=',' read -ra RAW_GROUP_ITEMS <<< "${TARGET_GROUPS}"
   for item in "${RAW_GROUP_ITEMS[@]}"; do
     trimmed="$(echo "${item}" | xargs)"
     [[ -z "${trimmed}" ]] && continue
@@ -168,7 +168,7 @@ if [[ -n "${GROUPS}" ]]; then
       CLEAN_GROUPS+=("${trimmed}")
     fi
   done
-  GROUPS="$(IFS=','; echo "${CLEAN_GROUPS[*]:-}")"
+  TARGET_GROUPS="$(IFS=','; echo "${CLEAN_GROUPS[*]:-}")"
   if [[ ${#EXTRACTED_EMAILS[@]} -gt 0 ]]; then
     EMAIL_CSV="$(IFS=','; echo "${EXTRACTED_EMAILS[*]}")"
     echo "ℹ️ Detected email address(es) in FIREBASE_GROUPS; routing to --testers."
@@ -184,8 +184,8 @@ if [[ -n "${TESTERS}" ]]; then
   FIREBASE_CMD+=("--testers" "${TESTERS}")
 fi
 
-if [[ -n "${GROUPS}" ]]; then
-  FIREBASE_CMD+=("--groups" "${GROUPS}")
+if [[ -n "${TARGET_GROUPS}" ]]; then
+  FIREBASE_CMD+=("--groups" "${TARGET_GROUPS}")
 fi
 
 if [[ -n "${FIREBASE_TOKEN:-}" ]]; then
@@ -196,7 +196,7 @@ echo "==========================================================================
 echo "🔥 Uploading ${PLATFORM} build to Firebase App Distribution"
 echo "   Artifact : ${ARTIFACT_PATH}"
 echo "   App ID   : ${APP_ID}"
-[[ -n "${GROUPS}" ]] && echo "   Groups   : ${GROUPS}"
+[[ -n "${TARGET_GROUPS}" ]] && echo "   Groups   : ${TARGET_GROUPS}"
 [[ -n "${TESTERS}" ]] && echo "   Testers  : ${TESTERS}"
 echo "=============================================================================="
 
