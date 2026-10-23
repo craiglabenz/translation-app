@@ -109,7 +109,9 @@ class ConversationRepository extends Repository<Conversation> {
       details: RequestDetails.read(requestType: RequestType.allLocal),
     );
     final sorted = List<Conversation>.of(items)
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      ..sort(
+        (a, b) => b.effectiveTimestamp.compareTo(a.effectiveTimestamp),
+      );
     sw.stop();
     _log.info(
       '[PERF] ConversationRepository.getAllConversations() FINISH '
@@ -135,6 +137,8 @@ class ConversationRepository extends Repository<Conversation> {
     String? generatedSummary,
     String? userSummary,
     String? id,
+    DateTime? createdAt,
+    DateTime? lastMessageAt,
   }) async {
     final sw = Stopwatch()..start();
     _log.info(
@@ -142,7 +146,8 @@ class ConversationRepository extends Repository<Conversation> {
     );
     final draft = Conversation(
       id: id ?? '',
-      createdAt: getTime(),
+      createdAt: createdAt ?? getTime(),
+      lastMessageAt: lastMessageAt,
       baseLanguage: baseLanguage,
       targetLanguage: targetLanguage,
       previewText: previewText,
@@ -188,9 +193,15 @@ class ConversationRepository extends Repository<Conversation> {
     );
 
     final existingConv = await getConversationById(result.conversationId);
-    if (existingConv != null && result.translatedText.trim().isNotEmpty) {
+    if (existingConv != null) {
+      final trimmedPreview = result.translatedText.trim();
       await setItem(
-        existingConv.copyWith(previewText: result.translatedText.trim()),
+        existingConv.copyWith(
+          previewText: trimmedPreview.isNotEmpty
+              ? trimmedPreview
+              : existingConv.previewText,
+          lastMessageAt: result.timestamp,
+        ),
         details: RequestDetails.write(requestType: RequestType.local),
       );
     }

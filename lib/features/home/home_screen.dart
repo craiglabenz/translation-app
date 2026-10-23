@@ -451,26 +451,45 @@ class _RecentConversationsSection extends StatelessWidget {
                 const SizedBox(width: 4),
                 Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     for (var i = 0; i < conversations.length; i++)
                       Padding(
                         padding: EdgeInsets.only(top: i == 0 ? 0 : 2),
                         child: SizedBox(
-                          width: 36,
                           height: 36,
-                          child: IconButton(
-                            key: ValueKey(
-                              'home_delete_conv_${conversations[i].id}',
-                            ),
-                            padding: EdgeInsets.zero,
-                            tooltip: 'Delete conversation',
-                            icon: Icon(
-                              Icons.delete_outline_rounded,
-                              size: 18,
-                              color: colors.onSurfaceMuted,
-                            ),
-                            onPressed: () =>
-                                onDeleteConversation(conversations[i].id),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                conversations[i].relativeTimeLabel(),
+                                key: ValueKey(
+                                  'home_conv_time_${conversations[i].id}',
+                                ),
+                                style: typography.labelSmall.copyWith(
+                                  color: colors.onSurfaceMuted,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              SizedBox(
+                                width: 36,
+                                height: 36,
+                                child: IconButton(
+                                  key: ValueKey(
+                                    'home_delete_conv_${conversations[i].id}',
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  tooltip: 'Delete conversation',
+                                  icon: Icon(
+                                    Icons.delete_outline_rounded,
+                                    size: 18,
+                                    color: colors.onSurfaceMuted,
+                                  ),
+                                  onPressed: () =>
+                                      onDeleteConversation(conversations[i].id),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),

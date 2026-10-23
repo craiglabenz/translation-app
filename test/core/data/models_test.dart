@@ -306,6 +306,77 @@ void main() {
       final restored = bindings.fromJson(json);
       expect(restored, equals(saved1));
     });
+
+    test('formatRelativeTime and relativeTimeLabel produce humanized relative timestamps', () {
+      final now = DateTime.utc(2026, 6, 15, 12, 0, 0);
+
+      expect(
+        Conversation.formatRelativeTime(
+          now.subtract(const Duration(seconds: 30)),
+          now: now,
+        ),
+        'just now',
+      );
+      expect(
+        Conversation.formatRelativeTime(
+          now.add(const Duration(minutes: 5)),
+          now: now,
+        ),
+        'just now',
+      );
+      expect(
+        Conversation.formatRelativeTime(
+          now.subtract(const Duration(minutes: 10)),
+          now: now,
+        ),
+        '10m ago',
+      );
+      expect(
+        Conversation.formatRelativeTime(
+          now.subtract(const Duration(hours: 3, minutes: 20)),
+          now: now,
+        ),
+        '3h ago',
+      );
+      expect(
+        Conversation.formatRelativeTime(
+          now.subtract(const Duration(days: 1)),
+          now: now,
+        ),
+        '1d ago',
+      );
+      expect(
+        Conversation.formatRelativeTime(
+          now.subtract(const Duration(days: 45)),
+          now: now,
+        ),
+        '1mo ago',
+      );
+      expect(
+        Conversation.formatRelativeTime(
+          now.subtract(const Duration(days: 400)),
+          now: now,
+        ),
+        '1y ago',
+      );
+
+      final convWithoutMessages = Conversation(
+        id: 'conv_rel_1',
+        createdAt: now.subtract(const Duration(minutes: 10)),
+        baseLanguage: 'en',
+        targetLanguage: 'es',
+      );
+      expect(convWithoutMessages.relativeTimeLabel(now: now), '10m ago');
+
+      final convWithRecentMessage = convWithoutMessages.copyWith(
+        lastMessageAt: now.subtract(const Duration(seconds: 15)),
+      );
+      expect(
+        convWithRecentMessage.effectiveTimestamp,
+        convWithRecentMessage.lastMessageAt,
+      );
+      expect(convWithRecentMessage.relativeTimeLabel(now: now), 'just now');
+    });
   });
 
   group('Message', () {

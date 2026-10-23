@@ -15,6 +15,9 @@ _Conversation _$ConversationFromJson(Map<String, dynamic> json) =>
       previewText: json['previewText'] as String? ?? '',
       generatedSummary: json['generatedSummary'] as String?,
       userSummary: json['userSummary'] as String?,
+      lastMessageAt: json['lastMessageAt'] == null
+          ? null
+          : DateTime.parse(json['lastMessageAt'] as String),
     );
 
 Map<String, dynamic> _$ConversationToJson(_Conversation instance) =>
@@ -26,4 +29,5 @@ Map<String, dynamic> _$ConversationToJson(_Conversation instance) =>
       'previewText': instance.previewText,
       'generatedSummary': instance.generatedSummary,
       'userSummary': instance.userSummary,
+      'lastMessageAt': instance.lastMessageAt?.toIso8601String(),
     };

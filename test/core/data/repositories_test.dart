@@ -439,20 +439,20 @@ void main() {
       );
 
       // Saving a message with whitespace-only translatedText preserves previous previewText
+      final latestTimestamp = clock.add(const Duration(seconds: 5));
       await repo.saveMessage(
         Message(
           id: '',
           conversationId: conv.id,
-          timestamp: clock.add(const Duration(seconds: 5)),
+          timestamp: latestTimestamp,
           isBaseLanguage: true,
           originalText: '...',
           translatedText: '   ',
         ),
       );
-      expect(
-        (await repo.getConversationById(conv.id))?.previewText,
-        'Hola a todos',
-      );
+      final updatedConv = await repo.getConversationById(conv.id);
+      expect(updatedConv?.previewText, 'Hola a todos');
+      expect(updatedConv?.lastMessageAt, latestTimestamp);
     });
 
     test('getMessagesForConversation filters by conversationId and sorts oldest-first', () async {

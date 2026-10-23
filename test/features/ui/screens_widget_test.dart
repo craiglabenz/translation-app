@@ -314,6 +314,11 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('¿Dónde está el hotel?'), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('home_conv_time_${c1.id}')),
+        findsOneWidget,
+      );
+      expect(find.text('just now'), findsOneWidget);
 
       // Tap "See All" to navigate to HistoryRoute
       await tester.tap(find.byKey(const ValueKey('home_see_all_history_button')));
@@ -645,17 +650,20 @@ void main() {
     ) async {
       configureDependencies();
       final convRepo = GetIt.I<ConversationRepository>();
+      final now = DateTime.now();
       final c1 = await convRepo.createConversation(
         id: 'conv_del_1',
         baseLanguage: 'en',
         targetLanguage: 'es',
         previewText: 'La cuenta, por favor',
+        createdAt: now.subtract(const Duration(minutes: 10)),
       );
       final c2 = await convRepo.createConversation(
         id: 'conv_del_2',
         baseLanguage: 'fr',
         targetLanguage: 'de',
         previewText: '',
+        createdAt: now.subtract(const Duration(days: 1)),
       );
 
       await tester.pumpWidget(
@@ -670,6 +678,16 @@ void main() {
       expect(find.text('La cuenta, por favor'), findsOneWidget);
       // Empty previewText falls back to language pair title
       expect(find.text('French ⇄ German'), findsOneWidget);
+      expect(
+        find.byKey(ValueKey('history_conv_time_${c1.id}')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(ValueKey('history_conv_time_${c2.id}')),
+        findsOneWidget,
+      );
+      expect(find.text('10m ago'), findsOneWidget);
+      expect(find.text('1d ago'), findsOneWidget);
 
       // Delete first conversation
       await tester.tap(find.byKey(ValueKey('delete_conv_${c1.id}')));

@@ -21,9 +21,41 @@ abstract class Conversation with _$Conversation {
     @Default('') String previewText,
     String? generatedSummary,
     String? userSummary,
+    DateTime? lastMessageAt,
   }) = _Conversation;
 
   const Conversation._();
+
+  /// Returns the timestamp of the most recent message in this conversation, or
+  /// [createdAt] if no message timestamp has been recorded yet.
+  DateTime get effectiveTimestamp => lastMessageAt ?? createdAt;
+
+  /// Formats [timestamp] as a compact, humanized relative time string compared
+  /// to [now] (e.g. `'just now'`, `'10m ago'`, `'2h ago'`, `'1d ago'`).
+  static String formatRelativeTime(DateTime timestamp, {DateTime? now}) {
+    final reference = (now ?? DateTime.now()).toUtc();
+    final diff = reference.difference(timestamp.toUtc());
+    if (diff.isNegative || diff.inMinutes < 1) {
+      return 'just now';
+    }
+    if (diff.inMinutes < 60) {
+      return '${diff.inMinutes}m ago';
+    }
+    if (diff.inHours < 24) {
+      return '${diff.inHours}h ago';
+    }
+    if (diff.inDays < 30) {
+      return '${diff.inDays}d ago';
+    }
+    if (diff.inDays < 365) {
+      return '${diff.inDays ~/ 30}mo ago';
+    }
+    return '${diff.inDays ~/ 365}y ago';
+  }
+
+  /// Humanized indicator of how long ago this conversation occurred.
+  String relativeTimeLabel({DateTime? now}) =>
+      formatRelativeTime(effectiveTimestamp, now: now);
 
   /// Returns `userSummary ?? generatedSummary` (ignoring empty/whitespace-only
   /// values), or `null` if neither summary is present.

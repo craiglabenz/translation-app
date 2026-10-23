@@ -176,6 +176,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             const SizedBox(width: 4),
                             Column(
                               mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 for (var i = 0; i < _conversations.length; i++)
                                   Padding(
@@ -183,22 +184,43 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                       top: i == 0 ? 0 : 2,
                                     ),
                                     child: SizedBox(
-                                      width: 36,
                                       height: 36,
-                                      child: IconButton(
-                                        key: ValueKey(
-                                          'delete_conv_${_conversations[i].id}',
-                                        ),
-                                        padding: EdgeInsets.zero,
-                                        tooltip: 'Delete conversation',
-                                        icon: Icon(
-                                          Icons.delete_outline_rounded,
-                                          size: 18,
-                                          color: colors.onSurfaceMuted,
-                                        ),
-                                        onPressed: () => _deleteConversation(
-                                          _conversations[i].id,
-                                        ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            _conversations[i]
+                                                .relativeTimeLabel(),
+                                            key: ValueKey(
+                                              'history_conv_time_${_conversations[i].id}',
+                                            ),
+                                            style: typography.labelSmall
+                                                .copyWith(
+                                                  color: colors.onSurfaceMuted,
+                                                ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          SizedBox(
+                                            width: 36,
+                                            height: 36,
+                                            child: IconButton(
+                                              key: ValueKey(
+                                                'delete_conv_${_conversations[i].id}',
+                                              ),
+                                              padding: EdgeInsets.zero,
+                                              tooltip: 'Delete conversation',
+                                              icon: Icon(
+                                                Icons.delete_outline_rounded,
+                                                size: 18,
+                                                color: colors.onSurfaceMuted,
+                                              ),
+                                              onPressed: () =>
+                                                  _deleteConversation(
+                                                    _conversations[i].id,
+                                                  ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
