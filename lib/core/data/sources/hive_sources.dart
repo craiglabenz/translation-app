@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:data_layer_hive/data_layer_hive.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
@@ -7,6 +5,7 @@ import 'package:translation_app/core/data/models/conversation.dart';
 import 'package:translation_app/core/data/models/exchange_rate_cache.dart';
 import 'package:translation_app/core/data/models/message.dart';
 import 'package:translation_app/core/logging/app_logger.dart';
+import 'package:translation_app/core/utils/platform_env.dart';
 
 /// Initializes Hive and registers all domain [TypeAdapter]s.
 class AppHiveInitializer extends HiveInitializer {
@@ -35,10 +34,10 @@ class AppHiveInitializer extends HiveInitializer {
       try {
         await _hive.initFlutter();
       } on Object {
-        final fallbackDir = await Directory.systemTemp.createTemp(
-          'translation_app_hive_',
-        );
-        _hive.init(fallbackDir.path);
+        final fallbackPath = await createTempHivePath();
+        if (fallbackPath != null) {
+          _hive.init(fallbackPath);
+        }
       }
     }
 

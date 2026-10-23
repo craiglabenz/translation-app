@@ -16,7 +16,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$TranslationResult {
 
- String get sourceLanguage; String get translatedText; String? get originalText;
+ String get sourceLanguage; String get translatedText; String? get originalText; int? get speechToTextMs; int? get translationMs; int? get totalDurationMs;
 /// Create a copy of TranslationResult
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -30,20 +30,20 @@ $TranslationResultCopyWith<TranslationResult> get copyWith => _$TranslationResul
 @override
 bool operator ==(Object other) {
   final _this = this as TranslationResult;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is TranslationResult&&(identical(other.sourceLanguage, _this.sourceLanguage) || other.sourceLanguage == _this.sourceLanguage)&&(identical(other.translatedText, _this.translatedText) || other.translatedText == _this.translatedText)&&(identical(other.originalText, _this.originalText) || other.originalText == _this.originalText));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is TranslationResult&&(identical(other.sourceLanguage, _this.sourceLanguage) || other.sourceLanguage == _this.sourceLanguage)&&(identical(other.translatedText, _this.translatedText) || other.translatedText == _this.translatedText)&&(identical(other.originalText, _this.originalText) || other.originalText == _this.originalText)&&(identical(other.speechToTextMs, _this.speechToTextMs) || other.speechToTextMs == _this.speechToTextMs)&&(identical(other.translationMs, _this.translationMs) || other.translationMs == _this.translationMs)&&(identical(other.totalDurationMs, _this.totalDurationMs) || other.totalDurationMs == _this.totalDurationMs));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
   final _this = this as TranslationResult;
-  return Object.hash(runtimeType,_this.sourceLanguage,_this.translatedText,_this.originalText);
+  return Object.hash(runtimeType,_this.sourceLanguage,_this.translatedText,_this.originalText,_this.speechToTextMs,_this.translationMs,_this.totalDurationMs);
 }
 
 @override
 String toString() {
   final _this = this as TranslationResult;
-  return 'TranslationResult(sourceLanguage: ${_this.sourceLanguage}, translatedText: ${_this.translatedText}, originalText: ${_this.originalText})';
+  return 'TranslationResult(sourceLanguage: ${_this.sourceLanguage}, translatedText: ${_this.translatedText}, originalText: ${_this.originalText}, speechToTextMs: ${_this.speechToTextMs}, translationMs: ${_this.translationMs}, totalDurationMs: ${_this.totalDurationMs})';
 }
 
 
@@ -54,7 +54,7 @@ abstract mixin class $TranslationResultCopyWith<$Res>  {
   factory $TranslationResultCopyWith(TranslationResult value, $Res Function(TranslationResult) _then) = _$TranslationResultCopyWithImpl;
 @useResult
 $Res call({
- String sourceLanguage, String translatedText, String? originalText
+ String sourceLanguage, String translatedText, String? originalText, int? speechToTextMs, int? translationMs, int? totalDurationMs
 });
 
 
@@ -71,12 +71,15 @@ class _$TranslationResultCopyWithImpl<$Res>
 
 /// Create a copy of TranslationResult
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? sourceLanguage = null,Object? translatedText = null,Object? originalText = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? sourceLanguage = null,Object? translatedText = null,Object? originalText = freezed,Object? speechToTextMs = freezed,Object? translationMs = freezed,Object? totalDurationMs = freezed,}) {
   return _then(TranslationResult(
 sourceLanguage: null == sourceLanguage ? _self.sourceLanguage : sourceLanguage // ignore: cast_nullable_to_non_nullable
 as String,translatedText: null == translatedText ? _self.translatedText : translatedText // ignore: cast_nullable_to_non_nullable
 as String,originalText: freezed == originalText ? _self.originalText : originalText // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,speechToTextMs: freezed == speechToTextMs ? _self.speechToTextMs : speechToTextMs // ignore: cast_nullable_to_non_nullable
+as int?,translationMs: freezed == translationMs ? _self.translationMs : translationMs // ignore: cast_nullable_to_non_nullable
+as int?,totalDurationMs: freezed == totalDurationMs ? _self.totalDurationMs : totalDurationMs // ignore: cast_nullable_to_non_nullable
+as int?,
   ));
 }
 
@@ -161,10 +164,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String sourceLanguage,  String translatedText,  String? originalText)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String sourceLanguage,  String translatedText,  String? originalText,  int? speechToTextMs,  int? translationMs,  int? totalDurationMs)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _TranslationResult() when $default != null:
-return $default(_that.sourceLanguage,_that.translatedText,_that.originalText);case _:
+return $default(_that.sourceLanguage,_that.translatedText,_that.originalText,_that.speechToTextMs,_that.translationMs,_that.totalDurationMs);case _:
   return orElse();
 
 }
@@ -182,10 +185,10 @@ return $default(_that.sourceLanguage,_that.translatedText,_that.originalText);ca
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String sourceLanguage,  String translatedText,  String? originalText)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String sourceLanguage,  String translatedText,  String? originalText,  int? speechToTextMs,  int? translationMs,  int? totalDurationMs)  $default,) {final _that = this;
 switch (_that) {
 case _TranslationResult():
-return $default(_that.sourceLanguage,_that.translatedText,_that.originalText);case _:
+return $default(_that.sourceLanguage,_that.translatedText,_that.originalText,_that.speechToTextMs,_that.translationMs,_that.totalDurationMs);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -202,10 +205,10 @@ return $default(_that.sourceLanguage,_that.translatedText,_that.originalText);ca
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String sourceLanguage,  String translatedText,  String? originalText)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String sourceLanguage,  String translatedText,  String? originalText,  int? speechToTextMs,  int? translationMs,  int? totalDurationMs)?  $default,) {final _that = this;
 switch (_that) {
 case _TranslationResult() when $default != null:
-return $default(_that.sourceLanguage,_that.translatedText,_that.originalText);case _:
+return $default(_that.sourceLanguage,_that.translatedText,_that.originalText,_that.speechToTextMs,_that.translationMs,_that.totalDurationMs);case _:
   return null;
 
 }
@@ -217,12 +220,15 @@ return $default(_that.sourceLanguage,_that.translatedText,_that.originalText);ca
 @JsonSerializable()
 
 class _TranslationResult implements TranslationResult {
-  const _TranslationResult({required this.sourceLanguage, required this.translatedText, this.originalText});
+  const _TranslationResult({required this.sourceLanguage, required this.translatedText, this.originalText, this.speechToTextMs, this.translationMs, this.totalDurationMs});
   factory _TranslationResult.fromJson(Map<String, dynamic> json) => _$TranslationResultFromJson(json);
 
 @override final  String sourceLanguage;
 @override final  String translatedText;
 @override final  String? originalText;
+@override final  int? speechToTextMs;
+@override final  int? translationMs;
+@override final  int? totalDurationMs;
 
 /// Create a copy of TranslationResult
 /// with the given fields replaced by the non-null parameter values.
@@ -237,18 +243,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _TranslationResult&&(identical(other.sourceLanguage, sourceLanguage) || other.sourceLanguage == sourceLanguage)&&(identical(other.translatedText, translatedText) || other.translatedText == translatedText)&&(identical(other.originalText, originalText) || other.originalText == originalText));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _TranslationResult&&(identical(other.sourceLanguage, sourceLanguage) || other.sourceLanguage == sourceLanguage)&&(identical(other.translatedText, translatedText) || other.translatedText == translatedText)&&(identical(other.originalText, originalText) || other.originalText == originalText)&&(identical(other.speechToTextMs, speechToTextMs) || other.speechToTextMs == speechToTextMs)&&(identical(other.translationMs, translationMs) || other.translationMs == translationMs)&&(identical(other.totalDurationMs, totalDurationMs) || other.totalDurationMs == totalDurationMs));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
-    return Object.hash(runtimeType,sourceLanguage,translatedText,originalText);
+    return Object.hash(runtimeType,sourceLanguage,translatedText,originalText,speechToTextMs,translationMs,totalDurationMs);
 }
 
 @override
 String toString() {
-    return 'TranslationResult(sourceLanguage: $sourceLanguage, translatedText: $translatedText, originalText: $originalText)';
+    return 'TranslationResult(sourceLanguage: $sourceLanguage, translatedText: $translatedText, originalText: $originalText, speechToTextMs: $speechToTextMs, translationMs: $translationMs, totalDurationMs: $totalDurationMs)';
 }
 
 
@@ -259,7 +265,7 @@ abstract mixin class _$TranslationResultCopyWith<$Res> implements $TranslationRe
   factory _$TranslationResultCopyWith(_TranslationResult value, $Res Function(_TranslationResult) _then) = __$TranslationResultCopyWithImpl;
 @override @useResult
 $Res call({
- String sourceLanguage, String translatedText, String? originalText
+ String sourceLanguage, String translatedText, String? originalText, int? speechToTextMs, int? translationMs, int? totalDurationMs
 });
 
 
@@ -276,12 +282,15 @@ class __$TranslationResultCopyWithImpl<$Res>
 
 /// Create a copy of TranslationResult
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? sourceLanguage = null,Object? translatedText = null,Object? originalText = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? sourceLanguage = null,Object? translatedText = null,Object? originalText = freezed,Object? speechToTextMs = freezed,Object? translationMs = freezed,Object? totalDurationMs = freezed,}) {
   return _then(_TranslationResult(
 sourceLanguage: null == sourceLanguage ? _self.sourceLanguage : sourceLanguage // ignore: cast_nullable_to_non_nullable
 as String,translatedText: null == translatedText ? _self.translatedText : translatedText // ignore: cast_nullable_to_non_nullable
 as String,originalText: freezed == originalText ? _self.originalText : originalText // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,speechToTextMs: freezed == speechToTextMs ? _self.speechToTextMs : speechToTextMs // ignore: cast_nullable_to_non_nullable
+as int?,translationMs: freezed == translationMs ? _self.translationMs : translationMs // ignore: cast_nullable_to_non_nullable
+as int?,totalDurationMs: freezed == totalDurationMs ? _self.totalDurationMs : totalDurationMs // ignore: cast_nullable_to_non_nullable
+as int?,
   ));
 }
 

@@ -403,6 +403,8 @@ class NetworkTranslationEngine implements TranslationEngine {
       );
     }
 
+    final totalStopwatch = Stopwatch()..start();
+
     if (!_initialized) {
       await initialize();
     } else if (apiKey.isEmpty) {
@@ -434,8 +436,15 @@ class NetworkTranslationEngine implements TranslationEngine {
 
     final stopwatch = Stopwatch()..start();
     var lastEmittedPartialText = '';
+    int? sttCompletedElapsedMs;
+    var streamedChunkCount = 0;
 
     void handleStreamingAccumulatedOutput(String accumulatedRaw) {
+      streamedChunkCount++;
+      if (sttCompletedElapsedMs == null &&
+          RegExp(r'"translated_text"\s*:').hasMatch(accumulatedRaw)) {
+        sttCompletedElapsedMs = totalStopwatch.elapsedMilliseconds;
+      }
       if (onPartialResult == null) return;
       final partial = LocalTranslationEngine.extractStreamingPartialResult(
         accumulatedRaw,
@@ -457,6 +466,7 @@ class NetworkTranslationEngine implements TranslationEngine {
       onPartialAccumulated: handleStreamingAccumulatedOutput,
     );
     stopwatch.stop();
+    final firstPassElapsedMs = totalStopwatch.elapsedMilliseconds;
 
     _log.info(
       'Cloud Gemini ($modelId) inference finished in ${stopwatch.elapsedMilliseconds}ms. '
@@ -523,15 +533,37 @@ class NetworkTranslationEngine implements TranslationEngine {
       );
 
       if (fallbackText != null && fallbackText.trim().isNotEmpty) {
+        totalStopwatch.stop();
+        final totalMs = totalStopwatch.elapsedMilliseconds;
+        final sttMs = firstPassElapsedMs;
+        final transMs = totalMs >= sttMs ? totalMs - sttMs : 0;
         return TranslationResult(
           sourceLanguage: analysis.resolvedSourceCode,
           originalText: sourceTranscript,
           translatedText: fallbackText.trim(),
+          speechToTextMs: sttMs,
+          translationMs: transMs,
+          totalDurationMs: totalMs,
         );
       }
     }
 
-    return parsed.copyWith(sourceLanguage: analysis.resolvedSourceCode);
+    totalStopwatch.stop();
+    final totalMs = totalStopwatch.elapsedMilliseconds;
+    final int sttMs;
+    if (sttCompletedElapsedMs != null && streamedChunkCount > 1) {
+      sttMs = sttCompletedElapsedMs!.clamp(0, totalMs);
+    } else {
+      sttMs = firstPassElapsedMs.clamp(0, totalMs);
+    }
+    final transMs = totalMs >= sttMs ? totalMs - sttMs : 0;
+
+    return parsed.copyWith(
+      sourceLanguage: analysis.resolvedSourceCode,
+      speechToTextMs: sttMs,
+      translationMs: transMs,
+      totalDurationMs: totalMs,
+    );
   }
 
   Future<String> _streamAudioTranslationRequest({

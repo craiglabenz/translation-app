@@ -1,4 +1,4 @@
-name: Build & Distribute (Firebase App Distribution)
+name: Build & Distribute (Firebase Hosting & App Distribution)
 
 on:
   push:
@@ -9,14 +9,16 @@ on:
       platform:
         description: "Target platform(s) to build & distribute"
         required: true
-        default: "both"
+        default: "all"
         type: choice
         options:
-          - both
+          - all
+          - web
           - android
           - ios
+          - both
       distribute:
-        description: "Upload built artifacts to Firebase App Distribution"
+        description: "Upload/deploy built artifacts to Firebase"
         required: true
         default: true
         type: boolean
@@ -73,10 +75,55 @@ jobs:
         if: steps.dart-changes.outputs.changed == 'true'
         run: ./scripts/test_and_analyze.sh
 
+  build-web:
+    name: Build & Deploy Web Release (Firebase Hosting)
+    needs: verify
+    if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'web' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 10
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Build Flutter Web Release
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: ./scripts/build_web.sh
+
+      - name: Upload Web bundle artifact to GitHub Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-release-bundle
+          path: build/web
+
+      - name: Deploy Web Release to Firebase Hosting
+        if: ${{ github.event_name == 'push' || inputs.distribute }}
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_ANDROID_APP_ID: ${{ secrets.FIREBASE_ANDROID_APP_ID }}
+          FIREBASE_IOS_APP_ID: ${{ secrets.FIREBASE_IOS_APP_ID }}
+        run: |
+          if [[ -z "${FIREBASE_TOKEN}" && -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]]; then
+            echo "ℹ️ FIREBASE_TOKEN secret is not set; skipping Firebase Hosting deployment."
+            exit 0
+          fi
+          npm install -g firebase-tools
+          ./scripts/distribute_firebase.sh --platform web
+
   build-android:
     name: Build & Distribute Android Release
     needs: verify
-    if: ${{ github.event_name == 'push' || inputs.platform == 'both' || inputs.platform == 'android' }}
+    if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'both' || inputs.platform == 'android' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -133,7 +180,7 @@ jobs:
   build-ios:
     name: Build & Distribute iOS Release
     needs: verify
-    if: ${{ github.event_name == 'push' || inputs.platform == 'both' || inputs.platform == 'ios' }}
+    if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'both' || inputs.platform == 'ios' }}
     runs-on: macos-latest
     timeout-minutes: 45
     steps:

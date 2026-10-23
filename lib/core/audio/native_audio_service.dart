@@ -1,11 +1,13 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:translation_app/core/audio/audio_exceptions.dart';
 import 'package:translation_app/core/audio/vad_buffer.dart';
+import 'package:translation_app/core/audio/web_audio_recorder.dart';
 import 'package:translation_app/core/logging/app_logger.dart';
+import 'package:translation_app/core/utils/platform_env.dart';
 
 /// Native microphone capture service streaming 16kHz mono 32-bit floating-point
 /// PCM frames (`Float32List`) and segmenting utterances via [VadBuffer].
@@ -36,6 +38,7 @@ class NativeAudioService {
 
   StreamSubscription<Float32List>? _customStreamSub;
   StreamSubscription<Object?>? _nativeStreamSub;
+  WebAudioRecorder? _webRecorder;
   bool _isCapturing = false;
   int _frameCount = 0;
 
@@ -63,7 +66,7 @@ class NativeAudioService {
 
   /// Starts streaming 16kHz mono `Float32List` PCM audio from the microphone.
   Future<void> startCapture() async {
-    final isTestEnv = Platform.environment.containsKey('FLUTTER_TEST');
+    final isTestEnv = isFlutterTestEnvironment;
     _log.info(
       'startCapture() requested: isCapturing=$_isCapturing, '
       'hasCustomStream=${_customFrameStreamProvider != null}, '
@@ -96,6 +99,24 @@ class NativeAudioService {
         'FLUTTER_TEST environment detected (platform channel disabled) -> ready for pushSamples().',
       );
       return;
+    }
+
+    if (kIsWeb) {
+      try {
+        _log.info('Starting WebAudioRecorder at ${VadBuffer.defaultSampleRate}Hz...');
+        final webRecorder = WebAudioRecorder(
+          onSamples: pushSamples,
+          targetSampleRate: VadBuffer.defaultSampleRate,
+        );
+        _webRecorder = webRecorder;
+        await webRecorder.start();
+        _log.info('Browser microphone capture is now LIVE.');
+        return;
+      } on Object {
+        _isCapturing = false;
+        _webRecorder = null;
+        rethrow;
+      }
     }
 
     try {
@@ -172,6 +193,16 @@ class NativeAudioService {
     _customStreamSub = null;
     if (customSub != null) {
       unawaited(customSub.cancel());
+    }
+
+    final webRecorder = _webRecorder;
+    _webRecorder = null;
+    if (webRecorder != null) {
+      try {
+        await webRecorder.stop();
+      } on Object catch (e) {
+        _log.warning('Ignored error stopping WebAudioRecorder: $e');
+      }
     }
 
     final nativeSub = _nativeStreamSub;

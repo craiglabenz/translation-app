@@ -1,4 +1,5 @@
 import 'package:data_layer/data_layer.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:translation_app/core/data/models/app_settings.dart';
 import 'package:translation_app/core/data/models/exchange_rate_cache.dart';
 import 'package:translation_app/core/logging/app_logger.dart';
@@ -49,6 +50,10 @@ class SettingsRepository extends Repository<AppSettings> {
     await super.performInitialization();
   }
 
+  static const String _envGeminiApiKey = String.fromEnvironment(
+    'GEMINI_API_KEY',
+  );
+
   /// Loads the persisted [AppSettings], initializing defaults if none exist.
   Future<AppSettings> getSettings() async {
     final sw = Stopwatch()..start();
@@ -58,9 +63,13 @@ class SettingsRepository extends Repository<AppSettings> {
       details: RequestDetails.read(requestType: RequestType.local),
     );
     if (existing != null) {
-      final normalized = existing.cloudModelId == 'gemini-4'
+      var normalized = existing.cloudModelId == 'gemini-4'
           ? existing.copyWith(cloudModelId: 'gemini-3.1-pro')
           : existing;
+      if (normalized.geminiApiKey.trim().isEmpty &&
+          _envGeminiApiKey.isNotEmpty) {
+        normalized = normalized.copyWith(geminiApiKey: _envGeminiApiKey);
+      }
       if (normalized != existing) {
         await saveSettings(normalized);
       }
@@ -71,7 +80,12 @@ class SettingsRepository extends Repository<AppSettings> {
       );
       return normalized;
     }
-    const defaults = AppSettings();
+    const defaults = AppSettings(
+      translationEngineMode: kIsWeb
+          ? TranslationEngineMode.cloud
+          : TranslationEngineMode.onDevice,
+      geminiApiKey: _envGeminiApiKey,
+    );
     await saveSettings(defaults);
     sw.stop();
     _log.info(

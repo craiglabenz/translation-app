@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 import 'package:translation_app/core/ai/language_detector.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
@@ -215,6 +216,8 @@ class LocalTranslationEngine implements TranslationEngine {
       );
     }
 
+    final totalStopwatch = Stopwatch()..start();
+
     if (!_initialized || (_model != null && _model!.isClosed)) {
       await initialize();
     }
@@ -244,8 +247,15 @@ class LocalTranslationEngine implements TranslationEngine {
 
     final stopwatch = Stopwatch()..start();
     var lastEmittedPartialText = '';
+    int? sttCompletedElapsedMs;
+    var streamedChunkCount = 0;
 
     void handleStreamingAccumulatedOutput(String accumulatedRaw) {
+      streamedChunkCount++;
+      if (sttCompletedElapsedMs == null &&
+          RegExp(r'"translated_text"\s*:').hasMatch(accumulatedRaw)) {
+        sttCompletedElapsedMs = totalStopwatch.elapsedMilliseconds;
+      }
       if (onPartialResult == null) return;
       final partial = extractStreamingPartialResult(
         accumulatedRaw,
@@ -287,9 +297,12 @@ class LocalTranslationEngine implements TranslationEngine {
       );
     }
     stopwatch.stop();
+    final firstPassElapsedMs = totalStopwatch.elapsedMilliseconds;
 
     _log.info(
-      'Model inference finished in ${stopwatch.elapsedMilliseconds}ms. '
+      'Model inference finished in ${stopwatch.elapsedMilliseconds}ms '
+      '(sttBoundary=${sttCompletedElapsedMs ?? firstPassElapsedMs}ms, '
+      'firstPassTotal=${firstPassElapsedMs}ms). '
       'Raw LLM output:\n$rawResponse',
     );
 
@@ -390,14 +403,22 @@ class LocalTranslationEngine implements TranslationEngine {
             originalText: analysis.sourceTextForFallback,
             translatedText: cleanedFallback,
           )) {
+        totalStopwatch.stop();
+        final totalMs = totalStopwatch.elapsedMilliseconds;
+        final sttMs = firstPassElapsedMs;
+        final transMs = math.max(0, totalMs - sttMs);
         _log.info(
-          'Text-to-text fallback translation succeeded: '
+          'Text-to-text fallback translation succeeded in ${transMs}ms '
+          '(stt=${sttMs}ms, total=${totalMs}ms): '
           '"${analysis.sourceTextForFallback}" -> "$cleanedFallback"',
         );
         return TranslationResult(
           sourceLanguage: analysis.resolvedSourceCode,
           translatedText: cleanedFallback,
           originalText: analysis.sourceTextForFallback,
+          speechToTextMs: sttMs,
+          translationMs: transMs,
+          totalDurationMs: totalMs,
         );
       } else if (isNonSpeechOrHallucination(
         originalText: analysis.sourceTextForFallback,
@@ -414,8 +435,21 @@ class LocalTranslationEngine implements TranslationEngine {
       }
     }
 
+    totalStopwatch.stop();
+    final totalMs = totalStopwatch.elapsedMilliseconds;
+    final int sttMs;
+    if (sttCompletedElapsedMs != null && streamedChunkCount > 1) {
+      sttMs = sttCompletedElapsedMs!.clamp(0, totalMs);
+    } else {
+      sttMs = firstPassElapsedMs.clamp(0, totalMs);
+    }
+    final transMs = math.max(0, totalMs - sttMs);
+
     return parsed.copyWith(
       sourceLanguage: analysis.resolvedSourceCode,
+      speechToTextMs: sttMs,
+      translationMs: transMs,
+      totalDurationMs: totalMs,
     );
   }
 
@@ -790,7 +824,7 @@ class LocalTranslationEngine implements TranslationEngine {
     Float32List samples, {
     int isolateThresholdSamples = 4000,
   }) async {
-    if (samples.length < isolateThresholdSamples) {
+    if (kIsWeb || samples.length < isolateThresholdSamples) {
       final trimmed = trimTrailingSilence(samples);
       return (encodeFloat32PcmToWav(trimmed), trimmed.length);
     }

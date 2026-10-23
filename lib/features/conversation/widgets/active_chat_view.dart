@@ -390,6 +390,76 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                             color: colors.onSurface,
                           ),
                         ),
+                        const SizedBox(height: 16),
+                        Container(
+                          key: const ValueKey(
+                            'original_message_modal_timing_section',
+                          ),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: colors.surfaceContainerLow,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: colors.outline),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.timer_outlined,
+                                    size: 15,
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Processing Time',
+                                    style: typography.labelMedium.copyWith(
+                                      color: colors.onSurface,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              _TimingStepRow(
+                                label: 'Speech-to-text',
+                                value: Message.formatDurationMs(
+                                  message.speechToTextMs,
+                                ),
+                                valueKey: const ValueKey(
+                                  'modal_speech_to_text_duration',
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              _TimingStepRow(
+                                label: 'Translation',
+                                value: Message.formatDurationMs(
+                                  message.translationMs,
+                                ),
+                                valueKey: const ValueKey(
+                                  'modal_translation_duration',
+                                ),
+                              ),
+                              const Divider(height: 12),
+                              _TimingStepRow(
+                                label: 'Total',
+                                value: Message.formatDurationMs(
+                                  message.totalDurationMs ??
+                                      ((message.speechToTextMs != null ||
+                                              message.translationMs != null)
+                                          ? (message.speechToTextMs ?? 0) +
+                                                (message.translationMs ?? 0)
+                                          : null),
+                                ),
+                                valueKey: const ValueKey(
+                                  'modal_total_duration',
+                                ),
+                                isEmphasized: true,
+                              ),
+                            ],
+                          ),
+                        ),
                         const SizedBox(height: 14),
                         Text(
                           'Tap anywhere to close',
@@ -864,6 +934,59 @@ class _InProgressTranslationBadge extends StatelessWidget {
           color: AppTokens.listeningAccent,
         ),
       ),
+    );
+  }
+}
+
+class _TimingStepRow extends StatelessWidget {
+  const _TimingStepRow({
+    required this.label,
+    required this.value,
+    this.valueKey,
+    this.isEmphasized = false,
+  });
+
+  final String label;
+  final String value;
+  final Key? valueKey;
+  final bool isEmphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.flowColors;
+    final typography = context.flowTypography;
+    final textStyle = (isEmphasized
+            ? typography.labelMedium
+            : typography.bodySmall)
+        .copyWith(
+          color: isEmphasized ? colors.onSurface : colors.onSurfaceVariant,
+          fontWeight: isEmphasized ? FontWeight.w600 : FontWeight.w400,
+        );
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: textStyle,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            value,
+            key: valueKey,
+            textAlign: TextAlign.end,
+            overflow: TextOverflow.ellipsis,
+            style: textStyle.copyWith(
+              color: colors.onSurface,
+              fontWeight: isEmphasized ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

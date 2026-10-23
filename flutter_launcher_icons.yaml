@@ -14,6 +14,12 @@ flutter_launcher_icons:
   # image_path_ios: "assets/icon/icon.png"
   remove_alpha_ios: true
   image_path_ios_dark_transparent: "assets/icon/icon.png"
+
+  web:
+    generate: true
+    image_path: "assets/icon/icon.png"
+    background_color: "#0F172A"
+    theme_color: "#2563EB"
   
   # image_path_ios_dark_transparent: "assets/icon/icon_dark.png"
   # image_path_ios_tinted_grayscale: "assets/icon/icon_tinted.png"

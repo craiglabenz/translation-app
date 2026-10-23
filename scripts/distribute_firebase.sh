@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Upload Release Builds (Android APK/AAB or iOS IPA) to Firebase App Distribution
+# Distribute Release Builds to Firebase (App Distribution for Mobile, Hosting for Web)
 # ==============================================================================
 # Usage:
-#   ./scripts/distribute_firebase.sh --platform <android|ios> [options]
+#   ./scripts/distribute_firebase.sh --platform <android|ios|web> [options]
 #
 # Options:
-#   --platform <android|ios>    Target platform ("android" or "ios") [required]
-#   --artifact <path>           Path to .apk, .aab, or .ipa (defaults to standard Flutter build output)
-#   --app-id <firebase_app_id>  Firebase App ID (or set FIREBASE_ANDROID_APP_ID / FIREBASE_IOS_APP_ID)
-#   --testers <emails>          Comma-separated tester emails (or set FIREBASE_TESTERS)
-#   --groups <groups>           Comma-separated tester group aliases (or set FIREBASE_GROUPS)
-#   --release-notes <notes>     Release notes text (defaults to recent git commits if omitted)
-#   --release-notes-file <path> Path to release notes file
-#   --dry-run                   Print the Firebase CLI command without executing it
-#   -h, --help                  Show this help message
+#   --platform <android|ios|web> Target platform ("android", "ios", or "web") [required]
+#   --artifact <path>            Path to .apk, .aab, .ipa, or web build dir (defaults to standard Flutter build output)
+#   --app-id <firebase_app_id>   Firebase App ID for mobile (or set FIREBASE_ANDROID_APP_ID / FIREBASE_IOS_APP_ID)
+#   --project <project_id>       Firebase Project ID for web hosting (or set FIREBASE_PROJECT_ID; defaults to .firebaserc)
+#   --channel <channel_id>       Firebase Hosting preview channel ID (or set FIREBASE_HOSTING_CHANNEL; defaults to live)
+#   --testers <emails>           Comma-separated tester emails (or set FIREBASE_TESTERS)
+#   --groups <groups>            Comma-separated tester group aliases (or set FIREBASE_GROUPS)
+#   --release-notes <notes>      Release notes text (defaults to recent git commits if omitted)
+#   --release-notes-file <path>  Path to release notes file
+#   --dry-run                    Print the Firebase CLI command without executing it
+#   -h, --help                   Show this help message
 #
 # Authentication in CI:
 #   - Preferred: Set GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
@@ -30,6 +32,8 @@ cd "${PROJECT_ROOT}"
 PLATFORM=""
 ARTIFACT_PATH=""
 APP_ID="${FIREBASE_APP_ID:-}"
+PROJECT_ID="${FIREBASE_PROJECT_ID:-}"
+HOSTING_CHANNEL="${FIREBASE_HOSTING_CHANNEL:-}"
 TESTERS="${FIREBASE_TESTERS:-}"
 TARGET_GROUPS="${FIREBASE_GROUPS:-}"
 RELEASE_NOTES="${RELEASE_NOTES:-}"
@@ -37,7 +41,7 @@ RELEASE_NOTES_FILE="${RELEASE_NOTES_FILE:-}"
 DRY_RUN=false
 
 usage() {
-  sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -52,6 +56,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --app-id)
       APP_ID="$2"
+      shift 2
+      ;;
+    --project)
+      PROJECT_ID="$2"
+      shift 2
+      ;;
+    --channel)
+      HOSTING_CHANNEL="$2"
       shift 2
       ;;
     --testers)
@@ -87,11 +99,93 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "${PLATFORM}" ]]; then
-  echo "❌ Error: --platform <android|ios> is required." >&2
+  echo "❌ Error: --platform <android|ios|web> is required." >&2
   usage
   exit 1
 fi
 
+# ==============================================================================
+# Web: Firebase Hosting Deployment
+# ==============================================================================
+if [[ "${PLATFORM}" == "web" ]]; then
+  if [[ -z "${ARTIFACT_PATH}" ]]; then
+    ARTIFACT_PATH="${PROJECT_ROOT}/build/web"
+  fi
+
+  if [[ ! -d "${ARTIFACT_PATH}" || ! -f "${ARTIFACT_PATH}/index.html" ]]; then
+    echo "❌ Error: Web build bundle not found at '${ARTIFACT_PATH}/index.html'." >&2
+    echo "   Run ./scripts/build_web.sh first or pass --artifact <path>." >&2
+    exit 1
+  fi
+
+  # Resolve Firebase Project ID from env, .firebaserc, or mobile App ID
+  if [[ -z "${PROJECT_ID}" && -f "${PROJECT_ROOT}/.firebaserc" ]]; then
+    PROJECT_ID="$(grep -oE '"default"[[:space:]]*:[[:space:]]*"[^"]+"' "${PROJECT_ROOT}/.firebaserc" | sed -E 's/.*"default"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' || true)"
+  fi
+  if [[ -z "${PROJECT_ID}" && -n "${FIREBASE_ANDROID_APP_ID:-}" ]]; then
+    PROJECT_ID="$(echo "${FIREBASE_ANDROID_APP_ID}" | cut -d':' -f2)"
+  fi
+  if [[ -z "${PROJECT_ID}" && -n "${FIREBASE_IOS_APP_ID:-}" ]]; then
+    PROJECT_ID="$(echo "${FIREBASE_IOS_APP_ID}" | cut -d':' -f2)"
+  fi
+
+  if [[ -z "${PROJECT_ID}" ]]; then
+    echo "❌ Error: Firebase Project ID not set. Pass --project, set FIREBASE_PROJECT_ID, or configure .firebaserc." >&2
+    exit 1
+  fi
+
+  if [[ -n "${HOSTING_CHANNEL}" && "${HOSTING_CHANNEL}" != "live" ]]; then
+    FIREBASE_CMD=(
+      firebase
+      hosting:channel:deploy
+      "${HOSTING_CHANNEL}"
+      "--project"
+      "${PROJECT_ID}"
+    )
+  else
+    FIREBASE_CMD=(
+      firebase
+      deploy
+      "--only"
+      "hosting"
+      "--project"
+      "${PROJECT_ID}"
+    )
+  fi
+
+  if [[ -n "${FIREBASE_TOKEN:-}" ]]; then
+    FIREBASE_CMD+=("--token" "${FIREBASE_TOKEN}")
+  fi
+
+  echo "=============================================================================="
+  echo "🌐 Deploying Flutter Web build to Firebase Hosting"
+  echo "   Directory : ${ARTIFACT_PATH}"
+  echo "   Project   : ${PROJECT_ID}"
+  echo "   Channel   : ${HOSTING_CHANNEL:-live}"
+  echo "=============================================================================="
+
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    echo "🧪 [DRY RUN] Would execute:"
+    printf '  %q' "${FIREBASE_CMD[@]}"
+    echo ""
+    exit 0
+  fi
+
+  if ! command -v firebase >/dev/null 2>&1; then
+    echo "❌ Error: 'firebase' CLI not found on PATH." >&2
+    echo "   Install it in CI via: npm install -g firebase-tools" >&2
+    echo "   or: curl -sL https://firebase.tools | bash" >&2
+    exit 1
+  fi
+
+  "${FIREBASE_CMD[@]}"
+  echo "✅ Successfully deployed ${ARTIFACT_PATH} to Firebase Hosting!"
+  exit 0
+fi
+
+# ==============================================================================
+# Mobile (Android / iOS): Firebase App Distribution
+# ==============================================================================
 case "${PLATFORM}" in
   android)
     APP_ID="${APP_ID:-${FIREBASE_ANDROID_APP_ID:-}}"
@@ -106,7 +200,7 @@ case "${PLATFORM}" in
     fi
     ;;
   *)
-    echo "❌ Error: Unsupported --platform '${PLATFORM}'. Expected 'android' or 'ios'." >&2
+    echo "❌ Error: Unsupported --platform '${PLATFORM}'. Expected 'android', 'ios', or 'web'." >&2
     exit 1
     ;;
 esac

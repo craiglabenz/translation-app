@@ -42,6 +42,17 @@ abstract class TranslationResult with _$TranslationResult {
     required String sourceLanguage,
     required String translatedText,
     String? originalText,
+
+    /// Time spent in milliseconds on the speech-to-text step (audio encoding,
+    /// prefill, language detection, and source transcript generation).
+    int? speechToTextMs,
+
+    /// Time spent in milliseconds on the translation step (target language
+    /// token generation and any text-to-text fallback pass).
+    int? translationMs,
+
+    /// Total time spent in milliseconds across all steps.
+    int? totalDurationMs,
   }) = _TranslationResult;
 
   factory TranslationResult.fromJson(Map<String, Object?> json) =>

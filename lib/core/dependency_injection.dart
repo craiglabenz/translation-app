@@ -1,6 +1,5 @@
-import 'dart:io';
-
 import 'package:data_layer/data_layer.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:get_it/get_it.dart';
 import 'package:injectable/injectable.dart';
 import 'package:translation_app/core/ai/local_translation_engine.dart';
@@ -19,6 +18,7 @@ import 'package:translation_app/core/data/repositories/conversation_repository.d
 import 'package:translation_app/core/data/repositories/settings_repository.dart';
 import 'package:translation_app/core/data/sources/frankfurter_api_source.dart';
 import 'package:translation_app/core/data/sources/hive_sources.dart';
+import 'package:translation_app/core/utils/platform_env.dart';
 import 'package:translation_app/features/conversation/bloc/active_conversation_bloc.dart';
 import 'package:translation_app/features/settings/bloc/settings_bloc.dart';
 
@@ -38,8 +38,7 @@ void configureDependencies({
   AuthModule.policy = authPolicy;
   getIt.init();
 
-  final inMemory =
-      useInMemoryStorage ?? Platform.environment.containsKey('FLUTTER_TEST');
+  final inMemory = useInMemoryStorage ?? isFlutterTestEnvironment;
 
   if (!getIt.isRegistered<SettingsRepository>()) {
     late final Source<AppSettings> settingsSource;
@@ -122,6 +121,9 @@ void configureDependencies({
         return SwitchableTranslationEngine(
           localEngine: localEngine,
           networkEngine: networkEngine,
+          initialMode: kIsWeb
+              ? TranslationEngineMode.cloud
+              : TranslationEngineMode.onDevice,
         );
       },
       dispose: (engine) => engine.dispose(),

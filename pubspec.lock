@@ -439,26 +439,26 @@ packages:
     dependency: "direct main"
     description:
       name: flutter_edge_ai
-      sha256: "97081efbd468be50d089a6f065b6b3f9910744274365efdf4e47f99db1e38e70"
+      sha256: "46164ec6cdfb253031f41b16153566a0b7d93db153144b25f578094c8d2aac3e"
       url: "https://pub.dev"
     source: hosted
-    version: "2.5.0"
+    version: "2.5.2"
   flutter_edge_ai_litertlm:
     dependency: "direct main"
     description:
       name: flutter_edge_ai_litertlm
-      sha256: "33372a519131c0d7677a6656ee121d6512689d2925a7f0bb53b888d756146357"
+      sha256: "2b76ab41db0293b21719fe4656a41b268fe9a1dfc87c4c991960b3f6668a0309"
       url: "https://pub.dev"
     source: hosted
-    version: "1.16.0"
+    version: "1.17.0"
   flutter_edge_ai_speech:
     dependency: "direct main"
     description:
       name: flutter_edge_ai_speech
-      sha256: "75bdfd735b38c863b8053d77eeffed46f92b0e99e7f98f3770c43f5e162183c8"
+      sha256: dd3d25bfe45637c7c15cd44fc8f810b3275c86e485377e58b6ee8fc14b071f21
       url: "https://pub.dev"
     source: hosted
-    version: "0.5.9"
+    version: "0.5.10"
   flutter_launcher_icons:
     dependency: "direct dev"
     description:
@@ -1043,10 +1043,10 @@ packages:
     dependency: transitive
     description:
       name: pubspec_parse
-      sha256: c38b81cbf34450b67e0265d73433569d12e34782e30ed769c9cc99c9d5f2e796
+      sha256: "9ac81c01ffd6a9cf9b2713288834fbaaf6aebde05ffdf02d380e68b8e06f27d8"
       url: "https://pub.dev"
     source: hosted
-    version: "1.6.0"
+    version: "1.7.0"
   rational:
     dependency: transitive
     description:
@@ -1083,10 +1083,10 @@ packages:
     dependency: transitive
     description:
       name: shared_preferences_android
-      sha256: a67a1a6a62b241ad4ddd8a97f5a12bb547c445190930233b63cd28cc0a104a76
+      sha256: "593034a16e82953ca31145db6c85174286262715f9c5e6a9d8c65ffd9fcdce09"
       url: "https://pub.dev"
     source: hosted
-    version: "2.5.1"
+    version: "2.5.3"
   shared_preferences_foundation:
     dependency: transitive
     description:
@@ -1288,10 +1288,10 @@ packages:
     dependency: transitive
     description:
       name: web
-      sha256: "868d88a33d8a87b18ffc05f9f030ba328ffefba92d6c127917a2ba740f9cfe4a"
+      sha256: e119e82ac4795c7925103b7cf3768191f33941b99e7ccffbd6c645201d9f606b
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.1"
+    version: "1.1.2"
   web_socket:
     dependency: transitive
     description:

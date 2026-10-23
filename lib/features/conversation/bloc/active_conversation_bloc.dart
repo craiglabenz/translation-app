@@ -557,6 +557,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       TranslationResult? result;
       final inFlightFuture = _inFlightSnapshotFuture;
       final inFlightChunk = _inFlightSnapshotChunk;
+      final stepSw = Stopwatch()..start();
 
       if (inFlightFuture != null &&
           inFlightChunk != null &&
@@ -616,6 +617,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           },
         );
       }
+      final engineElapsedMs = stepSw.elapsedMilliseconds;
       if (isClosed) return;
 
       if (result.translatedText.trim().isEmpty ||
@@ -639,6 +641,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         return;
       }
 
+      final postProcessSw = Stopwatch()..start();
       final isBaseLanguage = _resolveIsBaseLanguage(
         result: result,
         baseLanguageCode: settings.baseLanguage,
@@ -655,6 +658,16 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         targetCurrency: settings.targetCurrency,
         isBaseLanguage: isBaseLanguage,
       );
+      postProcessSw.stop();
+      stepSw.stop();
+
+      final speechToTextMs = result.speechToTextMs ?? engineElapsedMs;
+      final translationMs =
+          (result.translationMs ?? 0) + postProcessSw.elapsedMilliseconds;
+      final totalDurationMs =
+          result.totalDurationMs != null
+              ? result.totalDurationMs! + postProcessSw.elapsedMilliseconds
+              : (speechToTextMs + translationMs);
 
       _log.info(
         'onAudioChunkReceived(): translation succeeded! '
@@ -662,7 +675,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         '${isBaseLanguage ? "Host/LEFT" : "Guest/RIGHT"}), '
         'originalText="$rawOriginal", '
         'translatedText="$rawTranslated", '
-        'annotatedText="$annotatedText"',
+        'annotatedText="$annotatedText", '
+        'timing=(stt=${speechToTextMs}ms, translation=${translationMs}ms, total=${totalDurationMs}ms)',
       );
 
       final draftMessage = Message(
@@ -673,6 +687,9 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         originalText: rawOriginal,
         translatedText: rawTranslated,
         annotatedText: annotatedText,
+        speechToTextMs: speechToTextMs,
+        translationMs: translationMs,
+        totalDurationMs: totalDurationMs,
       );
 
       final savedMessage = await _conversationRepository.saveMessage(

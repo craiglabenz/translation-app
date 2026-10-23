@@ -111,6 +111,9 @@ class SettingsBloc extends CubitSignal<SettingsState> {
     if (mode == TranslationEngineMode.cloud &&
         updated.geminiApiKey.trim().isNotEmpty) {
       unawaited(discoverCloudLanguages());
+    } else if (mode == TranslationEngineMode.onDevice &&
+        modelManager.stateValue.isInstalled) {
+      _warmupEngineOptimistically();
     }
   }
 

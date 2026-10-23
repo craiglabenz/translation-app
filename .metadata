@@ -28,8 +28,8 @@ migration:
       create_revision: 87af191112a7455b061449b773b2bff92ccdbcd0
       base_revision: 87af191112a7455b061449b773b2bff92ccdbcd0
     - platform: web
-      create_revision: 87af191112a7455b061449b773b2bff92ccdbcd0
-      base_revision: 87af191112a7455b061449b773b2bff92ccdbcd0
+      create_revision: 9cba7392c62645f790ccd8c2efda0a6658d260d7
+      base_revision: 9cba7392c62645f790ccd8c2efda0a6658d260d7
     - platform: windows
       create_revision: 87af191112a7455b061449b773b2bff92ccdbcd0
       base_revision: 87af191112a7455b061449b773b2bff92ccdbcd0

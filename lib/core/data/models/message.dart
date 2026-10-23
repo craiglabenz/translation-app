@@ -29,6 +29,15 @@ abstract class Message with _$Message {
     required String originalText,
     required String translatedText,
     @Default('') String annotatedText,
+
+    /// Time spent in milliseconds on the speech-to-text step.
+    int? speechToTextMs,
+
+    /// Time spent in milliseconds on the translation step.
+    int? translationMs,
+
+    /// Total time spent in milliseconds across all steps for this message.
+    int? totalDurationMs,
   }) = _Message;
 
   const Message._();
@@ -40,6 +49,18 @@ abstract class Message with _$Message {
   /// to [translatedText] for legacy records created prior to the 3-string schema.
   String get effectiveTranslatedText =>
       annotatedText.trim().isNotEmpty ? annotatedText : translatedText;
+
+  /// Formats a duration in milliseconds into a concise human-readable string
+  /// (e.g., `420 ms` or `1.45s (1450 ms)`).
+  static String formatDurationMs(int? durationMs) {
+    if (durationMs == null) return '—';
+    final clamped = durationMs < 0 ? 0 : durationMs;
+    if (clamped < 1000) {
+      return '$clamped ms';
+    }
+    final seconds = (clamped / 1000.0).toStringAsFixed(2);
+    return '${seconds}s ($clamped ms)';
+  }
 
   static CreationBindings<Message> get bindings => CreationBindings<Message>(
     getId: (obj) => obj.id.isEmpty ? null : obj.id,

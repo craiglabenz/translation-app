@@ -1024,6 +1024,9 @@ void main() {
             originalText: 'How much is this souvenir?',
             translatedText: '이 기념품은 얼마인가요?',
             annotatedText: '이 기념품은 얼마인가요?',
+            speechToTextMs: 420,
+            translationMs: 310,
+            totalDurationMs: 730,
           ),
         );
         await convRepo.saveMessage(
@@ -1035,6 +1038,9 @@ void main() {
             originalText: '15,000원입니다.',
             translatedText: 'It is 15,000 won.',
             annotatedText: r'It is 15,000 won ($10.87 USD).',
+            speechToTextMs: 1120,
+            translationMs: 480,
+            totalDurationMs: 1600,
           ),
         );
 
@@ -1056,7 +1062,7 @@ void main() {
         expect(find.text(r'It is 15,000 won ($10.87 USD).'), findsOneWidget);
         expect(find.text('How much is this souvenir?'), findsNothing);
 
-        // 1. Tap the first message bubble -> modal opens showing originalText
+        // 1. Tap the first message bubble -> modal opens showing originalText and step timing metadata
         await tester.tap(
           find.byKey(const ValueKey('chat_message_bubble_msg_tap_1')),
         );
@@ -1067,6 +1073,12 @@ void main() {
           findsOneWidget,
         );
         expect(find.text('How much is this souvenir?'), findsOneWidget);
+        expect(find.text('Speech-to-text'), findsOneWidget);
+        expect(find.text('Translation'), findsOneWidget);
+        expect(find.text('Total'), findsOneWidget);
+        expect(find.text('420 ms'), findsOneWidget);
+        expect(find.text('310 ms'), findsOneWidget);
+        expect(find.text('730 ms'), findsOneWidget);
 
         // Tap directly inside the modal card text -> hides the modal
         await tester.tap(
@@ -1078,12 +1090,15 @@ void main() {
           findsNothing,
         );
 
-        // 2. Tap the second message bubble -> modal opens showing Korean originalText
+        // 2. Tap the second message bubble -> modal opens showing Korean originalText and >=1s formatted durations
         await tester.tap(
           find.byKey(const ValueKey('chat_message_bubble_msg_tap_2')),
         );
         await tester.pumpAndSettle();
         expect(find.text('15,000원입니다.'), findsOneWidget);
+        expect(find.text('1.12s (1120 ms)'), findsOneWidget);
+        expect(find.text('480 ms'), findsOneWidget);
+        expect(find.text('1.60s (1600 ms)'), findsOneWidget);
 
         // Tap outside on the dismiss area -> hides the modal
         await tester.tapAt(const Offset(10, 10));

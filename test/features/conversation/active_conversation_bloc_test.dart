@@ -230,6 +230,9 @@ void main() {
         sourceLanguage: 'es',
         originalText: 'Cuesta diez euros',
         translatedText: 'It costs 10 euros (10.87 USD)',
+        speechToTextMs: 340,
+        translationMs: 210,
+        totalDurationMs: 550,
       );
       await bloc.onAudioChunkReceived(
         Float32List.fromList(<double>[0.25, -0.25, 0.2]),
@@ -241,6 +244,9 @@ void main() {
         bloc.stateValue.messages.last.translatedText,
         'It costs 10 euros (10.87 USD)',
       );
+      expect(bloc.stateValue.messages.last.speechToTextMs, 340);
+      expect(bloc.stateValue.messages.last.translationMs, greaterThanOrEqualTo(210));
+      expect(bloc.stateValue.messages.last.totalDurationMs, greaterThanOrEqualTo(550));
     });
 
     test('recognizes language names and regional BCP-47 tags for isBaseLanguage', () async {
