@@ -121,6 +121,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         children: [
                           DropdownButtonFormField<SupportedLanguage>(
                             key: const ValueKey('base_language_dropdown'),
+                            isExpanded: true,
                             initialValue: selectedBaseLang,
                             decoration: const InputDecoration(
                               labelText: 'Primary (Base) Language',
@@ -133,6 +134,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         value: lang,
                                         child: Text(
                                           '${lang.name} (${lang.nativeName})',
+                                          overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
                                 )
@@ -148,6 +150,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           const SizedBox(height: 12),
                           DropdownButtonFormField<SupportedLanguage>(
                             key: const ValueKey('target_language_dropdown'),
+                            isExpanded: true,
                             initialValue: selectedTargetLang,
                             decoration: const InputDecoration(
                               labelText: 'Target Language',
@@ -160,6 +163,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         value: lang,
                                         child: Text(
                                           '${lang.name} (${lang.nativeName})',
+                                          overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
                                 )
@@ -187,6 +191,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         children: [
                           DropdownButtonFormField<SupportedCurrency>(
                             key: const ValueKey('base_currency_dropdown'),
+                            isExpanded: true,
                             initialValue: selectedBaseCurrency,
                             decoration: const InputDecoration(
                               labelText: 'Primary (Base) Currency',
@@ -199,6 +204,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         value: curr,
                                         child: Text(
                                           '${curr.code} — ${curr.name} (${curr.symbol})',
+                                          overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
                                 )
@@ -214,6 +220,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           const SizedBox(height: 12),
                           DropdownButtonFormField<SupportedCurrency>(
                             key: const ValueKey('target_currency_dropdown'),
+                            isExpanded: true,
                             initialValue: selectedTargetCurrency,
                             decoration: const InputDecoration(
                               labelText: 'Target Currency',
@@ -226,6 +233,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         value: curr,
                                         child: Text(
                                           '${curr.code} — ${curr.name} (${curr.symbol})',
+                                          overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
                                 )

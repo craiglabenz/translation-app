@@ -156,12 +156,18 @@ void main() {
       expect(AppSettings.languageNameFor('ja'), 'Japanese');
       expect(AppSettings.languageNameFor('ko'), 'Korean');
       expect(AppSettings.languageNameFor('zh'), 'Chinese');
+      expect(AppSettings.languageNameFor('sv'), 'Swedish');
+      expect(AppSettings.languageNameFor('nl'), 'Dutch');
+      expect(AppSettings.languageNameFor('ar'), 'Arabic');
+      expect(AppSettings.languageNameFor('hi'), 'Hindi');
+      expect(AppSettings.languageNameFor('tr'), 'Turkish');
+      expect(AppSettings.languageNameFor('vi'), 'Vietnamese');
     });
 
     test('languageNameFor falls back to uppercase code for unknown languages', () {
-      expect(AppSettings.languageNameFor('sv'), 'SV');
-      expect(AppSettings.languageNameFor('nl'), 'NL');
-      expect(AppSettings.languageNameFor('ar'), 'AR');
+      expect(AppSettings.languageNameFor('xx'), 'XX');
+      expect(AppSettings.languageNameFor('zz'), 'ZZ');
+      expect(AppSettings.languageNameFor('tlh'), 'TLH');
     });
 
     test('pairLabel formats language names and currency codes', () {

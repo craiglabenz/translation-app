@@ -50,22 +50,49 @@ class LanguageDetector {
   );
   static final RegExp _kanaRegex = RegExp(r'[\u3040-\u309F\u30A0-\u30FF]');
   static final RegExp _cjkRegex = RegExp(r'[\u4E00-\u9FFF\u3400-\u4DBF]');
-  static final RegExp _latinLetterRegex = RegExp(r'[a-zA-Z\u00C0-\u024F]');
-  static final RegExp _wordTokenRegex = RegExp(r"[a-z\u00C0-\u024F']+");
+  static final RegExp _arabicRegex = RegExp(r'[\u0600-\u06FF\u0750-\u077F]');
+  static final RegExp _hebrewRegex = RegExp(r'[\u0590-\u05FF]');
+  static final RegExp _devanagariRegex = RegExp(r'[\u0900-\u097F]');
+  static final RegExp _bengaliRegex = RegExp(r'[\u0980-\u09FF]');
+  static final RegExp _thaiRegex = RegExp(r'[\u0E00-\u0E7F]');
+  static final RegExp _greekRegex = RegExp(r'[\u0370-\u03FF]');
+  static final RegExp _cyrillicRegex = RegExp(r'[\u0400-\u04FF]');
+  static final RegExp _latinLetterRegex = RegExp(r'[a-zA-Z\u00C0-\u024F\u1E00-\u1EFF]');
+  static final RegExp _wordTokenRegex = RegExp(r"[a-z\u00C0-\u024F\u1E00-\u1EFF']+");
 
   /// Parenthetical currency/time annotations like `(18:00 (6PM))`, `(6PM)`,
   /// `(10.87 USD)`, or `(9.20 EUR)` added by formatting rules.
   static final RegExp _conversionParenRegex = RegExp(
-    r'\([^)]*(?:\d|USD|EUR|GBP|JPY|CHF|CAD|AUD|MXN|BRL|KRW|CNY|AM|PM)[^)]*\)',
+    r'\([^)]*(?:\d|USD|EUR|GBP|JPY|CHF|CAD|AUD|MXN|BRL|KRW|CNY|SAR|BDT|BGN|CZK|DKK|ILS|INR|HUF|IDR|NOK|PLN|RON|RUB|RSD|KES|SEK|THB|TRY|UAH|VND|AM|PM)[^)]*\)',
     caseSensitive: false,
   );
 
   static final RegExp _currencyAndNumberTokenRegex = RegExp(
-    r'\b(?:\d+(?:[.,:]\d+)*|USD|EUR|GBP|JPY|CHF|CAD|AUD|MXN|BRL|KRW|CNY|AM|PM)\b',
+    r'\b(?:\d+(?:[.,:]\d+)*|USD|EUR|GBP|JPY|CHF|CAD|AUD|MXN|BRL|KRW|CNY|SAR|BDT|BGN|CZK|DKK|ILS|INR|HUF|IDR|NOK|PLN|RON|RUB|RSD|KES|SEK|THB|TRY|UAH|VND|AM|PM)\b',
     caseSensitive: false,
   );
 
-  static const Set<String> _nonLatinLanguageCodes = <String>{'ko', 'ja', 'zh'};
+  static const Set<String> _nonLatinLanguageCodes = <String>{
+    'ko',
+    'ja',
+    'zh',
+    'ar',
+    'bn',
+    'bg',
+    'el',
+    'he',
+    'hi',
+    'ru',
+    'sr',
+    'th',
+    'uk',
+  };
+  static const Set<String> _cyrillicLanguageCodes = <String>{
+    'ru',
+    'uk',
+    'bg',
+    'sr',
+  };
 
   static const Map<String, Set<String>> _commonWordsByLanguage =
       <String, Set<String>>{
@@ -731,6 +758,46 @@ class LanguageDetector {
         return 'ja';
       }
       return 'zh';
+    }
+    if (_arabicRegex.hasMatch(cleaned)) {
+      return 'ar';
+    }
+    if (_hebrewRegex.hasMatch(cleaned)) {
+      return 'he';
+    }
+    if (_devanagariRegex.hasMatch(cleaned)) {
+      return 'hi';
+    }
+    if (_bengaliRegex.hasMatch(cleaned)) {
+      return 'bn';
+    }
+    if (_thaiRegex.hasMatch(cleaned)) {
+      return 'th';
+    }
+    if (_greekRegex.hasMatch(cleaned)) {
+      return 'el';
+    }
+    if (_cyrillicRegex.hasMatch(cleaned)) {
+      if (normA != null &&
+          _cyrillicLanguageCodes.contains(normA) &&
+          (normB == null || !_cyrillicLanguageCodes.contains(normB))) {
+        return normA;
+      }
+      if (normB != null &&
+          _cyrillicLanguageCodes.contains(normB) &&
+          (normA == null || !_cyrillicLanguageCodes.contains(normA))) {
+        return normB;
+      }
+      if (RegExp(r'[іїєґІЇЄҐ]').hasMatch(cleaned)) return 'uk';
+      if (RegExp(r'[ђјљњћџЂЈЉЊЋЏ]').hasMatch(cleaned)) return 'sr';
+      if (RegExp(r'[ыэъЫЭЪ]').hasMatch(cleaned) && normA != 'bg' && normB != 'bg') {
+        return 'ru';
+      }
+      return normA != null && _cyrillicLanguageCodes.contains(normA)
+          ? normA
+          : (normB != null && _cyrillicLanguageCodes.contains(normB)
+                ? normB
+                : 'ru');
     }
 
     // 2. If the text contains Latin letters and zero non-Latin script characters,
