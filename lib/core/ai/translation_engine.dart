@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:translation_app/core/data/models/app_settings.dart';
 import 'package:translation_app/core/data/models/message.dart';
 
 part 'translation_engine.freezed.dart';
@@ -8,6 +9,9 @@ part 'translation_engine.g.dart';
 
 /// Abstract contract for real-time audio translation engines.
 abstract class TranslationEngine {
+  /// The list of languages supported by this translation engine.
+  List<SupportedLanguage> get supportedLanguages;
+
   Future<void> initialize();
 
   Future<TranslationResult> translateAudioChunk({

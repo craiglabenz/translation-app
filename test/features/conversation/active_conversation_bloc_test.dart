@@ -17,6 +17,10 @@ import 'package:translation_app/features/conversation/bloc/active_conversation_b
 import 'package:translation_app/features/conversation/bloc/active_conversation_state.dart';
 
 class _ConfigurableTranslationEngine implements TranslationEngine {
+  @override
+  List<SupportedLanguage> get supportedLanguages =>
+      AppSettings.supportedLanguages;
+
   TranslationResult nextResult = const TranslationResult(
     sourceLanguage: 'en',
     originalText: 'How much is this?',

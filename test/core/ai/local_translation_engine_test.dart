@@ -86,8 +86,12 @@ void main() {
   });
 
   group('NetworkTranslationEngine', () {
-    test('methods throw UnimplementedError for v1 Gemini Socket', () {
+    test('provides supportedLanguages and throws UnimplementedError for v1 Gemini Socket', () {
       const engine = NetworkTranslationEngine();
+      expect(
+        engine.supportedLanguages,
+        equals(LocalTranslationEngine.gemmaSupportedLanguages),
+      );
       expect(engine.initialize, throwsUnimplementedError);
       expect(
         () => engine.translateAudioChunk(

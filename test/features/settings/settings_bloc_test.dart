@@ -12,7 +12,14 @@ import 'package:translation_app/features/settings/bloc/settings_bloc.dart';
 import 'package:translation_app/features/settings/bloc/settings_state.dart';
 
 class _TrackingTranslationEngine implements TranslationEngine {
+  _TrackingTranslationEngine({this._customLanguages});
+
+  final List<SupportedLanguage>? _customLanguages;
   int initializeCallCount = 0;
+
+  @override
+  List<SupportedLanguage> get supportedLanguages =>
+      _customLanguages ?? AppSettings.supportedLanguages;
 
   @override
   Future<void> initialize() async {
@@ -334,6 +341,29 @@ void main() {
       await bloc.updateTextScaleFactor(5.0);
       expect(bloc.stateValue.settings.textScaleFactor, 3.0);
       expect((await settingsRepo.getSettings()).textScaleFactor, 3.0);
+    });
+
+    test('supportedLanguages delegates to active TranslationEngine and setTranslationEngine reconciles languages', () async {
+      await bloc.load();
+      expect(bloc.supportedLanguages, equals(AppSettings.supportedLanguages));
+
+      // Switch to an engine that only supports French and German
+      const cloudSubset = <SupportedLanguage>[
+        SupportedLanguage(code: 'fr', name: 'French', nativeName: 'Français'),
+        SupportedLanguage(code: 'de', name: 'German', nativeName: 'Deutsch'),
+      ];
+      final customEngine = _TrackingTranslationEngine(
+        customLanguages: cloudSubset,
+      );
+
+      await bloc.setTranslationEngine(customEngine);
+      expect(bloc.translationEngine, same(customEngine));
+      expect(bloc.supportedLanguages, equals(cloudSubset));
+      // Because 'en' and 'es' were not in cloudSubset, they reconcile to 'fr' and 'de'
+      expect(bloc.stateValue.settings.baseLanguage, 'fr');
+      expect(bloc.stateValue.settings.targetLanguage, 'de');
+      expect(bloc.stateValue.settings.baseCurrency, 'EUR');
+      expect(bloc.stateValue.settings.targetCurrency, 'EUR');
     });
   });
 }

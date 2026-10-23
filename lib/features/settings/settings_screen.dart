@@ -66,14 +66,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context, state) {
         final settings = state.settings;
         final exchangeRate = state.exchangeRate;
+        final availableLanguages = _settingsBloc.supportedLanguages;
 
-        final selectedBaseLang = AppSettings.supportedLanguages.firstWhere(
+        final selectedBaseLang = availableLanguages.firstWhere(
           (l) => l.code == settings.baseLanguage,
-          orElse: () => AppSettings.supportedLanguages.first,
+          orElse: () => availableLanguages.first,
         );
-        final selectedTargetLang = AppSettings.supportedLanguages.firstWhere(
+        final selectedTargetLang = availableLanguages.firstWhere(
           (l) => l.code == settings.targetLanguage,
-          orElse: () => AppSettings.supportedLanguages[1],
+          orElse: () => availableLanguages.length > 1
+              ? availableLanguages[1]
+              : availableLanguages.first,
         );
         final selectedBaseCurrency = AppSettings.supportedCurrencies.firstWhere(
           (c) => c.code == settings.baseCurrency,
@@ -127,7 +130,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               labelText: 'Primary (Base) Language',
                               border: OutlineInputBorder(),
                             ),
-                            items: AppSettings.supportedLanguages
+                            items: availableLanguages
                                 .map(
                                   (lang) =>
                                       DropdownMenuItem<SupportedLanguage>(
@@ -156,7 +159,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               labelText: 'Target Language',
                               border: OutlineInputBorder(),
                             ),
-                            items: AppSettings.supportedLanguages
+                            items: availableLanguages
                                 .map(
                                   (lang) =>
                                       DropdownMenuItem<SupportedLanguage>(

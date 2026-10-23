@@ -28,6 +28,10 @@ import 'package:translation_app/main.dart';
 
 class _StubTranslationEngine implements TranslationEngine {
   @override
+  List<SupportedLanguage> get supportedLanguages =>
+      AppSettings.supportedLanguages;
+
+  @override
   Future<void> initialize() async {}
 
   @override

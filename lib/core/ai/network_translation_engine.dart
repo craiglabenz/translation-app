@@ -1,11 +1,20 @@
 import 'dart:typed_data';
 
+import 'package:translation_app/core/ai/local_translation_engine.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
+import 'package:translation_app/core/data/models/app_settings.dart';
 import 'package:translation_app/core/data/models/message.dart';
 
 /// Stubbed cloud translation engine reserved for v1 Gemini Socket support.
 class NetworkTranslationEngine implements TranslationEngine {
   const NetworkTranslationEngine();
+
+  /// Languages supported by the cloud-based translation engine.
+  static const List<SupportedLanguage> cloudSupportedLanguages =
+      LocalTranslationEngine.gemmaSupportedLanguages;
+
+  @override
+  List<SupportedLanguage> get supportedLanguages => cloudSupportedLanguages;
 
   @override
   Future<void> initialize() {

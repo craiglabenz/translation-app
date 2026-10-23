@@ -48,6 +48,55 @@ class LocalTranslationEngine implements TranslationEngine {
 
   static final _log = AppLogger.of('LocalTranslationEngine');
 
+  /// Full list of 38 Gemma pre-trained supported languages.
+  static const List<SupportedLanguage> gemmaSupportedLanguages = [
+    SupportedLanguage(code: 'en', name: 'English', nativeName: 'English'),
+    SupportedLanguage(code: 'es', name: 'Spanish', nativeName: 'Español'),
+    SupportedLanguage(code: 'fr', name: 'French', nativeName: 'Français'),
+    SupportedLanguage(code: 'de', name: 'German', nativeName: 'Deutsch'),
+    SupportedLanguage(code: 'it', name: 'Italian', nativeName: 'Italiano'),
+    SupportedLanguage(code: 'pt', name: 'Portuguese', nativeName: 'Português'),
+    SupportedLanguage(code: 'ja', name: 'Japanese', nativeName: '日本語'),
+    SupportedLanguage(code: 'ko', name: 'Korean', nativeName: '한국어'),
+    SupportedLanguage(code: 'zh', name: 'Chinese', nativeName: '中文'),
+    SupportedLanguage(code: 'ar', name: 'Arabic', nativeName: 'العربية'),
+    SupportedLanguage(code: 'bn', name: 'Bengali', nativeName: 'বাংলা'),
+    SupportedLanguage(code: 'bg', name: 'Bulgarian', nativeName: 'Български'),
+    SupportedLanguage(code: 'hr', name: 'Croatian', nativeName: 'Hrvatski'),
+    SupportedLanguage(code: 'cs', name: 'Czech', nativeName: 'Čeština'),
+    SupportedLanguage(code: 'da', name: 'Danish', nativeName: 'Dansk'),
+    SupportedLanguage(code: 'nl', name: 'Dutch', nativeName: 'Nederlands'),
+    SupportedLanguage(code: 'et', name: 'Estonian', nativeName: 'Eesti'),
+    SupportedLanguage(code: 'fi', name: 'Finnish', nativeName: 'Suomi'),
+    SupportedLanguage(code: 'el', name: 'Greek', nativeName: 'Ελληνικά'),
+    SupportedLanguage(code: 'he', name: 'Hebrew', nativeName: 'עברית'),
+    SupportedLanguage(code: 'hi', name: 'Hindi', nativeName: 'हिन्दी'),
+    SupportedLanguage(code: 'hu', name: 'Hungarian', nativeName: 'Magyar'),
+    SupportedLanguage(
+      code: 'id',
+      name: 'Indonesian',
+      nativeName: 'Bahasa Indonesia',
+    ),
+    SupportedLanguage(code: 'lv', name: 'Latvian', nativeName: 'Latviešu'),
+    SupportedLanguage(code: 'lt', name: 'Lithuanian', nativeName: 'Lietuvių'),
+    SupportedLanguage(code: 'no', name: 'Norwegian', nativeName: 'Norsk'),
+    SupportedLanguage(code: 'pl', name: 'Polish', nativeName: 'Polski'),
+    SupportedLanguage(code: 'ro', name: 'Romanian', nativeName: 'Română'),
+    SupportedLanguage(code: 'ru', name: 'Russian', nativeName: 'Русский'),
+    SupportedLanguage(code: 'sr', name: 'Serbian', nativeName: 'Српски'),
+    SupportedLanguage(code: 'sk', name: 'Slovak', nativeName: 'Slovenčina'),
+    SupportedLanguage(code: 'sl', name: 'Slovenian', nativeName: 'Slovenščina'),
+    SupportedLanguage(code: 'sw', name: 'Swahili', nativeName: 'Kiswahili'),
+    SupportedLanguage(code: 'sv', name: 'Swedish', nativeName: 'Svenska'),
+    SupportedLanguage(code: 'th', name: 'Thai', nativeName: 'ไทย'),
+    SupportedLanguage(code: 'tr', name: 'Turkish', nativeName: 'Türkçe'),
+    SupportedLanguage(code: 'uk', name: 'Ukrainian', nativeName: 'Українська'),
+    SupportedLanguage(code: 'vi', name: 'Vietnamese', nativeName: 'Tiếng Việt'),
+  ];
+
+  @override
+  List<SupportedLanguage> get supportedLanguages => gemmaSupportedLanguages;
+
   final ModelManager _modelManager;
   final AudioInferenceRunner? _inferenceRunner;
   final AudioStreamingInferenceRunner? _streamingInferenceRunner;

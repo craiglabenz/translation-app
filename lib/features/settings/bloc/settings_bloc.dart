@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:bloc_signals/bloc_signals.dart';
+import 'package:translation_app/core/ai/local_translation_engine.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
@@ -20,7 +21,63 @@ class SettingsBloc extends CubitSignal<SettingsState> {
 
   final SettingsRepository _settingsRepository;
   final ModelManager modelManager;
-  final TranslationEngine? _translationEngine;
+  TranslationEngine? _translationEngine;
+
+  /// Returns the currently active [TranslationEngine], if attached.
+  TranslationEngine? get translationEngine => _translationEngine;
+
+  /// Returns the list of [SupportedLanguage] entries provided by the active
+  /// [TranslationEngine], falling back to
+  /// [LocalTranslationEngine.gemmaSupportedLanguages].
+  List<SupportedLanguage> get supportedLanguages {
+    final engineLanguages = _translationEngine?.supportedLanguages;
+    if (engineLanguages != null && engineLanguages.isNotEmpty) {
+      return engineLanguages;
+    }
+    return LocalTranslationEngine.gemmaSupportedLanguages;
+  }
+
+  /// Switches the active [TranslationEngine] (e.g. toggling between
+  /// [LocalTranslationEngine] and a cloud-based `NetworkTranslationEngine`)
+  /// and reconciles selected languages if needed.
+  Future<void> setTranslationEngine(TranslationEngine engine) async {
+    _translationEngine = engine;
+    final available = supportedLanguages;
+    if (available.isEmpty) return;
+
+    var current = stateValue.settings;
+    var changed = false;
+
+    if (!available.any((l) => l.code == current.baseLanguage)) {
+      final fallbackBase = available.first;
+      current = current.copyWith(
+        baseLanguage: fallbackBase.code,
+        baseCurrency:
+            AppSettings.defaultCurrencyForLanguage(fallbackBase.code) ??
+            current.baseCurrency,
+      );
+      changed = true;
+    }
+
+    if (!available.any((l) => l.code == current.targetLanguage)) {
+      final fallbackTarget = available.length > 1
+          ? available[1]
+          : available.first;
+      current = current.copyWith(
+        targetLanguage: fallbackTarget.code,
+        targetCurrency:
+            AppSettings.defaultCurrencyForLanguage(fallbackTarget.code) ??
+            current.targetCurrency,
+      );
+      changed = true;
+    }
+
+    if (changed) {
+      await _persistSettings(current, refreshRate: true);
+    } else {
+      emit(stateValue.copyWith(error: null));
+    }
+  }
 
   /// Loads persisted settings and exchange rates, refreshing expired rates.
   Future<void> load() async {
