@@ -14,6 +14,150 @@ part of 'app_settings.dart';
 T _$identity<T>(T value) => value;
 
 /// @nodoc
+mixin _$SupportedCloudModel {
+
+ String get id; String get name; String get description;
+/// Create a copy of SupportedCloudModel
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$SupportedCloudModelCopyWith<SupportedCloudModel> get copyWith => _$SupportedCloudModelCopyWithImpl<SupportedCloudModel>(this as SupportedCloudModel, _$identity);
+
+  /// Serializes this SupportedCloudModel to a JSON map.
+  Map<String, dynamic> toJson();
+
+
+@override
+bool operator ==(Object other) {
+  final _this = this as SupportedCloudModel;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is SupportedCloudModel&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.description, _this.description) || other.description == _this.description));
+}
+
+@JsonKey(includeFromJson: false, includeToJson: false)
+@override
+int get hashCode {
+  final _this = this as SupportedCloudModel;
+  return Object.hash(runtimeType,_this.id,_this.name,_this.description);
+}
+
+@override
+String toString() {
+  final _this = this as SupportedCloudModel;
+  return 'SupportedCloudModel(id: ${_this.id}, name: ${_this.name}, description: ${_this.description})';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $SupportedCloudModelCopyWith<$Res>  {
+  factory $SupportedCloudModelCopyWith(SupportedCloudModel value, $Res Function(SupportedCloudModel) _then) = _$SupportedCloudModelCopyWithImpl;
+@useResult
+$Res call({
+ String id, String name, String description
+});
+
+
+
+
+}
+/// @nodoc
+class _$SupportedCloudModelCopyWithImpl<$Res>
+    implements $SupportedCloudModelCopyWith<$Res> {
+  _$SupportedCloudModelCopyWithImpl(this._self, this._then);
+
+  final SupportedCloudModel _self;
+  final $Res Function(SupportedCloudModel) _then;
+
+/// Create a copy of SupportedCloudModel
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = null,Object? description = null,}) {
+  return _then(SupportedCloudModel(
+id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
+as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
+as String,description: null == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+}
+
+/// @nodoc
+@JsonSerializable()
+
+class _SupportedCloudModel implements SupportedCloudModel {
+  const _SupportedCloudModel({required this.id, required this.name, required this.description});
+  factory _SupportedCloudModel.fromJson(Map<String, dynamic> json) => _$SupportedCloudModelFromJson(json);
+
+@override final  String id;
+@override final  String name;
+@override final  String description;
+
+/// Create a copy of SupportedCloudModel
+/// with the given fields replaced by the non-null parameter values.
+@override @JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+_$SupportedCloudModelCopyWith<_SupportedCloudModel> get copyWith => __$SupportedCloudModelCopyWithImpl<_SupportedCloudModel>(this, _$identity);
+
+@override
+Map<String, dynamic> toJson() {
+  return _$SupportedCloudModelToJson(this, );
+}
+
+@override
+bool operator ==(Object other) {
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _SupportedCloudModel&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description));
+}
+
+@JsonKey(includeFromJson: false, includeToJson: false)
+@override
+int get hashCode {
+    return Object.hash(runtimeType,id,name,description);
+}
+
+@override
+String toString() {
+    return 'SupportedCloudModel(id: $id, name: $name, description: $description)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class _$SupportedCloudModelCopyWith<$Res> implements $SupportedCloudModelCopyWith<$Res> {
+  factory _$SupportedCloudModelCopyWith(_SupportedCloudModel value, $Res Function(_SupportedCloudModel) _then) = __$SupportedCloudModelCopyWithImpl;
+@override @useResult
+$Res call({
+ String id, String name, String description
+});
+
+
+
+
+}
+/// @nodoc
+class __$SupportedCloudModelCopyWithImpl<$Res>
+    implements _$SupportedCloudModelCopyWith<$Res> {
+  __$SupportedCloudModelCopyWithImpl(this._self, this._then);
+
+  final _SupportedCloudModel _self;
+  final $Res Function(_SupportedCloudModel) _then;
+
+/// Create a copy of SupportedCloudModel
+/// with the given fields replaced by the non-null parameter values.
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? name = null,Object? description = null,}) {
+  return _then(_SupportedCloudModel(
+id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
+as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
+as String,description: null == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
+as String,
+  ));
+}
+
+
+}
+
+/// @nodoc
 mixin _$SupportedLanguage {
 
  String get code; String get name; String get nativeName;
@@ -568,7 +712,7 @@ as String,
 /// @nodoc
 mixin _$AppSettings {
 
- String get id; String get baseLanguage; String get targetLanguage; String get baseCurrency; String get targetCurrency; String get modelDownloadUrl; double get textScaleFactor;
+ String get id; String get baseLanguage; String get targetLanguage; String get baseCurrency; String get targetCurrency; String get modelDownloadUrl; double get textScaleFactor; TranslationEngineMode get translationEngineMode; String get cloudModelId; String get geminiApiKey;
 /// Create a copy of AppSettings
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -582,20 +726,20 @@ $AppSettingsCopyWith<AppSettings> get copyWith => _$AppSettingsCopyWithImpl<AppS
 @override
 bool operator ==(Object other) {
   final _this = this as AppSettings;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is AppSettings&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.baseLanguage, _this.baseLanguage) || other.baseLanguage == _this.baseLanguage)&&(identical(other.targetLanguage, _this.targetLanguage) || other.targetLanguage == _this.targetLanguage)&&(identical(other.baseCurrency, _this.baseCurrency) || other.baseCurrency == _this.baseCurrency)&&(identical(other.targetCurrency, _this.targetCurrency) || other.targetCurrency == _this.targetCurrency)&&(identical(other.modelDownloadUrl, _this.modelDownloadUrl) || other.modelDownloadUrl == _this.modelDownloadUrl)&&(identical(other.textScaleFactor, _this.textScaleFactor) || other.textScaleFactor == _this.textScaleFactor));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is AppSettings&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.baseLanguage, _this.baseLanguage) || other.baseLanguage == _this.baseLanguage)&&(identical(other.targetLanguage, _this.targetLanguage) || other.targetLanguage == _this.targetLanguage)&&(identical(other.baseCurrency, _this.baseCurrency) || other.baseCurrency == _this.baseCurrency)&&(identical(other.targetCurrency, _this.targetCurrency) || other.targetCurrency == _this.targetCurrency)&&(identical(other.modelDownloadUrl, _this.modelDownloadUrl) || other.modelDownloadUrl == _this.modelDownloadUrl)&&(identical(other.textScaleFactor, _this.textScaleFactor) || other.textScaleFactor == _this.textScaleFactor)&&(identical(other.translationEngineMode, _this.translationEngineMode) || other.translationEngineMode == _this.translationEngineMode)&&(identical(other.cloudModelId, _this.cloudModelId) || other.cloudModelId == _this.cloudModelId)&&(identical(other.geminiApiKey, _this.geminiApiKey) || other.geminiApiKey == _this.geminiApiKey));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
   final _this = this as AppSettings;
-  return Object.hash(runtimeType,_this.id,_this.baseLanguage,_this.targetLanguage,_this.baseCurrency,_this.targetCurrency,_this.modelDownloadUrl,_this.textScaleFactor);
+  return Object.hash(runtimeType,_this.id,_this.baseLanguage,_this.targetLanguage,_this.baseCurrency,_this.targetCurrency,_this.modelDownloadUrl,_this.textScaleFactor,_this.translationEngineMode,_this.cloudModelId,_this.geminiApiKey);
 }
 
 @override
 String toString() {
   final _this = this as AppSettings;
-  return 'AppSettings(id: ${_this.id}, baseLanguage: ${_this.baseLanguage}, targetLanguage: ${_this.targetLanguage}, baseCurrency: ${_this.baseCurrency}, targetCurrency: ${_this.targetCurrency}, modelDownloadUrl: ${_this.modelDownloadUrl}, textScaleFactor: ${_this.textScaleFactor})';
+  return 'AppSettings(id: ${_this.id}, baseLanguage: ${_this.baseLanguage}, targetLanguage: ${_this.targetLanguage}, baseCurrency: ${_this.baseCurrency}, targetCurrency: ${_this.targetCurrency}, modelDownloadUrl: ${_this.modelDownloadUrl}, textScaleFactor: ${_this.textScaleFactor}, translationEngineMode: ${_this.translationEngineMode}, cloudModelId: ${_this.cloudModelId}, geminiApiKey: ${_this.geminiApiKey})';
 }
 
 
@@ -606,7 +750,7 @@ abstract mixin class $AppSettingsCopyWith<$Res>  {
   factory $AppSettingsCopyWith(AppSettings value, $Res Function(AppSettings) _then) = _$AppSettingsCopyWithImpl;
 @useResult
 $Res call({
- String id, String baseLanguage, String targetLanguage, String baseCurrency, String targetCurrency, String modelDownloadUrl, double textScaleFactor
+ String id, String baseLanguage, String targetLanguage, String baseCurrency, String targetCurrency, String modelDownloadUrl, double textScaleFactor, TranslationEngineMode translationEngineMode, String cloudModelId, String geminiApiKey
 });
 
 
@@ -623,7 +767,7 @@ class _$AppSettingsCopyWithImpl<$Res>
 
 /// Create a copy of AppSettings
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? baseCurrency = null,Object? targetCurrency = null,Object? modelDownloadUrl = null,Object? textScaleFactor = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? baseCurrency = null,Object? targetCurrency = null,Object? modelDownloadUrl = null,Object? textScaleFactor = null,Object? translationEngineMode = null,Object? cloudModelId = null,Object? geminiApiKey = null,}) {
   return _then(AppSettings(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,baseLanguage: null == baseLanguage ? _self.baseLanguage : baseLanguage // ignore: cast_nullable_to_non_nullable
@@ -632,7 +776,10 @@ as String,baseCurrency: null == baseCurrency ? _self.baseCurrency : baseCurrency
 as String,targetCurrency: null == targetCurrency ? _self.targetCurrency : targetCurrency // ignore: cast_nullable_to_non_nullable
 as String,modelDownloadUrl: null == modelDownloadUrl ? _self.modelDownloadUrl : modelDownloadUrl // ignore: cast_nullable_to_non_nullable
 as String,textScaleFactor: null == textScaleFactor ? _self.textScaleFactor : textScaleFactor // ignore: cast_nullable_to_non_nullable
-as double,
+as double,translationEngineMode: null == translationEngineMode ? _self.translationEngineMode : translationEngineMode // ignore: cast_nullable_to_non_nullable
+as TranslationEngineMode,cloudModelId: null == cloudModelId ? _self.cloudModelId : cloudModelId // ignore: cast_nullable_to_non_nullable
+as String,geminiApiKey: null == geminiApiKey ? _self.geminiApiKey : geminiApiKey // ignore: cast_nullable_to_non_nullable
+as String,
   ));
 }
 
@@ -717,10 +864,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String baseLanguage,  String targetLanguage,  String baseCurrency,  String targetCurrency,  String modelDownloadUrl,  double textScaleFactor)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String baseLanguage,  String targetLanguage,  String baseCurrency,  String targetCurrency,  String modelDownloadUrl,  double textScaleFactor,  TranslationEngineMode translationEngineMode,  String cloudModelId,  String geminiApiKey)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _AppSettings() when $default != null:
-return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurrency,_that.targetCurrency,_that.modelDownloadUrl,_that.textScaleFactor);case _:
+return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurrency,_that.targetCurrency,_that.modelDownloadUrl,_that.textScaleFactor,_that.translationEngineMode,_that.cloudModelId,_that.geminiApiKey);case _:
   return orElse();
 
 }
@@ -738,10 +885,10 @@ return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurre
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String baseLanguage,  String targetLanguage,  String baseCurrency,  String targetCurrency,  String modelDownloadUrl,  double textScaleFactor)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String baseLanguage,  String targetLanguage,  String baseCurrency,  String targetCurrency,  String modelDownloadUrl,  double textScaleFactor,  TranslationEngineMode translationEngineMode,  String cloudModelId,  String geminiApiKey)  $default,) {final _that = this;
 switch (_that) {
 case _AppSettings():
-return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurrency,_that.targetCurrency,_that.modelDownloadUrl,_that.textScaleFactor);case _:
+return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurrency,_that.targetCurrency,_that.modelDownloadUrl,_that.textScaleFactor,_that.translationEngineMode,_that.cloudModelId,_that.geminiApiKey);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -758,10 +905,10 @@ return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurre
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String baseLanguage,  String targetLanguage,  String baseCurrency,  String targetCurrency,  String modelDownloadUrl,  double textScaleFactor)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String baseLanguage,  String targetLanguage,  String baseCurrency,  String targetCurrency,  String modelDownloadUrl,  double textScaleFactor,  TranslationEngineMode translationEngineMode,  String cloudModelId,  String geminiApiKey)?  $default,) {final _that = this;
 switch (_that) {
 case _AppSettings() when $default != null:
-return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurrency,_that.targetCurrency,_that.modelDownloadUrl,_that.textScaleFactor);case _:
+return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurrency,_that.targetCurrency,_that.modelDownloadUrl,_that.textScaleFactor,_that.translationEngineMode,_that.cloudModelId,_that.geminiApiKey);case _:
   return null;
 
 }
@@ -773,7 +920,7 @@ return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurre
 @JsonSerializable()
 
 class _AppSettings extends AppSettings {
-  const _AppSettings({this.id = AppSettings.defaultId, this.baseLanguage = 'en', this.targetLanguage = 'es', this.baseCurrency = 'USD', this.targetCurrency = 'EUR', this.modelDownloadUrl = AppSettings.defaultModelDownloadUrl, this.textScaleFactor = AppSettings.defaultTextScaleFactor}): super._();
+  const _AppSettings({this.id = AppSettings.defaultId, this.baseLanguage = 'en', this.targetLanguage = 'es', this.baseCurrency = 'USD', this.targetCurrency = 'EUR', this.modelDownloadUrl = AppSettings.defaultModelDownloadUrl, this.textScaleFactor = AppSettings.defaultTextScaleFactor, this.translationEngineMode = TranslationEngineMode.onDevice, this.cloudModelId = AppSettings.defaultCloudModelId, this.geminiApiKey = ''}): super._();
   factory _AppSettings.fromJson(Map<String, dynamic> json) => _$AppSettingsFromJson(json);
 
 @override@JsonKey() final  String id;
@@ -783,6 +930,9 @@ class _AppSettings extends AppSettings {
 @override@JsonKey() final  String targetCurrency;
 @override@JsonKey() final  String modelDownloadUrl;
 @override@JsonKey() final  double textScaleFactor;
+@override@JsonKey() final  TranslationEngineMode translationEngineMode;
+@override@JsonKey() final  String cloudModelId;
+@override@JsonKey() final  String geminiApiKey;
 
 /// Create a copy of AppSettings
 /// with the given fields replaced by the non-null parameter values.
@@ -797,18 +947,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AppSettings&&(identical(other.id, id) || other.id == id)&&(identical(other.baseLanguage, baseLanguage) || other.baseLanguage == baseLanguage)&&(identical(other.targetLanguage, targetLanguage) || other.targetLanguage == targetLanguage)&&(identical(other.baseCurrency, baseCurrency) || other.baseCurrency == baseCurrency)&&(identical(other.targetCurrency, targetCurrency) || other.targetCurrency == targetCurrency)&&(identical(other.modelDownloadUrl, modelDownloadUrl) || other.modelDownloadUrl == modelDownloadUrl)&&(identical(other.textScaleFactor, textScaleFactor) || other.textScaleFactor == textScaleFactor));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AppSettings&&(identical(other.id, id) || other.id == id)&&(identical(other.baseLanguage, baseLanguage) || other.baseLanguage == baseLanguage)&&(identical(other.targetLanguage, targetLanguage) || other.targetLanguage == targetLanguage)&&(identical(other.baseCurrency, baseCurrency) || other.baseCurrency == baseCurrency)&&(identical(other.targetCurrency, targetCurrency) || other.targetCurrency == targetCurrency)&&(identical(other.modelDownloadUrl, modelDownloadUrl) || other.modelDownloadUrl == modelDownloadUrl)&&(identical(other.textScaleFactor, textScaleFactor) || other.textScaleFactor == textScaleFactor)&&(identical(other.translationEngineMode, translationEngineMode) || other.translationEngineMode == translationEngineMode)&&(identical(other.cloudModelId, cloudModelId) || other.cloudModelId == cloudModelId)&&(identical(other.geminiApiKey, geminiApiKey) || other.geminiApiKey == geminiApiKey));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
-    return Object.hash(runtimeType,id,baseLanguage,targetLanguage,baseCurrency,targetCurrency,modelDownloadUrl,textScaleFactor);
+    return Object.hash(runtimeType,id,baseLanguage,targetLanguage,baseCurrency,targetCurrency,modelDownloadUrl,textScaleFactor,translationEngineMode,cloudModelId,geminiApiKey);
 }
 
 @override
 String toString() {
-    return 'AppSettings(id: $id, baseLanguage: $baseLanguage, targetLanguage: $targetLanguage, baseCurrency: $baseCurrency, targetCurrency: $targetCurrency, modelDownloadUrl: $modelDownloadUrl, textScaleFactor: $textScaleFactor)';
+    return 'AppSettings(id: $id, baseLanguage: $baseLanguage, targetLanguage: $targetLanguage, baseCurrency: $baseCurrency, targetCurrency: $targetCurrency, modelDownloadUrl: $modelDownloadUrl, textScaleFactor: $textScaleFactor, translationEngineMode: $translationEngineMode, cloudModelId: $cloudModelId, geminiApiKey: $geminiApiKey)';
 }
 
 
@@ -819,7 +969,7 @@ abstract mixin class _$AppSettingsCopyWith<$Res> implements $AppSettingsCopyWith
   factory _$AppSettingsCopyWith(_AppSettings value, $Res Function(_AppSettings) _then) = __$AppSettingsCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String baseLanguage, String targetLanguage, String baseCurrency, String targetCurrency, String modelDownloadUrl, double textScaleFactor
+ String id, String baseLanguage, String targetLanguage, String baseCurrency, String targetCurrency, String modelDownloadUrl, double textScaleFactor, TranslationEngineMode translationEngineMode, String cloudModelId, String geminiApiKey
 });
 
 
@@ -836,7 +986,7 @@ class __$AppSettingsCopyWithImpl<$Res>
 
 /// Create a copy of AppSettings
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? baseCurrency = null,Object? targetCurrency = null,Object? modelDownloadUrl = null,Object? textScaleFactor = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? baseCurrency = null,Object? targetCurrency = null,Object? modelDownloadUrl = null,Object? textScaleFactor = null,Object? translationEngineMode = null,Object? cloudModelId = null,Object? geminiApiKey = null,}) {
   return _then(_AppSettings(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,baseLanguage: null == baseLanguage ? _self.baseLanguage : baseLanguage // ignore: cast_nullable_to_non_nullable
@@ -845,7 +995,10 @@ as String,baseCurrency: null == baseCurrency ? _self.baseCurrency : baseCurrency
 as String,targetCurrency: null == targetCurrency ? _self.targetCurrency : targetCurrency // ignore: cast_nullable_to_non_nullable
 as String,modelDownloadUrl: null == modelDownloadUrl ? _self.modelDownloadUrl : modelDownloadUrl // ignore: cast_nullable_to_non_nullable
 as String,textScaleFactor: null == textScaleFactor ? _self.textScaleFactor : textScaleFactor // ignore: cast_nullable_to_non_nullable
-as double,
+as double,translationEngineMode: null == translationEngineMode ? _self.translationEngineMode : translationEngineMode // ignore: cast_nullable_to_non_nullable
+as TranslationEngineMode,cloudModelId: null == cloudModelId ? _self.cloudModelId : cloudModelId // ignore: cast_nullable_to_non_nullable
+as String,geminiApiKey: null == geminiApiKey ? _self.geminiApiKey : geminiApiKey // ignore: cast_nullable_to_non_nullable
+as String,
   ));
 }
 

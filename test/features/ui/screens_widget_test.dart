@@ -205,6 +205,23 @@ void main() {
         find.byKey(const ValueKey('mic_translating_progress_bar')),
         findsOneWidget,
       );
+
+      // Verify custom cloud model name is dynamically rendered when provided
+      await tester.pumpWidget(
+        _wrapWithTheme(
+          PulsingMicIndicator(
+            isListening: true,
+            isLoading: true,
+            amplitude: 0.0,
+            modelName: 'Gemini 3.8 Flash',
+            onToggleListening: () {},
+          ),
+        ),
+      );
+      expect(
+        find.text('Gemini 3.8 Flash is processing audio & currency context'),
+        findsOneWidget,
+      );
     });
   });
 
@@ -757,8 +774,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Scroll ListView down so the 3rd section card (On-Device AI Model) is built
-      await tester.drag(find.byType(ListView), const Offset(0, -400));
+      // Scroll ListView down so the On-Device AI Model section card is built
+      await tester.drag(find.byType(ListView), const Offset(0, -550));
       await tester.pumpAndSettle();
 
       expect(
@@ -852,6 +869,10 @@ void main() {
       expect(settingsBloc.stateValue.settings.targetCurrency, 'JPY');
 
       // Change Primary Currency to GBP -> does NOT alter baseLanguage ('fr')
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('base_currency_dropdown')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('base_currency_dropdown')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('GBP — British Pound (£)').last);
@@ -860,6 +881,10 @@ void main() {
       expect(settingsBloc.stateValue.settings.baseLanguage, 'fr');
 
       // Change Target Currency to CHF -> does NOT alter targetLanguage ('ja')
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('target_currency_dropdown')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('target_currency_dropdown')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('CHF — Swiss Franc (CHF)').last);
@@ -1456,6 +1481,102 @@ void main() {
         await tester.tap(find.byKey(const ValueKey('chat_back_button')));
         await tester.pumpAndSettle();
         expect(find.text('Dinner reservation at eight'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'supports switching between On-Device and Cloud (Gemini) engines, selecting Gemini 3.8 Flash / Gemini 4, and configuring API key with help instructions',
+      (tester) async {
+        configureDependencies();
+        final settingsBloc = GetIt.I<SettingsBloc>();
+        await settingsBloc.load();
+
+        await tester.pumpWidget(const MyApp());
+        await tester.pumpAndSettle();
+
+        // Navigate to SettingsScreen
+        await tester.tap(find.byKey(const ValueKey('home_settings_button')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('translation_engine_mode_selector')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('cloud_model_dropdown')),
+          findsNothing,
+        );
+
+        // Switch to Cloud (Gemini)
+        await tester.tap(find.text('Cloud (Gemini)'));
+        await tester.pumpAndSettle();
+
+        expect(
+          settingsBloc.stateValue.settings.translationEngineMode,
+          TranslationEngineMode.cloud,
+        );
+        expect(
+          find.byKey(const ValueKey('cloud_model_dropdown')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('gemini_api_key_text_field')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('gemini_api_key_help_box')),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('aistudio.google.com/apikey'),
+          findsOneWidget,
+        );
+
+        // Select Gemini 3.1 Pro in cloud model dropdown
+        await tester.tap(find.byKey(const ValueKey('cloud_model_dropdown')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.textContaining('Gemini 3.1 Pro —').last);
+        await tester.pumpAndSettle();
+        expect(
+          settingsBloc.stateValue.settings.cloudModelId,
+          'gemini-3.1-pro',
+        );
+
+        // Return to HomeScreen while API key is still empty -> shows Cloud API key banner
+        await tester.tap(find.byKey(const ValueKey('settings_back_button')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('home_cloud_api_key_banner')),
+          findsOneWidget,
+        );
+
+        // Tap Settings button on the banner to enter API key
+        await tester.tap(
+          find.byKey(const ValueKey('home_configure_api_key_button')),
+        );
+        await tester.pumpAndSettle();
+
+        // Enter API key and toggle visibility
+        await tester.enterText(
+          find.byKey(const ValueKey('gemini_api_key_text_field')),
+          'AIzaSyTestCloudKey',
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('gemini_api_key_visibility_button')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          settingsBloc.stateValue.settings.geminiApiKey,
+          'AIzaSyTestCloudKey',
+        );
+
+        // Return to HomeScreen -> Cloud API key banner is now hidden
+        await tester.tap(find.byKey(const ValueKey('settings_back_button')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('home_cloud_api_key_banner')),
+          findsNothing,
+        );
       },
     );
   });

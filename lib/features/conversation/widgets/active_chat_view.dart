@@ -772,6 +772,7 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                             isListening: state.isListening,
                             isLoading: state.isLoading,
                             amplitude: state.amplitude,
+                            modelName: settings.activeModelDisplayName,
                             onToggleListening:
                                 _conversationBloc.toggleListening,
                           ),

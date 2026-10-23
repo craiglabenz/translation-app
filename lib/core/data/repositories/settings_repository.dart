@@ -58,12 +58,18 @@ class SettingsRepository extends Repository<AppSettings> {
       details: RequestDetails.read(requestType: RequestType.local),
     );
     if (existing != null) {
+      final normalized = existing.cloudModelId == 'gemini-4'
+          ? existing.copyWith(cloudModelId: 'gemini-3.1-pro')
+          : existing;
+      if (normalized != existing) {
+        await saveSettings(normalized);
+      }
       sw.stop();
       _log.info(
         '[PERF] SettingsRepository.getSettings() FINISH '
         '(${sw.elapsedMilliseconds}ms, cached=true)',
       );
-      return existing;
+      return normalized;
     }
     const defaults = AppSettings();
     await saveSettings(defaults);

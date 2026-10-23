@@ -29,6 +29,8 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late final SettingsBloc _settingsBloc;
   late final TextEditingController _urlController;
+  late final TextEditingController _apiKeyController;
+  bool _obscureApiKey = true;
 
   @override
   void initState() {
@@ -37,11 +39,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _urlController = TextEditingController(
       text: _settingsBloc.stateValue.settings.modelDownloadUrl,
     );
+    _apiKeyController = TextEditingController(
+      text: _settingsBloc.stateValue.settings.geminiApiKey,
+    );
   }
 
   @override
   void dispose() {
     _urlController.dispose();
+    _apiKeyController.dispose();
     super.dispose();
   }
 
@@ -87,6 +93,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               (c) => c.code == settings.targetCurrency,
               orElse: () => AppSettings.supportedCurrencies[1],
             );
+        final selectedCloudModel = AppSettings.supportedCloudModels.firstWhere(
+          (m) => m.id == settings.cloudModelId,
+          orElse: () => AppSettings.supportedCloudModels.first,
+        );
+        final isCloudMode =
+            settings.translationEngineMode == TranslationEngineMode.cloud;
 
         return Scaffold(
           backgroundColor: colors.surface,
@@ -115,11 +127,185 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     vertical: 16,
                   ),
                   children: [
+                    // Translation Engine Selector Card
+                    _SectionCard(
+                      title: 'Translation Engine',
+                      subtitle: isCloudMode
+                          ? 'Cloud Gemini provides higher accuracy and ${availableLanguages.length} supported languages.'
+                          : 'On-device Gemma 4 E2B runs 100% offline with ${availableLanguages.length} supported languages.',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SegmentedButton<TranslationEngineMode>(
+                            key: const ValueKey('translation_engine_mode_selector'),
+                            segments: const <ButtonSegment<TranslationEngineMode>>[
+                              ButtonSegment<TranslationEngineMode>(
+                                value: TranslationEngineMode.onDevice,
+                                icon: Icon(Icons.phone_android_rounded, size: 18),
+                                label: Text('On-Device (Gemma 4)'),
+                              ),
+                              ButtonSegment<TranslationEngineMode>(
+                                value: TranslationEngineMode.cloud,
+                                icon: Icon(Icons.cloud_outlined, size: 18),
+                                label: Text('Cloud (Gemini)'),
+                              ),
+                            ],
+                            selected: <TranslationEngineMode>{
+                              settings.translationEngineMode,
+                            },
+                            onSelectionChanged: (selection) {
+                              if (selection.isNotEmpty) {
+                                unawaited(
+                                  _settingsBloc.updateTranslationEngineMode(
+                                    selection.first,
+                                  ),
+                                );
+                              }
+                            },
+                          ),
+                          if (isCloudMode) ...[
+                            const SizedBox(height: 14),
+                            DropdownButtonFormField<SupportedCloudModel>(
+                              key: const ValueKey('cloud_model_dropdown'),
+                              isExpanded: true,
+                              initialValue: selectedCloudModel,
+                              decoration: const InputDecoration(
+                                labelText: 'Gemini Cloud Model',
+                                border: OutlineInputBorder(),
+                              ),
+                              items: AppSettings.supportedCloudModels
+                                  .map(
+                                    (model) =>
+                                        DropdownMenuItem<SupportedCloudModel>(
+                                          value: model,
+                                          child: Text(
+                                            '${model.name} — ${model.description}',
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                  )
+                                  .toList(),
+                              onChanged: (model) {
+                                if (model != null) {
+                                  unawaited(
+                                    _settingsBloc.updateCloudModelId(model.id),
+                                  );
+                                }
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              key: const ValueKey('gemini_api_key_text_field'),
+                              controller: _apiKeyController,
+                              obscureText: _obscureApiKey,
+                              autocorrect: false,
+                              enableSuggestions: false,
+                              decoration: InputDecoration(
+                                labelText: 'Gemini API Key',
+                                hintText: 'AIzaSy...',
+                                border: const OutlineInputBorder(),
+                                suffixIcon: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      key: const ValueKey(
+                                        'gemini_api_key_visibility_button',
+                                      ),
+                                      tooltip: _obscureApiKey
+                                          ? 'Show API key'
+                                          : 'Hide API key',
+                                      icon: Icon(
+                                        _obscureApiKey
+                                            ? Icons.visibility_outlined
+                                            : Icons.visibility_off_outlined,
+                                      ),
+                                      onPressed: () {
+                                        setState(() {
+                                          _obscureApiKey = !_obscureApiKey;
+                                        });
+                                      },
+                                    ),
+                                    IconButton(
+                                      key: const ValueKey(
+                                        'gemini_api_key_save_button',
+                                      ),
+                                      tooltip: 'Save API Key',
+                                      icon: const Icon(Icons.save_outlined),
+                                      onPressed: () {
+                                        unawaited(
+                                          _settingsBloc.updateGeminiApiKey(
+                                            _apiKeyController.text,
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              onChanged: (value) {
+                                unawaited(
+                                  _settingsBloc.updateGeminiApiKey(value),
+                                );
+                              },
+                              onSubmitted: (value) {
+                                unawaited(
+                                  _settingsBloc.updateGeminiApiKey(value),
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 10),
+                            Container(
+                              key: const ValueKey('gemini_api_key_help_box'),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: colors.surface,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: colors.outline),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.help_outline_rounded,
+                                        size: 16,
+                                        color: colors.primary,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'How to get a Gemini API key',
+                                        style: typography.labelMedium.copyWith(
+                                          color: colors.onSurface,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    '1. Go to Google AI Studio at aistudio.google.com/apikey\n'
+                                    '2. Sign in with your Google account and click "Create API key".\n'
+                                    '3. Copy the generated key (starts with "AIza...") and paste it above.\n'
+                                    'Your API key is stored locally on this device and sent only to Google\'s Gemini API.',
+                                    style: typography.bodySmall.copyWith(
+                                      color: colors.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
                     // Language Pair Card
                     _SectionCard(
                       title: 'Languages',
-                      subtitle:
-                          'Gemma 4 auto-detects which language is spoken and translates to the other.',
+                      subtitle: isCloudMode
+                          ? '${selectedCloudModel.name} auto-detects which language is spoken and translates to the other.'
+                          : 'Gemma 4 auto-detects which language is spoken and translates to the other.',
                       child: Column(
                         children: [
                           DropdownButtonFormField<SupportedLanguage>(

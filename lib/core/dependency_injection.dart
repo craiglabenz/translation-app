@@ -5,6 +5,8 @@ import 'package:get_it/get_it.dart';
 import 'package:injectable/injectable.dart';
 import 'package:translation_app/core/ai/local_translation_engine.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
+import 'package:translation_app/core/ai/network_translation_engine.dart';
+import 'package:translation_app/core/ai/switchable_translation_engine.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/audio/native_audio_service.dart';
 import 'package:translation_app/core/audio/vad_buffer.dart';
@@ -105,7 +107,23 @@ void configureDependencies({
 
   if (!getIt.isRegistered<TranslationEngine>()) {
     getIt.registerLazySingleton<TranslationEngine>(
-      () => LocalTranslationEngine(modelManager: getIt<ModelManager>()),
+      () {
+        final localEngine = LocalTranslationEngine(
+          modelManager: getIt<ModelManager>(),
+        );
+        final networkEngine = NetworkTranslationEngine(
+          apiKeyProvider: () => getIt.isRegistered<SettingsBloc>()
+              ? getIt<SettingsBloc>().stateValue.settings.geminiApiKey
+              : '',
+          modelIdProvider: () => getIt.isRegistered<SettingsBloc>()
+              ? getIt<SettingsBloc>().stateValue.settings.cloudModelId
+              : AppSettings.defaultCloudModelId,
+        );
+        return SwitchableTranslationEngine(
+          localEngine: localEngine,
+          networkEngine: networkEngine,
+        );
+      },
       dispose: (engine) => engine.dispose(),
     );
   }

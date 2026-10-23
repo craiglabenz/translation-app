@@ -3,11 +3,14 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:translation_app/core/ai/language_detector.dart';
 import 'package:translation_app/core/ai/local_translation_engine.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
 import 'package:translation_app/core/ai/network_translation_engine.dart';
 import 'package:translation_app/core/ai/prompt_templates.dart';
+import 'package:translation_app/core/ai/switchable_translation_engine.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
 import 'package:translation_app/core/data/models/message.dart';
@@ -85,26 +88,155 @@ void main() {
     });
   });
 
-  group('NetworkTranslationEngine', () {
-    test('provides supportedLanguages and throws UnimplementedError for v1 Gemini Socket', () {
-      const engine = NetworkTranslationEngine();
+  group('NetworkTranslationEngine & SwitchableTranslationEngine', () {
+    test('provides expanded cloudSupportedLanguages and throws StateError when API key is missing', () async {
+      final engine = NetworkTranslationEngine(apiKeyProvider: () => '');
       expect(
         engine.supportedLanguages,
-        equals(LocalTranslationEngine.gemmaSupportedLanguages),
+        equals(NetworkTranslationEngine.cloudSupportedLanguages),
       );
-      expect(engine.initialize, throwsUnimplementedError);
       expect(
-        () => engine.translateAudioChunk(
-          audioWavChunk: Float32List.fromList(<double>[0.1]),
+        engine.supportedLanguages.length,
+        greaterThan(LocalTranslationEngine.gemmaSupportedLanguages.length),
+      );
+      expect(engine.initialize, throwsStateError);
+      await expectLater(
+        engine.translateAudioChunk(
+          audioWavChunk: Float32List.fromList(<double>[0.25, -0.25, 0.3]),
           baseLanguage: 'English',
           targetLanguage: 'Spanish',
           exchangeRate: 0.92,
           baseCurrency: 'USD',
           targetCurrency: 'EUR',
         ),
-        throwsUnimplementedError,
+        throwsStateError,
       );
-      expect(engine.dispose, throwsUnimplementedError);
+      await engine.dispose();
+    });
+
+    test('streams audio translation over SSE, discovers languages, and summarizes conversations', () async {
+      final mockClient = MockClient.streaming((request, bodyStream) async {
+        final url = request.url.toString();
+        if (url.contains(':streamGenerateContent')) {
+          final sseLines = <String>[
+            'data: {"candidates":[{"content":{"parts":[{"text":"{\\"original_transcript\\": \\"Where is the train?\\", \\"detected_language\\": \\"en\\", \\"translated_text\\": \\"¿Dónde "}]}}]}\n\n',
+            'data: {"candidates":[{"content":{"parts":[{"text":"está el tren?\\"}"}]}}]}\n\n',
+            'data: [DONE]\n\n',
+          ];
+          return http.StreamedResponse(
+            Stream<List<int>>.fromIterable(sseLines.map(utf8.encode)),
+            200,
+          );
+        }
+        // Standard :generateContent for language discovery or summary
+        final bodyBytes = await bodyStream.toBytes();
+        final bodyText = utf8.decode(bodyBytes);
+        if (bodyText.contains('JSON array of spoken languages')) {
+          final discoveredJson = jsonEncode(<Map<String, String>>[
+            <String, String>{
+              'code': 'mn',
+              'name': 'Mongolian',
+              'nativeName': 'Монгол',
+            },
+          ]);
+          final envelope = jsonEncode(<String, Object?>{
+            'candidates': <Object?>[
+              <String, Object?>{
+                'content': <String, Object?>{
+                  'parts': <Object?>[
+                    <String, Object?>{'text': discoveredJson},
+                  ],
+                },
+              },
+            ],
+          });
+          return http.StreamedResponse(
+            Stream<List<int>>.value(utf8.encode(envelope)),
+            200,
+          );
+        }
+        final summaryEnvelope = jsonEncode(<String, Object?>{
+          'candidates': <Object?>[
+            <String, Object?>{
+              'content': <String, Object?>{
+                'parts': <Object?>[
+                  <String, Object?>{'text': 'Asking for train directions'},
+                ],
+              },
+            },
+          ],
+        });
+        return http.StreamedResponse(
+          Stream<List<int>>.value(utf8.encode(summaryEnvelope)),
+          200,
+        );
+      });
+
+      final engine = NetworkTranslationEngine(
+        apiKeyProvider: () => 'AIzaSyTestKey123',
+        modelIdProvider: () => 'gemini-3.8-flash',
+        httpClient: mockClient,
+      );
+
+      final partials = <String>[];
+      final result = await engine.translateAudioChunk(
+        audioWavChunk: Float32List.fromList(<double>[0.3, -0.3, 0.25, -0.25]),
+        baseLanguage: 'en',
+        targetLanguage: 'es',
+        exchangeRate: 0.92,
+        baseCurrency: 'USD',
+        targetCurrency: 'EUR',
+        onPartialResult: (partial) => partials.add(partial.translatedText),
+      );
+
+      expect(result.sourceLanguage, 'en');
+      expect(result.originalText, 'Where is the train?');
+      expect(result.translatedText, '¿Dónde está el tren?');
+      expect(partials, isNotEmpty);
+
+      // Dynamic language discovery merges 'mn' (Mongolian)
+      final discovered = await engine.discoverSupportedLanguages();
+      expect(discovered.any((l) => l.code == 'mn'), isTrue);
+
+      // Summarize conversation
+      final summary = await engine.summarizeConversation(
+        messages: <Message>[
+          Message(
+            id: 'm1',
+            conversationId: 'c1',
+            timestamp: DateTime.utc(2026, 6, 1),
+            isBaseLanguage: true,
+            originalText: 'Where is the train?',
+            translatedText: '¿Dónde está el tren?',
+          ),
+        ],
+        baseLanguage: 'en',
+        targetLanguage: 'es',
+      );
+      expect(summary, 'Asking for train directions');
+
+      // SwitchableTranslationEngine switches between local and network engines
+      final localEngine = LocalTranslationEngine(
+        modelManager: ModelManager(
+          initialInstalled: true,
+          isInstalledCheck: () async => true,
+        ),
+      );
+      final switchable = SwitchableTranslationEngine(
+        localEngine: localEngine,
+        networkEngine: engine,
+      );
+      expect(switchable.mode, TranslationEngineMode.onDevice);
+      expect(
+        switchable.supportedLanguages.length,
+        LocalTranslationEngine.gemmaSupportedLanguages.length,
+      );
+
+      switchable.setMode(TranslationEngineMode.cloud);
+      expect(switchable.mode, TranslationEngineMode.cloud);
+      expect(switchable.supportedLanguages.any((l) => l.code == 'mn'), isTrue);
+
+      await switchable.dispose();
     });
   });
 
@@ -983,6 +1115,46 @@ Let me know if you need anything else!
       await koEngine.dispose();
       await engine.dispose();
       await modelManager.close();
+    });
+
+    test('NetworkTranslationEngine resolves v1beta model IDs and retries on 404', () async {
+      final parsedModels = NetworkTranslationEngine.parseAvailableModelIdsResponse(
+        jsonEncode(<String, Object?>{
+          'models': <Object?>[
+            <String, Object?>{
+              'name': 'models/gemini-3.1-pro-preview',
+              'supportedGenerationMethods': <String>['generateContent'],
+            },
+            <String, Object?>{
+              'name': 'models/gemini-2.5-flash',
+              'supportedGenerationMethods': <String>['generateContent'],
+            },
+            <String, Object?>{
+              'name': 'models/text-embedding-004',
+              'supportedGenerationMethods': <String>['embedContent'],
+            },
+          ],
+        }),
+      );
+
+      expect(
+        parsedModels,
+        equals(<String>{'gemini-3.1-pro-preview', 'gemini-2.5-flash'}),
+      );
+      expect(
+        NetworkTranslationEngine.resolveEffectiveModelId(
+          'gemini-3.1-pro',
+          parsedModels,
+        ),
+        'gemini-3.1-pro-preview',
+      );
+      expect(
+        NetworkTranslationEngine.resolveEffectiveModelId(
+          'gemini-3.8-flash',
+          parsedModels,
+        ),
+        'gemini-2.5-flash',
+      );
     });
   });
 }

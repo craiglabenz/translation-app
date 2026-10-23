@@ -208,24 +208,82 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
 
-                      // On-device Gemma 4 E2B Model Readiness Banner
-                      BlocSignalBuilder<ModelManager, ModelDownloadState>(
-                        bloc: _settingsBloc.modelManager,
-                        builder: (context, modelState) {
-                          if (modelState.isInstalled) {
-                            return const SizedBox.shrink();
-                          }
-                          return Padding(
+                      // Active Engine Readiness Banner (On-Device Model or Cloud API Key)
+                      if (settings.translationEngineMode ==
+                          TranslationEngineMode.cloud) ...[
+                        if (settings.geminiApiKey.trim().isEmpty)
+                          Padding(
                             padding: const EdgeInsets.only(top: 12),
-                            child: _ModelStatusBanner(
-                              modelState: modelState,
-                              onDownload: _settingsBloc.downloadModel,
-                              onCancel:
-                                  _settingsBloc.modelManager.cancelDownload,
+                            child: Container(
+                              key: const ValueKey('home_cloud_api_key_banner'),
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: colors.surfaceContainerLow,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: colors.primary.withValues(alpha: 0.4),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.vpn_key_outlined,
+                                    color: colors.primary,
+                                    size: 22,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Gemini API Key Required for Cloud Translation',
+                                          style: typography.labelLarge.copyWith(
+                                            color: colors.onSurface,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Enter your key from aistudio.google.com/apikey in Settings, or switch back to On-Device mode.',
+                                          style: typography.bodySmall.copyWith(
+                                            color: colors.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  FilledButton(
+                                    key: const ValueKey(
+                                      'home_configure_api_key_button',
+                                    ),
+                                    onPressed: () =>
+                                        _navigateTo(const SettingsRoute()),
+                                    child: const Text('Settings'),
+                                  ),
+                                ],
+                              ),
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                      ] else
+                        BlocSignalBuilder<ModelManager, ModelDownloadState>(
+                          bloc: _settingsBloc.modelManager,
+                          builder: (context, modelState) {
+                            if (modelState.isInstalled) {
+                              return const SizedBox.shrink();
+                            }
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: _ModelStatusBanner(
+                                modelState: modelState,
+                                onDownload: _settingsBloc.downloadModel,
+                                onCancel:
+                                    _settingsBloc.modelManager.cancelDownload,
+                              ),
+                            );
+                          },
+                        ),
 
                       // Center Ripple Start Button
                       Expanded(

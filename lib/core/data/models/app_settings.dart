@@ -2,9 +2,33 @@ import 'package:data_layer/data_layer.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:hive_ce/hive.dart';
 import 'package:translation_app/core/ai/local_translation_engine.dart';
+import 'package:translation_app/core/ai/network_translation_engine.dart';
 
 part 'app_settings.freezed.dart';
 part 'app_settings.g.dart';
+
+/// Selects whether audio translation runs locally on-device or in the cloud via
+/// Google Gemini.
+enum TranslationEngineMode {
+  /// On-device Gemma 4 E2B model via LiteRT-LM (offline, 38 languages).
+  onDevice,
+
+  /// Cloud-based Google Gemini API (online, 100+ languages, requires API key).
+  cloud,
+}
+
+/// Represents a selectable cloud Gemini model in Settings.
+@freezed
+abstract class SupportedCloudModel with _$SupportedCloudModel {
+  const factory SupportedCloudModel({
+    required String id,
+    required String name,
+    required String description,
+  }) = _SupportedCloudModel;
+
+  factory SupportedCloudModel.fromJson(Map<String, Object?> json) =>
+      _$SupportedCloudModelFromJson(json);
+}
 
 /// Represents a language selectable in the translation app.
 @freezed
@@ -42,7 +66,7 @@ abstract class SupportedCurrency with _$SupportedCurrency {
 }
 
 /// Persistent application settings for language pairs, currencies, model URL,
-/// and multiplicative text scaling.
+/// multiplicative text scaling, and translation engine mode (on-device vs cloud).
 @freezed
 abstract class AppSettings with _$AppSettings {
   const factory AppSettings({
@@ -53,6 +77,10 @@ abstract class AppSettings with _$AppSettings {
     @Default('EUR') String targetCurrency,
     @Default(AppSettings.defaultModelDownloadUrl) String modelDownloadUrl,
     @Default(AppSettings.defaultTextScaleFactor) double textScaleFactor,
+    @Default(TranslationEngineMode.onDevice)
+    TranslationEngineMode translationEngineMode,
+    @Default(AppSettings.defaultCloudModelId) String cloudModelId,
+    @Default('') String geminiApiKey,
   }) = _AppSettings;
 
   const AppSettings._();
@@ -64,6 +92,21 @@ abstract class AppSettings with _$AppSettings {
   static const double defaultTextScaleFactor = 1.0;
   static const double minTextScaleFactor = 0.5;
   static const double maxTextScaleFactor = 3.0;
+  static const String defaultCloudModelId = 'gemini-3.8-flash';
+
+  /// Available cloud Gemini models selectable in Settings.
+  static const List<SupportedCloudModel> supportedCloudModels = [
+    SupportedCloudModel(
+      id: 'gemini-3.8-flash',
+      name: 'Gemini 3.8 Flash',
+      description: 'Ultra-low latency for live conversation (Recommended)',
+    ),
+    SupportedCloudModel(
+      id: 'gemini-3.1-pro',
+      name: 'Gemini 3.1 Pro',
+      description: 'Maximum accuracy & nuance for complex idioms',
+    ),
+  ];
 
   static const String defaultHuggingFaceRepo =
       'litert-community/gemma-4-E2B-it-litert-lm';
@@ -71,13 +114,18 @@ abstract class AppSettings with _$AppSettings {
   static const String defaultModelDownloadUrl =
       'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm';
 
-  /// Default catalog of supported languages (delegating to
+  /// Default catalog of on-device supported languages (delegating to
   /// [LocalTranslationEngine.gemmaSupportedLanguages]).
   ///
   /// For active engine-specific language lists, prefer reading
   /// `TranslationEngine.supportedLanguages` (or `SettingsBloc.supportedLanguages`).
   static const List<SupportedLanguage> supportedLanguages =
       LocalTranslationEngine.gemmaSupportedLanguages;
+
+  /// Combined catalog of all known languages (on-device + cloud) used for
+  /// resolving display names, native names, flags, and currencies.
+  static const List<SupportedLanguage> allKnownLanguages =
+      NetworkTranslationEngine.cloudSupportedLanguages;
 
   /// Curated list of supported currencies linked to [supportedLanguages].
   static const List<SupportedCurrency> supportedCurrencies = [
@@ -112,6 +160,19 @@ abstract class AppSettings with _$AppSettings {
     SupportedCurrency(code: 'TRY', name: 'Turkish Lira', symbol: '₺'),
     SupportedCurrency(code: 'UAH', name: 'Ukrainian Hryvnia', symbol: '₴'),
     SupportedCurrency(code: 'VND', name: 'Vietnamese Đồng', symbol: '₫'),
+    SupportedCurrency(code: 'HKD', name: 'Hong Kong Dollar', symbol: r'HK$'),
+    SupportedCurrency(code: 'TWD', name: 'New Taiwan Dollar', symbol: r'NT$'),
+    SupportedCurrency(code: 'SGD', name: 'Singapore Dollar', symbol: r'S$'),
+    SupportedCurrency(code: 'MYR', name: 'Malaysian Ringgit', symbol: 'RM'),
+    SupportedCurrency(code: 'PHP', name: 'Philippine Peso', symbol: '₱'),
+    SupportedCurrency(code: 'ZAR', name: 'South African Rand', symbol: 'R'),
+    SupportedCurrency(code: 'ISK', name: 'Icelandic Króna', symbol: 'kr'),
+    SupportedCurrency(code: 'PKR', name: 'Pakistani Rupee', symbol: '₨'),
+    SupportedCurrency(code: 'IRR', name: 'Iranian Rial', symbol: '﷼'),
+    SupportedCurrency(code: 'NGN', name: 'Nigerian Naira', symbol: '₦'),
+    SupportedCurrency(code: 'ETB', name: 'Ethiopian Birr', symbol: 'Br'),
+    SupportedCurrency(code: 'EGP', name: 'Egyptian Pound', symbol: 'E£'),
+    SupportedCurrency(code: 'AED', name: 'UAE Dirham', symbol: 'د.إ'),
   ];
 
   /// Canonical mapping from language code (and regional BCP-47 tags) to its
@@ -210,6 +271,33 @@ abstract class AppSettings with _$AppSettings {
     'uk-ua': 'UAH',
     'vi': 'VND',
     'vi-vn': 'VND',
+    'yue': 'HKD',
+    'zh-hk': 'HKD',
+    'zh-tw': 'TWD',
+    'zh-hant': 'TWD',
+    'ms': 'MYR',
+    'tl': 'PHP',
+    'fil': 'PHP',
+    'af': 'ZAR',
+    'zu': 'ZAR',
+    'is': 'ISK',
+    'ur': 'PKR',
+    'fa': 'IRR',
+    'ta': 'INR',
+    'te': 'INR',
+    'mr': 'INR',
+    'gu': 'INR',
+    'kn': 'INR',
+    'ml': 'INR',
+    'pa': 'INR',
+    'ca': 'EUR',
+    'eu': 'EUR',
+    'gl': 'EUR',
+    'ga': 'EUR',
+    'cy': 'GBP',
+    'ha': 'NGN',
+    'yo': 'NGN',
+    'am': 'ETB',
   };
 
   /// Returns the default ISO 4217 currency code associated with [languageCode],
@@ -226,10 +314,10 @@ abstract class AppSettings with _$AppSettings {
     final primaryMatch = languageToCurrencyMap[primary];
     if (primaryMatch != null) return primaryMatch;
 
-    for (final lang in supportedLanguages) {
+    for (final lang in allKnownLanguages) {
       if (lang.name.toLowerCase() == trimmed ||
           lang.nativeName.toLowerCase() == trimmed) {
-        return languageToCurrencyMap[lang.code];
+        return languageToCurrencyMap[lang.code] ?? 'USD';
       }
     }
 
@@ -281,7 +369,7 @@ abstract class AppSettings with _$AppSettings {
     final trimmed = code.trim();
     if (trimmed.isEmpty) return '';
     final normalized = trimmed.toLowerCase().split(RegExp('[-_]')).first;
-    for (final lang in supportedLanguages) {
+    for (final lang in allKnownLanguages) {
       if (lang.code.toLowerCase() == normalized ||
           lang.name.toLowerCase() == trimmed.toLowerCase() ||
           lang.nativeName.toLowerCase() == trimmed.toLowerCase()) {
@@ -297,7 +385,7 @@ abstract class AppSettings with _$AppSettings {
     final trimmed = code.trim();
     if (trimmed.isEmpty) return '';
     final normalized = trimmed.toLowerCase().split(RegExp(r'[-_\s()]')).first;
-    for (final lang in supportedLanguages) {
+    for (final lang in allKnownLanguages) {
       if (lang.code.toLowerCase() == normalized ||
           lang.name.toLowerCase() == trimmed.toLowerCase() ||
           lang.nativeName.toLowerCase() == trimmed.toLowerCase()) {
@@ -312,7 +400,7 @@ abstract class AppSettings with _$AppSettings {
   static String languageFlagFor(String code) {
     final trimmed = code.trim().toLowerCase();
     if (trimmed.isEmpty) return '🌐';
-    for (final lang in supportedLanguages) {
+    for (final lang in allKnownLanguages) {
       if (lang.name.toLowerCase() == trimmed ||
           lang.nativeName.toLowerCase() == trimmed) {
         return _flagForPrimaryCode(lang.code);
@@ -363,6 +451,29 @@ abstract class AppSettings with _$AppSettings {
       'tr' || 'tur' || 'turkish' || 'türkçe' => '🇹🇷',
       'uk' || 'ukr' || 'ukrainian' || 'українська' => '🇺🇦',
       'vi' || 'vie' || 'vietnamese' => '🇻🇳',
+      'yue' || 'cantonese' => '🇭🇰',
+      'ms' || 'msa' || 'may' || 'malay' => '🇲🇾',
+      'tl' || 'fil' || 'tagalog' || 'filipino' => '🇵🇭',
+      'af' || 'afr' || 'afrikaans' => '🇿🇦',
+      'zu' || 'zul' || 'zulu' => '🇿🇦',
+      'is' || 'isl' || 'ice' || 'icelandic' => '🇮🇸',
+      'ur' || 'urd' || 'urdu' => '🇵🇰',
+      'fa' || 'fas' || 'per' || 'persian' || 'farsi' => '🇮🇷',
+      'ta' || 'tam' || 'tamil' => '🇮🇳',
+      'te' || 'tel' || 'telugu' => '🇮🇳',
+      'mr' || 'mar' || 'marathi' => '🇮🇳',
+      'gu' || 'guj' || 'gujarati' => '🇮🇳',
+      'kn' || 'kan' || 'kannada' => '🇮🇳',
+      'ml' || 'mal' || 'malayalam' => '🇮🇳',
+      'pa' || 'pan' || 'punjabi' => '🇮🇳',
+      'ca' || 'cat' || 'catalan' => '🇪🇸',
+      'eu' || 'eus' || 'baq' || 'basque' => '🇪🇸',
+      'gl' || 'glg' || 'galician' => '🇪🇸',
+      'ga' || 'gle' || 'irish' => '🇮🇪',
+      'cy' || 'cym' || 'wel' || 'welsh' => '🏴󠁧󠁢󠁷󠁬󠁳󠁿',
+      'ha' || 'hau' || 'hausa' => '🇳🇬',
+      'yo' || 'yor' || 'yoruba' => '🇳🇬',
+      'am' || 'amh' || 'amharic' => '🇪🇹',
       _ => '🌐',
     };
   }
@@ -371,6 +482,23 @@ abstract class AppSettings with _$AppSettings {
   String get pairLabel =>
       '${languageNameFor(baseLanguage)} ($baseCurrency) ⇄ '
       '${languageNameFor(targetLanguage)} ($targetCurrency)';
+
+  /// Returns the human-readable name of the currently active translation model
+  /// (e.g. `'Gemma 4'`, `'Gemini 3.8 Flash'`, or `'Gemini 3.1 Pro'`).
+  String get activeModelDisplayName {
+    if (translationEngineMode == TranslationEngineMode.onDevice) {
+      return 'Gemma 4';
+    }
+    if (cloudModelId == 'gemini-4') {
+      return 'Gemini 3.1 Pro';
+    }
+    for (final model in supportedCloudModels) {
+      if (model.id == cloudModelId) {
+        return model.name;
+      }
+    }
+    return cloudModelId.trim().isEmpty ? 'Gemini' : cloudModelId;
+  }
 
   static Bindings<AppSettings> get bindings => Bindings<AppSettings>(
     getId: (obj) => obj.id,

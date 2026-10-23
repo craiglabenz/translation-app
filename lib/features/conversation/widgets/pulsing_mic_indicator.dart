@@ -17,6 +17,7 @@ class PulsingMicIndicator extends StatelessWidget {
     required this.isLoading,
     required this.amplitude,
     required this.onToggleListening,
+    this.modelName = 'Gemma 4',
     super.key,
   });
 
@@ -26,6 +27,7 @@ class PulsingMicIndicator extends StatelessWidget {
   final bool isLoading;
   final double amplitude;
   final VoidCallback onToggleListening;
+  final String modelName;
 
   void _handleTap(String source) {
     _log.info(
@@ -55,7 +57,7 @@ class PulsingMicIndicator extends StatelessWidget {
         : 'Microphone paused';
 
     final statusSubtitle = isLoading
-        ? 'Gemma 4 is processing audio & currency context'
+        ? '$modelName is processing audio & currency context'
         : isListening
         ? 'Pause for 3 seconds to translate • Tap mic to stop'
         : 'Tap the microphone to resume live translation in this thread';

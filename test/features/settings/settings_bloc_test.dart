@@ -365,5 +365,32 @@ void main() {
       expect(bloc.stateValue.settings.baseCurrency, 'EUR');
       expect(bloc.stateValue.settings.targetCurrency, 'EUR');
     });
+
+    test('updates translationEngineMode, cloudModelId, and geminiApiKey', () async {
+      await bloc.load();
+      expect(
+        bloc.stateValue.settings.translationEngineMode,
+        TranslationEngineMode.onDevice,
+      );
+      expect(bloc.stateValue.settings.cloudModelId, 'gemini-3.8-flash');
+      expect(bloc.stateValue.settings.geminiApiKey, isEmpty);
+
+      await bloc.updateTranslationEngineMode(TranslationEngineMode.cloud);
+      expect(
+        bloc.stateValue.settings.translationEngineMode,
+        TranslationEngineMode.cloud,
+      );
+
+      await bloc.updateCloudModelId('gemini-3.1-pro');
+      expect(bloc.stateValue.settings.cloudModelId, 'gemini-3.1-pro');
+
+      await bloc.updateGeminiApiKey('  AIzaSyMySecretKey999  ');
+      expect(bloc.stateValue.settings.geminiApiKey, 'AIzaSyMySecretKey999');
+
+      final persisted = await settingsRepo.getSettings();
+      expect(persisted.translationEngineMode, TranslationEngineMode.cloud);
+      expect(persisted.cloudModelId, 'gemini-3.1-pro');
+      expect(persisted.geminiApiKey, 'AIzaSyMySecretKey999');
+    });
   });
 }

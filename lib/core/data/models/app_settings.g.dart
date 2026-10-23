@@ -6,6 +6,22 @@ part of 'app_settings.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
+_SupportedCloudModel _$SupportedCloudModelFromJson(
+  Map<String, dynamic> json,
+) => _SupportedCloudModel(
+  id: json['id'] as String,
+  name: json['name'] as String,
+  description: json['description'] as String,
+);
+
+Map<String, dynamic> _$SupportedCloudModelToJson(
+  _SupportedCloudModel instance,
+) => <String, dynamic>{
+  'id': instance.id,
+  'name': instance.name,
+  'description': instance.description,
+};
+
 _SupportedLanguage _$SupportedLanguageFromJson(Map<String, dynamic> json) =>
     _SupportedLanguage(
       code: json['code'] as String,
@@ -46,6 +62,15 @@ _AppSettings _$AppSettingsFromJson(Map<String, dynamic> json) => _AppSettings(
   textScaleFactor:
       (json['textScaleFactor'] as num?)?.toDouble() ??
       AppSettings.defaultTextScaleFactor,
+  translationEngineMode:
+      $enumDecodeNullable(
+        _$TranslationEngineModeEnumMap,
+        json['translationEngineMode'],
+      ) ??
+      TranslationEngineMode.onDevice,
+  cloudModelId:
+      json['cloudModelId'] as String? ?? AppSettings.defaultCloudModelId,
+  geminiApiKey: json['geminiApiKey'] as String? ?? '',
 );
 
 Map<String, dynamic> _$AppSettingsToJson(_AppSettings instance) =>
@@ -57,4 +82,13 @@ Map<String, dynamic> _$AppSettingsToJson(_AppSettings instance) =>
       'targetCurrency': instance.targetCurrency,
       'modelDownloadUrl': instance.modelDownloadUrl,
       'textScaleFactor': instance.textScaleFactor,
+      'translationEngineMode':
+          _$TranslationEngineModeEnumMap[instance.translationEngineMode]!,
+      'cloudModelId': instance.cloudModelId,
+      'geminiApiKey': instance.geminiApiKey,
     };
+
+const _$TranslationEngineModeEnumMap = {
+  TranslationEngineMode.onDevice: 'onDevice',
+  TranslationEngineMode.cloud: 'cloud',
+};

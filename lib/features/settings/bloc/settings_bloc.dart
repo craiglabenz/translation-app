@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:bloc_signals/bloc_signals.dart';
 import 'package:translation_app/core/ai/local_translation_engine.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
+import 'package:translation_app/core/ai/network_translation_engine.dart';
+import 'package:translation_app/core/ai/switchable_translation_engine.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
 import 'package:translation_app/core/data/repositories/settings_repository.dart';
@@ -27,25 +29,41 @@ class SettingsBloc extends CubitSignal<SettingsState> {
   TranslationEngine? get translationEngine => _translationEngine;
 
   /// Returns the list of [SupportedLanguage] entries provided by the active
-  /// [TranslationEngine], falling back to
-  /// [LocalTranslationEngine.gemmaSupportedLanguages].
+  /// [TranslationEngine], falling back to mode-appropriate defaults.
   List<SupportedLanguage> get supportedLanguages {
-    final engineLanguages = _translationEngine?.supportedLanguages;
+    final engine = _translationEngine;
+    if (engine is SwitchableTranslationEngine) {
+      engine.setMode(stateValue.settings.translationEngineMode);
+      return engine.supportedLanguages;
+    }
+    final engineLanguages = engine?.supportedLanguages;
     if (engineLanguages != null && engineLanguages.isNotEmpty) {
+      if (engine is LocalTranslationEngine &&
+          stateValue.settings.translationEngineMode ==
+              TranslationEngineMode.cloud) {
+        return NetworkTranslationEngine.cloudSupportedLanguages;
+      }
       return engineLanguages;
     }
-    return LocalTranslationEngine.gemmaSupportedLanguages;
+    return stateValue.settings.translationEngineMode ==
+            TranslationEngineMode.cloud
+        ? NetworkTranslationEngine.cloudSupportedLanguages
+        : LocalTranslationEngine.gemmaSupportedLanguages;
   }
 
   /// Switches the active [TranslationEngine] (e.g. toggling between
-  /// [LocalTranslationEngine] and a cloud-based `NetworkTranslationEngine`)
+  /// [LocalTranslationEngine] and a cloud-based [NetworkTranslationEngine])
   /// and reconciles selected languages if needed.
   Future<void> setTranslationEngine(TranslationEngine engine) async {
     _translationEngine = engine;
+    await _reconcileSupportedLanguages(stateValue.settings);
+  }
+
+  Future<void> _reconcileSupportedLanguages(AppSettings baseSettings) async {
     final available = supportedLanguages;
     if (available.isEmpty) return;
 
-    var current = stateValue.settings;
+    var current = baseSettings;
     var changed = false;
 
     if (!available.any((l) => l.code == current.baseLanguage)) {
@@ -75,8 +93,67 @@ class SettingsBloc extends CubitSignal<SettingsState> {
     if (changed) {
       await _persistSettings(current, refreshRate: true);
     } else {
+      await _persistSettings(current);
+    }
+  }
+
+  /// Updates the active [TranslationEngineMode] (`onDevice` vs `cloud`),
+  /// synchronizes [SwitchableTranslationEngine] if attached, and reconciles
+  /// selected languages if the newly active engine does not support them.
+  Future<void> updateTranslationEngineMode(TranslationEngineMode mode) async {
+    final engine = _translationEngine;
+    if (engine is SwitchableTranslationEngine) {
+      engine.setMode(mode);
+    }
+    final updated = stateValue.settings.copyWith(translationEngineMode: mode);
+    emit(stateValue.copyWith(settings: updated, error: null));
+    await _reconcileSupportedLanguages(updated);
+    if (mode == TranslationEngineMode.cloud &&
+        updated.geminiApiKey.trim().isNotEmpty) {
+      unawaited(discoverCloudLanguages());
+    }
+  }
+
+  /// Updates the selected cloud Gemini model ID (`gemini-3.8-flash` or `gemini-4`).
+  Future<void> updateCloudModelId(String modelId) async {
+    final trimmed = modelId.trim();
+    if (trimmed.isEmpty) return;
+    final updated = stateValue.settings.copyWith(cloudModelId: trimmed);
+    await _persistSettings(updated);
+    if (updated.translationEngineMode == TranslationEngineMode.cloud &&
+        updated.geminiApiKey.trim().isNotEmpty) {
+      unawaited(discoverCloudLanguages());
+    }
+  }
+
+  /// Updates and persists the user's Gemini API key.
+  Future<void> updateGeminiApiKey(String apiKey) async {
+    final trimmed = apiKey.trim();
+    final updated = stateValue.settings.copyWith(geminiApiKey: trimmed);
+    await _persistSettings(updated);
+    if (trimmed.isNotEmpty) {
+      unawaited(discoverCloudLanguages());
+    }
+  }
+
+  /// Queries the active [NetworkTranslationEngine] (if attached) to discover
+  /// any additional model-supported languages.
+  Future<List<SupportedLanguage>> discoverCloudLanguages() async {
+    final engine = _translationEngine;
+    NetworkTranslationEngine? netEngine;
+    if (engine is NetworkTranslationEngine) {
+      netEngine = engine;
+    } else if (engine is SwitchableTranslationEngine) {
+      netEngine = engine.networkEngine;
+    }
+    if (netEngine == null) {
+      return supportedLanguages;
+    }
+    final discovered = await netEngine.discoverSupportedLanguages();
+    if (!isClosed) {
       emit(stateValue.copyWith(error: null));
     }
+    return discovered;
   }
 
   /// Loads persisted settings and exchange rates, refreshing expired rates.
@@ -85,11 +162,21 @@ class SettingsBloc extends CubitSignal<SettingsState> {
     emit(stateValue.copyWith(isLoading: true, error: null));
     try {
       final settings = await _settingsRepository.getSettings();
+      final engine = _translationEngine;
+      if (engine is SwitchableTranslationEngine) {
+        engine.setMode(settings.translationEngineMode);
+      }
       final modelReady = await modelManager.checkModelReady();
       if (isClosed) return;
 
-      if (modelReady) {
+      if (settings.translationEngineMode == TranslationEngineMode.onDevice &&
+          modelReady) {
         _warmupEngineOptimistically();
+      } else if (settings.translationEngineMode ==
+              TranslationEngineMode.cloud &&
+          settings.geminiApiKey.trim().isNotEmpty) {
+        _warmupEngineOptimistically();
+        unawaited(discoverCloudLanguages());
       }
 
       emit(stateValue.copyWith(settings: settings, isLoading: false));
