@@ -22,32 +22,6 @@ Map<String, dynamic> _$SupportedCloudModelToJson(
   'description': instance.description,
 };
 
-_SupportedOnDeviceSttModel _$SupportedOnDeviceSttModelFromJson(
-  Map<String, dynamic> json,
-) => _SupportedOnDeviceSttModel(
-  id: json['id'] as String,
-  name: json['name'] as String,
-  sizeLabel: json['sizeLabel'] as String,
-  description: json['description'] as String,
-  isWhisper: json['isWhisper'] as bool,
-  filename: json['filename'] as String,
-  modelUrl: json['modelUrl'] as String?,
-  tokenizerUrl: json['tokenizerUrl'] as String?,
-);
-
-Map<String, dynamic> _$SupportedOnDeviceSttModelToJson(
-  _SupportedOnDeviceSttModel instance,
-) => <String, dynamic>{
-  'id': instance.id,
-  'name': instance.name,
-  'sizeLabel': instance.sizeLabel,
-  'description': instance.description,
-  'isWhisper': instance.isWhisper,
-  'filename': instance.filename,
-  'modelUrl': instance.modelUrl,
-  'tokenizerUrl': instance.tokenizerUrl,
-};
-
 _SupportedLanguage _$SupportedLanguageFromJson(Map<String, dynamic> json) =>
     _SupportedLanguage(
       code: json['code'] as String,
@@ -112,9 +86,6 @@ _AppSettings _$AppSettingsFromJson(Map<String, dynamic> json) => _AppSettings(
         json['sttEngineMode'],
       ) ??
       TranslationEngineMode.onDevice,
-  onDeviceSttModelId:
-      json['onDeviceSttModelId'] as String? ??
-      AppSettings.defaultOnDeviceSttModelId,
   cloudSttModelId:
       json['cloudSttModelId'] as String? ?? AppSettings.defaultCloudModelId,
   translationEngineMode:
@@ -151,7 +122,6 @@ Map<String, dynamic> _$AppSettingsToJson(_AppSettings instance) =>
       'textScaleFactor': instance.textScaleFactor,
       'sttEngineMode':
           _$TranslationEngineModeEnumMap[instance.sttEngineMode]!,
-      'onDeviceSttModelId': instance.onDeviceSttModelId,
       'cloudSttModelId': instance.cloudSttModelId,
       'translationEngineMode':
           _$TranslationEngineModeEnumMap[instance.translationEngineMode]!,

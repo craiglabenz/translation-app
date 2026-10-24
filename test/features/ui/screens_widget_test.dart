@@ -1044,8 +1044,8 @@ void main() {
             speechToTextMs: 420,
             translationMs: 310,
             totalDurationMs: 730,
-            speechToTextModel: 'Whisper Base (int8)',
-            translationModel: 'Gemma 4',
+            speechToTextModel: 'Gemma 4',
+            translationModel: 'Gemini 3.8 Flash',
             activeContextSummary: '🛍️ Shopping & Market',
             rollingTurnsUsed: 2,
           ),
@@ -1101,13 +1101,13 @@ void main() {
           find.byKey(const ValueKey('modal_speech_to_text_model')),
           findsOneWidget,
         );
-        expect(find.text('Whisper Base (int8)'), findsOneWidget);
+        expect(find.text('Gemma 4'), findsOneWidget);
         expect(find.text('Translation'), findsOneWidget);
         expect(
           find.byKey(const ValueKey('modal_translation_model')),
           findsOneWidget,
         );
-        expect(find.text('Gemma 4'), findsOneWidget);
+        expect(find.text('Gemini 3.8 Flash'), findsOneWidget);
         expect(find.text('Total'), findsOneWidget);
         expect(find.text('420 ms'), findsOneWidget);
         expect(find.text('310 ms'), findsOneWidget);
@@ -1649,11 +1649,10 @@ void main() {
     );
 
     testWidgets(
-      'supports configuring Speech-to-Text (On-Device Whisper variants / Cloud STT) independently of Translation and downloading Whisper variants',
+      'supports configuring Speech-to-Text (On-Device Gemma 4 / Cloud STT) independently of Translation',
       (tester) async {
         configureDependencies();
         final settingsBloc = GetIt.I<SettingsBloc>();
-        final modelManager = GetIt.I<ModelManager>();
         await settingsBloc.load();
 
         await tester.pumpWidget(
@@ -1686,25 +1685,12 @@ void main() {
           findsOneWidget,
         );
         expect(
-          find.byKey(const ValueKey('on_device_stt_model_dropdown')),
-          findsOneWidget,
+          find.byKey(const ValueKey('cloud_stt_model_dropdown')),
+          findsNothing,
         );
 
-        // Switch On-Device STT model to Whisper Tiny (int8)
-        await tester.tap(
-          find.byKey(const ValueKey('on_device_stt_model_dropdown')),
-        );
-        await tester.pumpAndSettle();
-        await tester.tap(find.textContaining('Whisper Tiny (int8)').last);
-        await tester.pumpAndSettle();
-
-        expect(
-          settingsBloc.stateValue.settings.onDeviceSttModelId,
-          'whisper-tiny-int8',
-        );
-
-        // Switch Step 1 to Cloud STT while Step 2 stays On-Device (Gemma 4)
-        await tester.tap(find.text('Cloud STT'));
+        // Switch Step 1 to Cloud STT (Gemini) while Step 2 stays On-Device (Gemma 4)
+        await tester.tap(find.text('Cloud STT (Gemini)'));
         await tester.pumpAndSettle();
         expect(
           settingsBloc.stateValue.settings.sttEngineMode,
@@ -1723,36 +1709,16 @@ void main() {
           findsOneWidget,
         );
 
-        // Switch Step 1 back to On-Device STT
-        await tester.tap(find.text('On-Device STT'));
+        // Switch Step 1 back to On-Device STT (Gemma 4)
+        await tester.tap(find.text('On-Device STT (Gemma 4)'));
         await tester.pumpAndSettle();
         expect(
           settingsBloc.stateValue.settings.sttEngineMode,
           TranslationEngineMode.onDevice,
         );
-
-        // Scroll down to On-Device AI Models card and verify Whisper variant download / re-download
-        modelManager.markWhisperUninstalled('whisper-tiny-int8');
-        await tester.drag(find.byType(ListView), const Offset(0, -550));
-        await tester.pumpAndSettle();
-
-        final downloadWhisperBtn = find.byKey(
-          const ValueKey('settings_download_whisper_whisper-tiny-int8'),
-        );
-        expect(downloadWhisperBtn, findsOneWidget);
-
-        await tester.ensureVisible(downloadWhisperBtn);
-        await tester.pumpAndSettle();
-        await tester.tap(downloadWhisperBtn);
-        await tester.pumpAndSettle();
-
         expect(
-          modelManager.stateValue.isSttModelInstalled('whisper-tiny-int8'),
-          isTrue,
-        );
-        expect(
-          find.text('Whisper Installed & Ready (whisper_tiny_30s_i8.tflite)'),
-          findsOneWidget,
+          find.byKey(const ValueKey('cloud_stt_model_dropdown')),
+          findsNothing,
         );
       },
     );

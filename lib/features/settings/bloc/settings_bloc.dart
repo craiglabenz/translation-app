@@ -129,28 +129,8 @@ class SettingsBloc extends CubitSignal<SettingsState> {
     if (mode == TranslationEngineMode.cloud &&
         updated.geminiApiKey.trim().isNotEmpty) {
       unawaited(discoverCloudLanguages());
-    } else if (mode == TranslationEngineMode.onDevice) {
-      unawaited(
-        modelManager.checkWhisperModelReady(updated.onDeviceSttModelId),
-      );
-      _warmupEngineOptimistically();
-    }
-  }
-
-  /// Updates the selected on-device STT model ID (`whisper-base-int8`,
-  /// `whisper-tiny-int8`, `whisper-tiny-f32`, or `gemma-4`).
-  Future<void> updateOnDeviceSttModelId(String modelId) async {
-    final trimmed = modelId.trim();
-    if (trimmed.isEmpty) return;
-    final engine = _translationEngine;
-    if (engine is SwitchableTranslationEngine) {
-      engine.setOnDeviceSttModelId(trimmed);
-    }
-    final updated = stateValue.settings.copyWith(onDeviceSttModelId: trimmed);
-    await _persistSettings(updated);
-    await modelManager.checkWhisperModelReady(trimmed);
-    if (updated.sttEngineMode == TranslationEngineMode.onDevice &&
-        modelManager.stateValue.isSttModelInstalled(trimmed)) {
+    } else if (mode == TranslationEngineMode.onDevice &&
+        modelManager.stateValue.isInstalled) {
       _warmupEngineOptimistically();
     }
   }
@@ -159,6 +139,10 @@ class SettingsBloc extends CubitSignal<SettingsState> {
   Future<void> updateCloudSttModelId(String modelId) async {
     final trimmed = modelId.trim();
     if (trimmed.isEmpty) return;
+    final engine = _translationEngine;
+    if (engine is SwitchableTranslationEngine) {
+      engine.setCloudSttModelId(trimmed);
+    }
     final updated = stateValue.settings.copyWith(cloudSttModelId: trimmed);
     await _persistSettings(updated);
   }
@@ -217,8 +201,6 @@ class SettingsBloc extends CubitSignal<SettingsState> {
       }
       final modelReady = await modelManager.checkModelReady();
       if (isClosed) return;
-      await modelManager.checkWhisperModelReady(settings.onDeviceSttModelId);
-      if (isClosed) return;
 
       final isTranslationReady =
           settings.translationEngineMode == TranslationEngineMode.onDevice
@@ -226,9 +208,7 @@ class SettingsBloc extends CubitSignal<SettingsState> {
           : settings.geminiApiKey.trim().isNotEmpty;
       final isSttReady =
           settings.sttEngineMode == TranslationEngineMode.onDevice
-          ? modelManager.stateValue.isSttModelInstalled(
-              settings.onDeviceSttModelId,
-            )
+          ? modelReady
           : settings.geminiApiKey.trim().isNotEmpty;
 
       if (isTranslationReady && isSttReady) {
@@ -453,16 +433,6 @@ class SettingsBloc extends CubitSignal<SettingsState> {
     final success = await modelManager.downloadModel(
       fallbackUrl: stateValue.settings.modelDownloadUrl,
     );
-    if (success && !isClosed) {
-      _warmupEngineOptimistically();
-    }
-    return success;
-  }
-
-  /// Downloads an on-device Whisper STT model variant.
-  Future<bool> downloadWhisperModel([String? modelId]) async {
-    final targetId = modelId ?? stateValue.settings.onDeviceSttModelId;
-    final success = await modelManager.downloadWhisperModel(targetId);
     if (success && !isClosed) {
       _warmupEngineOptimistically();
     }

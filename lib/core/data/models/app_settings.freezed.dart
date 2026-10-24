@@ -158,165 +158,6 @@ as String,
 }
 
 /// @nodoc
-mixin _$SupportedOnDeviceSttModel {
-
- String get id; String get name; String get sizeLabel; String get description; bool get isWhisper; String get filename; String? get modelUrl; String? get tokenizerUrl;
-/// Create a copy of SupportedOnDeviceSttModel
-/// with the given fields replaced by the non-null parameter values.
-@JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-$SupportedOnDeviceSttModelCopyWith<SupportedOnDeviceSttModel> get copyWith => _$SupportedOnDeviceSttModelCopyWithImpl<SupportedOnDeviceSttModel>(this as SupportedOnDeviceSttModel, _$identity);
-
-  /// Serializes this SupportedOnDeviceSttModel to a JSON map.
-  Map<String, dynamic> toJson();
-
-
-@override
-bool operator ==(Object other) {
-  final _this = this as SupportedOnDeviceSttModel;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is SupportedOnDeviceSttModel&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.sizeLabel, _this.sizeLabel) || other.sizeLabel == _this.sizeLabel)&&(identical(other.description, _this.description) || other.description == _this.description)&&(identical(other.isWhisper, _this.isWhisper) || other.isWhisper == _this.isWhisper)&&(identical(other.filename, _this.filename) || other.filename == _this.filename)&&(identical(other.modelUrl, _this.modelUrl) || other.modelUrl == _this.modelUrl)&&(identical(other.tokenizerUrl, _this.tokenizerUrl) || other.tokenizerUrl == _this.tokenizerUrl));
-}
-
-@JsonKey(includeFromJson: false, includeToJson: false)
-@override
-int get hashCode {
-  final _this = this as SupportedOnDeviceSttModel;
-  return Object.hash(runtimeType,_this.id,_this.name,_this.sizeLabel,_this.description,_this.isWhisper,_this.filename,_this.modelUrl,_this.tokenizerUrl);
-}
-
-@override
-String toString() {
-  final _this = this as SupportedOnDeviceSttModel;
-  return 'SupportedOnDeviceSttModel(id: ${_this.id}, name: ${_this.name}, sizeLabel: ${_this.sizeLabel}, description: ${_this.description}, isWhisper: ${_this.isWhisper}, filename: ${_this.filename}, modelUrl: ${_this.modelUrl}, tokenizerUrl: ${_this.tokenizerUrl})';
-}
-
-
-}
-
-/// @nodoc
-abstract mixin class $SupportedOnDeviceSttModelCopyWith<$Res>  {
-  factory $SupportedOnDeviceSttModelCopyWith(SupportedOnDeviceSttModel value, $Res Function(SupportedOnDeviceSttModel) _then) = _$SupportedOnDeviceSttModelCopyWithImpl;
-@useResult
-$Res call({
- String id, String name, String sizeLabel, String description, bool isWhisper, String filename, String? modelUrl, String? tokenizerUrl
-});
-
-
-
-
-}
-/// @nodoc
-class _$SupportedOnDeviceSttModelCopyWithImpl<$Res>
-    implements $SupportedOnDeviceSttModelCopyWith<$Res> {
-  _$SupportedOnDeviceSttModelCopyWithImpl(this._self, this._then);
-
-  final SupportedOnDeviceSttModel _self;
-  final $Res Function(SupportedOnDeviceSttModel) _then;
-
-/// Create a copy of SupportedOnDeviceSttModel
-/// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = null,Object? sizeLabel = null,Object? description = null,Object? isWhisper = null,Object? filename = null,Object? modelUrl = freezed,Object? tokenizerUrl = freezed,}) {
-  return _then(SupportedOnDeviceSttModel(
-id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
-as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
-as String,sizeLabel: null == sizeLabel ? _self.sizeLabel : sizeLabel // ignore: cast_nullable_to_non_nullable
-as String,description: null == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
-as String,isWhisper: null == isWhisper ? _self.isWhisper : isWhisper // ignore: cast_nullable_to_non_nullable
-as bool,filename: null == filename ? _self.filename : filename // ignore: cast_nullable_to_non_nullable
-as String,modelUrl: freezed == modelUrl ? _self.modelUrl : modelUrl // ignore: cast_nullable_to_non_nullable
-as String?,tokenizerUrl: freezed == tokenizerUrl ? _self.tokenizerUrl : tokenizerUrl // ignore: cast_nullable_to_non_nullable
-as String?,
-  ));
-}
-
-}
-
-/// @nodoc
-@JsonSerializable()
-
-class _SupportedOnDeviceSttModel implements SupportedOnDeviceSttModel {
-  const _SupportedOnDeviceSttModel({required this.id, required this.name, required this.sizeLabel, required this.description, required this.isWhisper, required this.filename, this.modelUrl, this.tokenizerUrl});
-  factory _SupportedOnDeviceSttModel.fromJson(Map<String, dynamic> json) => _$SupportedOnDeviceSttModelFromJson(json);
-
-@override final  String id;
-@override final  String name;
-@override final  String sizeLabel;
-@override final  String description;
-@override final  bool isWhisper;
-@override final  String filename;
-@override final  String? modelUrl;
-@override final  String? tokenizerUrl;
-
-/// Create a copy of SupportedOnDeviceSttModel
-/// with the given fields replaced by the non-null parameter values.
-@override @JsonKey(includeFromJson: false, includeToJson: false)
-@pragma('vm:prefer-inline')
-_$SupportedOnDeviceSttModelCopyWith<_SupportedOnDeviceSttModel> get copyWith => __$SupportedOnDeviceSttModelCopyWithImpl<_SupportedOnDeviceSttModel>(this, _$identity);
-
-@override
-Map<String, dynamic> toJson() {
-  return _$SupportedOnDeviceSttModelToJson(this, );
-}
-
-@override
-bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _SupportedOnDeviceSttModel&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.sizeLabel, sizeLabel) || other.sizeLabel == sizeLabel)&&(identical(other.description, description) || other.description == description)&&(identical(other.isWhisper, isWhisper) || other.isWhisper == isWhisper)&&(identical(other.filename, filename) || other.filename == filename)&&(identical(other.modelUrl, modelUrl) || other.modelUrl == modelUrl)&&(identical(other.tokenizerUrl, tokenizerUrl) || other.tokenizerUrl == tokenizerUrl));
-}
-
-@JsonKey(includeFromJson: false, includeToJson: false)
-@override
-int get hashCode {
-    return Object.hash(runtimeType,id,name,sizeLabel,description,isWhisper,filename,modelUrl,tokenizerUrl);
-}
-
-@override
-String toString() {
-    return 'SupportedOnDeviceSttModel(id: $id, name: $name, sizeLabel: $sizeLabel, description: $description, isWhisper: $isWhisper, filename: $filename, modelUrl: $modelUrl, tokenizerUrl: $tokenizerUrl)';
-}
-
-
-}
-
-/// @nodoc
-abstract mixin class _$SupportedOnDeviceSttModelCopyWith<$Res> implements $SupportedOnDeviceSttModelCopyWith<$Res> {
-  factory _$SupportedOnDeviceSttModelCopyWith(_SupportedOnDeviceSttModel value, $Res Function(_SupportedOnDeviceSttModel) _then) = __$SupportedOnDeviceSttModelCopyWithImpl;
-@override @useResult
-$Res call({
- String id, String name, String sizeLabel, String description, bool isWhisper, String filename, String? modelUrl, String? tokenizerUrl
-});
-
-
-
-
-}
-/// @nodoc
-class __$SupportedOnDeviceSttModelCopyWithImpl<$Res>
-    implements _$SupportedOnDeviceSttModelCopyWith<$Res> {
-  __$SupportedOnDeviceSttModelCopyWithImpl(this._self, this._then);
-
-  final _SupportedOnDeviceSttModel _self;
-  final $Res Function(_SupportedOnDeviceSttModel) _then;
-
-/// Create a copy of SupportedOnDeviceSttModel
-/// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? name = null,Object? sizeLabel = null,Object? description = null,Object? isWhisper = null,Object? filename = null,Object? modelUrl = freezed,Object? tokenizerUrl = freezed,}) {
-  return _then(_SupportedOnDeviceSttModel(
-id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
-as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
-as String,sizeLabel: null == sizeLabel ? _self.sizeLabel : sizeLabel // ignore: cast_nullable_to_non_nullable
-as String,description: null == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
-as String,isWhisper: null == isWhisper ? _self.isWhisper : isWhisper // ignore: cast_nullable_to_non_nullable
-as bool,filename: null == filename ? _self.filename : filename // ignore: cast_nullable_to_non_nullable
-as String,modelUrl: freezed == modelUrl ? _self.modelUrl : modelUrl // ignore: cast_nullable_to_non_nullable
-as String?,tokenizerUrl: freezed == tokenizerUrl ? _self.tokenizerUrl : tokenizerUrl // ignore: cast_nullable_to_non_nullable
-as String?,
-  ));
-}
-
-
-}
-
-/// @nodoc
 mixin _$SupportedLanguage {
 
  String get code; String get name; String get nativeName;
@@ -1019,7 +860,7 @@ as String,
 /// @nodoc
 mixin _$AppSettings {
 
- String get id; String get baseLanguage; String get targetLanguage; String get baseCurrency; String get targetCurrency; String get modelDownloadUrl; double get textScaleFactor; TranslationEngineMode get sttEngineMode; String get onDeviceSttModelId; String get cloudSttModelId; TranslationEngineMode get translationEngineMode; String get cloudModelId; String get geminiApiKey; int get rollingTurnCount; List<ConversationContextPreset> get contextPresets;
+ String get id; String get baseLanguage; String get targetLanguage; String get baseCurrency; String get targetCurrency; String get modelDownloadUrl; double get textScaleFactor; TranslationEngineMode get sttEngineMode; String get cloudSttModelId; TranslationEngineMode get translationEngineMode; String get cloudModelId; String get geminiApiKey; int get rollingTurnCount; List<ConversationContextPreset> get contextPresets;
 /// Create a copy of AppSettings
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -1033,20 +874,20 @@ $AppSettingsCopyWith<AppSettings> get copyWith => _$AppSettingsCopyWithImpl<AppS
 @override
 bool operator ==(Object other) {
   final _this = this as AppSettings;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is AppSettings&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.baseLanguage, _this.baseLanguage) || other.baseLanguage == _this.baseLanguage)&&(identical(other.targetLanguage, _this.targetLanguage) || other.targetLanguage == _this.targetLanguage)&&(identical(other.baseCurrency, _this.baseCurrency) || other.baseCurrency == _this.baseCurrency)&&(identical(other.targetCurrency, _this.targetCurrency) || other.targetCurrency == _this.targetCurrency)&&(identical(other.modelDownloadUrl, _this.modelDownloadUrl) || other.modelDownloadUrl == _this.modelDownloadUrl)&&(identical(other.textScaleFactor, _this.textScaleFactor) || other.textScaleFactor == _this.textScaleFactor)&&(identical(other.sttEngineMode, _this.sttEngineMode) || other.sttEngineMode == _this.sttEngineMode)&&(identical(other.onDeviceSttModelId, _this.onDeviceSttModelId) || other.onDeviceSttModelId == _this.onDeviceSttModelId)&&(identical(other.cloudSttModelId, _this.cloudSttModelId) || other.cloudSttModelId == _this.cloudSttModelId)&&(identical(other.translationEngineMode, _this.translationEngineMode) || other.translationEngineMode == _this.translationEngineMode)&&(identical(other.cloudModelId, _this.cloudModelId) || other.cloudModelId == _this.cloudModelId)&&(identical(other.geminiApiKey, _this.geminiApiKey) || other.geminiApiKey == _this.geminiApiKey)&&(identical(other.rollingTurnCount, _this.rollingTurnCount) || other.rollingTurnCount == _this.rollingTurnCount)&&const DeepCollectionEquality().equals(other.contextPresets, _this.contextPresets));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is AppSettings&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.baseLanguage, _this.baseLanguage) || other.baseLanguage == _this.baseLanguage)&&(identical(other.targetLanguage, _this.targetLanguage) || other.targetLanguage == _this.targetLanguage)&&(identical(other.baseCurrency, _this.baseCurrency) || other.baseCurrency == _this.baseCurrency)&&(identical(other.targetCurrency, _this.targetCurrency) || other.targetCurrency == _this.targetCurrency)&&(identical(other.modelDownloadUrl, _this.modelDownloadUrl) || other.modelDownloadUrl == _this.modelDownloadUrl)&&(identical(other.textScaleFactor, _this.textScaleFactor) || other.textScaleFactor == _this.textScaleFactor)&&(identical(other.sttEngineMode, _this.sttEngineMode) || other.sttEngineMode == _this.sttEngineMode)&&(identical(other.cloudSttModelId, _this.cloudSttModelId) || other.cloudSttModelId == _this.cloudSttModelId)&&(identical(other.translationEngineMode, _this.translationEngineMode) || other.translationEngineMode == _this.translationEngineMode)&&(identical(other.cloudModelId, _this.cloudModelId) || other.cloudModelId == _this.cloudModelId)&&(identical(other.geminiApiKey, _this.geminiApiKey) || other.geminiApiKey == _this.geminiApiKey)&&(identical(other.rollingTurnCount, _this.rollingTurnCount) || other.rollingTurnCount == _this.rollingTurnCount)&&const DeepCollectionEquality().equals(other.contextPresets, _this.contextPresets));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
   final _this = this as AppSettings;
-  return Object.hash(runtimeType,_this.id,_this.baseLanguage,_this.targetLanguage,_this.baseCurrency,_this.targetCurrency,_this.modelDownloadUrl,_this.textScaleFactor,_this.sttEngineMode,_this.onDeviceSttModelId,_this.cloudSttModelId,_this.translationEngineMode,_this.cloudModelId,_this.geminiApiKey,_this.rollingTurnCount,const DeepCollectionEquality().hash(_this.contextPresets));
+  return Object.hash(runtimeType,_this.id,_this.baseLanguage,_this.targetLanguage,_this.baseCurrency,_this.targetCurrency,_this.modelDownloadUrl,_this.textScaleFactor,_this.sttEngineMode,_this.cloudSttModelId,_this.translationEngineMode,_this.cloudModelId,_this.geminiApiKey,_this.rollingTurnCount,const DeepCollectionEquality().hash(_this.contextPresets));
 }
 
 @override
 String toString() {
   final _this = this as AppSettings;
-  return 'AppSettings(id: ${_this.id}, baseLanguage: ${_this.baseLanguage}, targetLanguage: ${_this.targetLanguage}, baseCurrency: ${_this.baseCurrency}, targetCurrency: ${_this.targetCurrency}, modelDownloadUrl: ${_this.modelDownloadUrl}, textScaleFactor: ${_this.textScaleFactor}, sttEngineMode: ${_this.sttEngineMode}, onDeviceSttModelId: ${_this.onDeviceSttModelId}, cloudSttModelId: ${_this.cloudSttModelId}, translationEngineMode: ${_this.translationEngineMode}, cloudModelId: ${_this.cloudModelId}, geminiApiKey: ${_this.geminiApiKey}, rollingTurnCount: ${_this.rollingTurnCount}, contextPresets: ${_this.contextPresets})';
+  return 'AppSettings(id: ${_this.id}, baseLanguage: ${_this.baseLanguage}, targetLanguage: ${_this.targetLanguage}, baseCurrency: ${_this.baseCurrency}, targetCurrency: ${_this.targetCurrency}, modelDownloadUrl: ${_this.modelDownloadUrl}, textScaleFactor: ${_this.textScaleFactor}, sttEngineMode: ${_this.sttEngineMode}, cloudSttModelId: ${_this.cloudSttModelId}, translationEngineMode: ${_this.translationEngineMode}, cloudModelId: ${_this.cloudModelId}, geminiApiKey: ${_this.geminiApiKey}, rollingTurnCount: ${_this.rollingTurnCount}, contextPresets: ${_this.contextPresets})';
 }
 
 
@@ -1057,7 +898,7 @@ abstract mixin class $AppSettingsCopyWith<$Res>  {
   factory $AppSettingsCopyWith(AppSettings value, $Res Function(AppSettings) _then) = _$AppSettingsCopyWithImpl;
 @useResult
 $Res call({
- String id, String baseLanguage, String targetLanguage, String baseCurrency, String targetCurrency, String modelDownloadUrl, double textScaleFactor, TranslationEngineMode sttEngineMode, String onDeviceSttModelId, String cloudSttModelId, TranslationEngineMode translationEngineMode, String cloudModelId, String geminiApiKey, int rollingTurnCount, List<ConversationContextPreset> contextPresets
+ String id, String baseLanguage, String targetLanguage, String baseCurrency, String targetCurrency, String modelDownloadUrl, double textScaleFactor, TranslationEngineMode sttEngineMode, String cloudSttModelId, TranslationEngineMode translationEngineMode, String cloudModelId, String geminiApiKey, int rollingTurnCount, List<ConversationContextPreset> contextPresets
 });
 
 
@@ -1074,7 +915,7 @@ class _$AppSettingsCopyWithImpl<$Res>
 
 /// Create a copy of AppSettings
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? baseCurrency = null,Object? targetCurrency = null,Object? modelDownloadUrl = null,Object? textScaleFactor = null,Object? sttEngineMode = null,Object? onDeviceSttModelId = null,Object? cloudSttModelId = null,Object? translationEngineMode = null,Object? cloudModelId = null,Object? geminiApiKey = null,Object? rollingTurnCount = null,Object? contextPresets = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? baseCurrency = null,Object? targetCurrency = null,Object? modelDownloadUrl = null,Object? textScaleFactor = null,Object? sttEngineMode = null,Object? cloudSttModelId = null,Object? translationEngineMode = null,Object? cloudModelId = null,Object? geminiApiKey = null,Object? rollingTurnCount = null,Object? contextPresets = null,}) {
   return _then(AppSettings(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,baseLanguage: null == baseLanguage ? _self.baseLanguage : baseLanguage // ignore: cast_nullable_to_non_nullable
@@ -1084,8 +925,7 @@ as String,targetCurrency: null == targetCurrency ? _self.targetCurrency : target
 as String,modelDownloadUrl: null == modelDownloadUrl ? _self.modelDownloadUrl : modelDownloadUrl // ignore: cast_nullable_to_non_nullable
 as String,textScaleFactor: null == textScaleFactor ? _self.textScaleFactor : textScaleFactor // ignore: cast_nullable_to_non_nullable
 as double,sttEngineMode: null == sttEngineMode ? _self.sttEngineMode : sttEngineMode // ignore: cast_nullable_to_non_nullable
-as TranslationEngineMode,onDeviceSttModelId: null == onDeviceSttModelId ? _self.onDeviceSttModelId : onDeviceSttModelId // ignore: cast_nullable_to_non_nullable
-as String,cloudSttModelId: null == cloudSttModelId ? _self.cloudSttModelId : cloudSttModelId // ignore: cast_nullable_to_non_nullable
+as TranslationEngineMode,cloudSttModelId: null == cloudSttModelId ? _self.cloudSttModelId : cloudSttModelId // ignore: cast_nullable_to_non_nullable
 as String,translationEngineMode: null == translationEngineMode ? _self.translationEngineMode : translationEngineMode // ignore: cast_nullable_to_non_nullable
 as TranslationEngineMode,cloudModelId: null == cloudModelId ? _self.cloudModelId : cloudModelId // ignore: cast_nullable_to_non_nullable
 as String,geminiApiKey: null == geminiApiKey ? _self.geminiApiKey : geminiApiKey // ignore: cast_nullable_to_non_nullable
@@ -1176,10 +1016,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String baseLanguage,  String targetLanguage,  String baseCurrency,  String targetCurrency,  String modelDownloadUrl,  double textScaleFactor,  TranslationEngineMode sttEngineMode,  String onDeviceSttModelId,  String cloudSttModelId,  TranslationEngineMode translationEngineMode,  String cloudModelId,  String geminiApiKey,  int rollingTurnCount,  List<ConversationContextPreset> contextPresets)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String baseLanguage,  String targetLanguage,  String baseCurrency,  String targetCurrency,  String modelDownloadUrl,  double textScaleFactor,  TranslationEngineMode sttEngineMode,  String cloudSttModelId,  TranslationEngineMode translationEngineMode,  String cloudModelId,  String geminiApiKey,  int rollingTurnCount,  List<ConversationContextPreset> contextPresets)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _AppSettings() when $default != null:
-return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurrency,_that.targetCurrency,_that.modelDownloadUrl,_that.textScaleFactor,_that.sttEngineMode,_that.onDeviceSttModelId,_that.cloudSttModelId,_that.translationEngineMode,_that.cloudModelId,_that.geminiApiKey,_that.rollingTurnCount,_that.contextPresets);case _:
+return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurrency,_that.targetCurrency,_that.modelDownloadUrl,_that.textScaleFactor,_that.sttEngineMode,_that.cloudSttModelId,_that.translationEngineMode,_that.cloudModelId,_that.geminiApiKey,_that.rollingTurnCount,_that.contextPresets);case _:
   return orElse();
 
 }
@@ -1197,10 +1037,10 @@ return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurre
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String baseLanguage,  String targetLanguage,  String baseCurrency,  String targetCurrency,  String modelDownloadUrl,  double textScaleFactor,  TranslationEngineMode sttEngineMode,  String onDeviceSttModelId,  String cloudSttModelId,  TranslationEngineMode translationEngineMode,  String cloudModelId,  String geminiApiKey,  int rollingTurnCount,  List<ConversationContextPreset> contextPresets)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String baseLanguage,  String targetLanguage,  String baseCurrency,  String targetCurrency,  String modelDownloadUrl,  double textScaleFactor,  TranslationEngineMode sttEngineMode,  String cloudSttModelId,  TranslationEngineMode translationEngineMode,  String cloudModelId,  String geminiApiKey,  int rollingTurnCount,  List<ConversationContextPreset> contextPresets)  $default,) {final _that = this;
 switch (_that) {
 case _AppSettings():
-return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurrency,_that.targetCurrency,_that.modelDownloadUrl,_that.textScaleFactor,_that.sttEngineMode,_that.onDeviceSttModelId,_that.cloudSttModelId,_that.translationEngineMode,_that.cloudModelId,_that.geminiApiKey,_that.rollingTurnCount,_that.contextPresets);case _:
+return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurrency,_that.targetCurrency,_that.modelDownloadUrl,_that.textScaleFactor,_that.sttEngineMode,_that.cloudSttModelId,_that.translationEngineMode,_that.cloudModelId,_that.geminiApiKey,_that.rollingTurnCount,_that.contextPresets);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -1217,10 +1057,10 @@ return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurre
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String baseLanguage,  String targetLanguage,  String baseCurrency,  String targetCurrency,  String modelDownloadUrl,  double textScaleFactor,  TranslationEngineMode sttEngineMode,  String onDeviceSttModelId,  String cloudSttModelId,  TranslationEngineMode translationEngineMode,  String cloudModelId,  String geminiApiKey,  int rollingTurnCount,  List<ConversationContextPreset> contextPresets)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String baseLanguage,  String targetLanguage,  String baseCurrency,  String targetCurrency,  String modelDownloadUrl,  double textScaleFactor,  TranslationEngineMode sttEngineMode,  String cloudSttModelId,  TranslationEngineMode translationEngineMode,  String cloudModelId,  String geminiApiKey,  int rollingTurnCount,  List<ConversationContextPreset> contextPresets)?  $default,) {final _that = this;
 switch (_that) {
 case _AppSettings() when $default != null:
-return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurrency,_that.targetCurrency,_that.modelDownloadUrl,_that.textScaleFactor,_that.sttEngineMode,_that.onDeviceSttModelId,_that.cloudSttModelId,_that.translationEngineMode,_that.cloudModelId,_that.geminiApiKey,_that.rollingTurnCount,_that.contextPresets);case _:
+return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurrency,_that.targetCurrency,_that.modelDownloadUrl,_that.textScaleFactor,_that.sttEngineMode,_that.cloudSttModelId,_that.translationEngineMode,_that.cloudModelId,_that.geminiApiKey,_that.rollingTurnCount,_that.contextPresets);case _:
   return null;
 
 }
@@ -1232,7 +1072,7 @@ return $default(_that.id,_that.baseLanguage,_that.targetLanguage,_that.baseCurre
 @JsonSerializable()
 
 class _AppSettings extends AppSettings {
-  const _AppSettings({this.id = AppSettings.defaultId, this.baseLanguage = 'en', this.targetLanguage = 'es', this.baseCurrency = 'USD', this.targetCurrency = 'EUR', this.modelDownloadUrl = AppSettings.defaultModelDownloadUrl, this.textScaleFactor = AppSettings.defaultTextScaleFactor, this.sttEngineMode = TranslationEngineMode.onDevice, this.onDeviceSttModelId = AppSettings.defaultOnDeviceSttModelId, this.cloudSttModelId = AppSettings.defaultCloudModelId, this.translationEngineMode = TranslationEngineMode.onDevice, this.cloudModelId = AppSettings.defaultCloudModelId, this.geminiApiKey = '', this.rollingTurnCount = AppSettings.defaultRollingTurnCount, List<ConversationContextPreset> contextPresets = AppSettings.defaultContextPresets}): _contextPresets = contextPresets,super._();
+  const _AppSettings({this.id = AppSettings.defaultId, this.baseLanguage = 'en', this.targetLanguage = 'es', this.baseCurrency = 'USD', this.targetCurrency = 'EUR', this.modelDownloadUrl = AppSettings.defaultModelDownloadUrl, this.textScaleFactor = AppSettings.defaultTextScaleFactor, this.sttEngineMode = TranslationEngineMode.onDevice, this.cloudSttModelId = AppSettings.defaultCloudModelId, this.translationEngineMode = TranslationEngineMode.onDevice, this.cloudModelId = AppSettings.defaultCloudModelId, this.geminiApiKey = '', this.rollingTurnCount = AppSettings.defaultRollingTurnCount, List<ConversationContextPreset> contextPresets = AppSettings.defaultContextPresets}): _contextPresets = contextPresets,super._();
   factory _AppSettings.fromJson(Map<String, dynamic> json) => _$AppSettingsFromJson(json);
 
 @override@JsonKey() final  String id;
@@ -1243,7 +1083,6 @@ class _AppSettings extends AppSettings {
 @override@JsonKey() final  String modelDownloadUrl;
 @override@JsonKey() final  double textScaleFactor;
 @override@JsonKey() final  TranslationEngineMode sttEngineMode;
-@override@JsonKey() final  String onDeviceSttModelId;
 @override@JsonKey() final  String cloudSttModelId;
 @override@JsonKey() final  TranslationEngineMode translationEngineMode;
 @override@JsonKey() final  String cloudModelId;
@@ -1270,18 +1109,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AppSettings&&(identical(other.id, id) || other.id == id)&&(identical(other.baseLanguage, baseLanguage) || other.baseLanguage == baseLanguage)&&(identical(other.targetLanguage, targetLanguage) || other.targetLanguage == targetLanguage)&&(identical(other.baseCurrency, baseCurrency) || other.baseCurrency == baseCurrency)&&(identical(other.targetCurrency, targetCurrency) || other.targetCurrency == targetCurrency)&&(identical(other.modelDownloadUrl, modelDownloadUrl) || other.modelDownloadUrl == modelDownloadUrl)&&(identical(other.textScaleFactor, textScaleFactor) || other.textScaleFactor == textScaleFactor)&&(identical(other.sttEngineMode, sttEngineMode) || other.sttEngineMode == sttEngineMode)&&(identical(other.onDeviceSttModelId, onDeviceSttModelId) || other.onDeviceSttModelId == onDeviceSttModelId)&&(identical(other.cloudSttModelId, cloudSttModelId) || other.cloudSttModelId == cloudSttModelId)&&(identical(other.translationEngineMode, translationEngineMode) || other.translationEngineMode == translationEngineMode)&&(identical(other.cloudModelId, cloudModelId) || other.cloudModelId == cloudModelId)&&(identical(other.geminiApiKey, geminiApiKey) || other.geminiApiKey == geminiApiKey)&&(identical(other.rollingTurnCount, rollingTurnCount) || other.rollingTurnCount == rollingTurnCount)&&const DeepCollectionEquality().equals(other._contextPresets, _contextPresets));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AppSettings&&(identical(other.id, id) || other.id == id)&&(identical(other.baseLanguage, baseLanguage) || other.baseLanguage == baseLanguage)&&(identical(other.targetLanguage, targetLanguage) || other.targetLanguage == targetLanguage)&&(identical(other.baseCurrency, baseCurrency) || other.baseCurrency == baseCurrency)&&(identical(other.targetCurrency, targetCurrency) || other.targetCurrency == targetCurrency)&&(identical(other.modelDownloadUrl, modelDownloadUrl) || other.modelDownloadUrl == modelDownloadUrl)&&(identical(other.textScaleFactor, textScaleFactor) || other.textScaleFactor == textScaleFactor)&&(identical(other.sttEngineMode, sttEngineMode) || other.sttEngineMode == sttEngineMode)&&(identical(other.cloudSttModelId, cloudSttModelId) || other.cloudSttModelId == cloudSttModelId)&&(identical(other.translationEngineMode, translationEngineMode) || other.translationEngineMode == translationEngineMode)&&(identical(other.cloudModelId, cloudModelId) || other.cloudModelId == cloudModelId)&&(identical(other.geminiApiKey, geminiApiKey) || other.geminiApiKey == geminiApiKey)&&(identical(other.rollingTurnCount, rollingTurnCount) || other.rollingTurnCount == rollingTurnCount)&&const DeepCollectionEquality().equals(other._contextPresets, _contextPresets));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
-    return Object.hash(runtimeType,id,baseLanguage,targetLanguage,baseCurrency,targetCurrency,modelDownloadUrl,textScaleFactor,sttEngineMode,onDeviceSttModelId,cloudSttModelId,translationEngineMode,cloudModelId,geminiApiKey,rollingTurnCount,const DeepCollectionEquality().hash(_contextPresets));
+    return Object.hash(runtimeType,id,baseLanguage,targetLanguage,baseCurrency,targetCurrency,modelDownloadUrl,textScaleFactor,sttEngineMode,cloudSttModelId,translationEngineMode,cloudModelId,geminiApiKey,rollingTurnCount,const DeepCollectionEquality().hash(_contextPresets));
 }
 
 @override
 String toString() {
-    return 'AppSettings(id: $id, baseLanguage: $baseLanguage, targetLanguage: $targetLanguage, baseCurrency: $baseCurrency, targetCurrency: $targetCurrency, modelDownloadUrl: $modelDownloadUrl, textScaleFactor: $textScaleFactor, sttEngineMode: $sttEngineMode, onDeviceSttModelId: $onDeviceSttModelId, cloudSttModelId: $cloudSttModelId, translationEngineMode: $translationEngineMode, cloudModelId: $cloudModelId, geminiApiKey: $geminiApiKey, rollingTurnCount: $rollingTurnCount, contextPresets: $contextPresets)';
+    return 'AppSettings(id: $id, baseLanguage: $baseLanguage, targetLanguage: $targetLanguage, baseCurrency: $baseCurrency, targetCurrency: $targetCurrency, modelDownloadUrl: $modelDownloadUrl, textScaleFactor: $textScaleFactor, sttEngineMode: $sttEngineMode, cloudSttModelId: $cloudSttModelId, translationEngineMode: $translationEngineMode, cloudModelId: $cloudModelId, geminiApiKey: $geminiApiKey, rollingTurnCount: $rollingTurnCount, contextPresets: $contextPresets)';
 }
 
 
@@ -1292,7 +1131,7 @@ abstract mixin class _$AppSettingsCopyWith<$Res> implements $AppSettingsCopyWith
   factory _$AppSettingsCopyWith(_AppSettings value, $Res Function(_AppSettings) _then) = __$AppSettingsCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String baseLanguage, String targetLanguage, String baseCurrency, String targetCurrency, String modelDownloadUrl, double textScaleFactor, TranslationEngineMode sttEngineMode, String onDeviceSttModelId, String cloudSttModelId, TranslationEngineMode translationEngineMode, String cloudModelId, String geminiApiKey, int rollingTurnCount, List<ConversationContextPreset> contextPresets
+ String id, String baseLanguage, String targetLanguage, String baseCurrency, String targetCurrency, String modelDownloadUrl, double textScaleFactor, TranslationEngineMode sttEngineMode, String cloudSttModelId, TranslationEngineMode translationEngineMode, String cloudModelId, String geminiApiKey, int rollingTurnCount, List<ConversationContextPreset> contextPresets
 });
 
 
@@ -1309,7 +1148,7 @@ class __$AppSettingsCopyWithImpl<$Res>
 
 /// Create a copy of AppSettings
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? baseCurrency = null,Object? targetCurrency = null,Object? modelDownloadUrl = null,Object? textScaleFactor = null,Object? sttEngineMode = null,Object? onDeviceSttModelId = null,Object? cloudSttModelId = null,Object? translationEngineMode = null,Object? cloudModelId = null,Object? geminiApiKey = null,Object? rollingTurnCount = null,Object? contextPresets = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? baseCurrency = null,Object? targetCurrency = null,Object? modelDownloadUrl = null,Object? textScaleFactor = null,Object? sttEngineMode = null,Object? cloudSttModelId = null,Object? translationEngineMode = null,Object? cloudModelId = null,Object? geminiApiKey = null,Object? rollingTurnCount = null,Object? contextPresets = null,}) {
   return _then(_AppSettings(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,baseLanguage: null == baseLanguage ? _self.baseLanguage : baseLanguage // ignore: cast_nullable_to_non_nullable
@@ -1319,8 +1158,7 @@ as String,targetCurrency: null == targetCurrency ? _self.targetCurrency : target
 as String,modelDownloadUrl: null == modelDownloadUrl ? _self.modelDownloadUrl : modelDownloadUrl // ignore: cast_nullable_to_non_nullable
 as String,textScaleFactor: null == textScaleFactor ? _self.textScaleFactor : textScaleFactor // ignore: cast_nullable_to_non_nullable
 as double,sttEngineMode: null == sttEngineMode ? _self.sttEngineMode : sttEngineMode // ignore: cast_nullable_to_non_nullable
-as TranslationEngineMode,onDeviceSttModelId: null == onDeviceSttModelId ? _self.onDeviceSttModelId : onDeviceSttModelId // ignore: cast_nullable_to_non_nullable
-as String,cloudSttModelId: null == cloudSttModelId ? _self.cloudSttModelId : cloudSttModelId // ignore: cast_nullable_to_non_nullable
+as TranslationEngineMode,cloudSttModelId: null == cloudSttModelId ? _self.cloudSttModelId : cloudSttModelId // ignore: cast_nullable_to_non_nullable
 as String,translationEngineMode: null == translationEngineMode ? _self.translationEngineMode : translationEngineMode // ignore: cast_nullable_to_non_nullable
 as TranslationEngineMode,cloudModelId: null == cloudModelId ? _self.cloudModelId : cloudModelId // ignore: cast_nullable_to_non_nullable
 as String,geminiApiKey: null == geminiApiKey ? _self.geminiApiKey : geminiApiKey // ignore: cast_nullable_to_non_nullable

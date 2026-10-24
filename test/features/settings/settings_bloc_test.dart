@@ -134,7 +134,6 @@ void main() {
       lastDownloadedUrl = null;
       modelManager = ModelManager(
         isInstalledCheck: () async => true,
-        isWhisperInstalledCheck: (_) async => true,
         installRunner:
             ({
               required downloadUrl,
@@ -142,14 +141,6 @@ void main() {
               cancelToken,
             }) async {
               lastDownloadedUrl = downloadUrl;
-              onProgress(1.0);
-            },
-        whisperInstallRunner:
-            ({
-              required variant,
-              required onProgress,
-              cancelToken,
-            }) async {
               onProgress(1.0);
             },
       );
@@ -410,24 +401,19 @@ void main() {
         TranslationEngineMode.cloud,
       );
       expect(bloc.stateValue.settings.cloudSttModelId, 'gemini-3.1-pro');
+      expect(
+        bloc.stateValue.settings.activeModelDisplayName,
+        'Gemini 3.1 Pro',
+      );
 
       await bloc.updateSttEngineMode(TranslationEngineMode.onDevice);
-      await bloc.updateOnDeviceSttModelId('whisper-tiny-int8');
       expect(
         bloc.stateValue.settings.sttEngineMode,
         TranslationEngineMode.onDevice,
       );
-      expect(bloc.stateValue.settings.onDeviceSttModelId, 'whisper-tiny-int8');
       expect(
         bloc.stateValue.settings.activeModelDisplayName,
-        'Whisper Tiny (int8) → Gemini 3.1 Pro',
-      );
-
-      final whisperOk = await bloc.downloadWhisperModel('whisper-tiny-int8');
-      expect(whisperOk, isTrue);
-      expect(
-        modelManager.stateValue.isSttModelInstalled('whisper-tiny-int8'),
-        isTrue,
+        'Gemma 4 → Gemini 3.1 Pro',
       );
     });
 

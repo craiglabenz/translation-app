@@ -204,10 +204,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               (m) => m.id == settings.cloudSttModelId,
               orElse: () => AppSettings.supportedCloudModels.first,
             );
-        final selectedOnDeviceSttModel = settings.selectedOnDeviceSttModel;
-        final activeWhisperVariant = selectedOnDeviceSttModel.isWhisper
-            ? selectedOnDeviceSttModel
-            : AppSettings.whisperVariants.first;
         final isCloudMode =
             settings.translationEngineMode == TranslationEngineMode.cloud;
         final isSttCloudMode =
@@ -250,7 +246,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       title: 'Step 1: Speech-to-Text (Audio → Text)',
                       subtitle: isSttCloudMode
                           ? 'Cloud Gemini transcribes spoken audio into text.'
-                          : 'On-device model (${selectedOnDeviceSttModel.name}) transcribes spoken audio offline.',
+                          : 'On-device Gemma 4 E2B transcribes spoken audio offline.',
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -264,12 +260,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   ButtonSegment<TranslationEngineMode>(
                                     value: TranslationEngineMode.onDevice,
                                     icon: Icon(Icons.mic_rounded, size: 16),
-                                    label: Text('On-Device STT'),
+                                    label: Text('On-Device STT (Gemma 4)'),
                                   ),
                                   ButtonSegment<TranslationEngineMode>(
                                     value: TranslationEngineMode.cloud,
                                     icon: Icon(Icons.cloud_outlined, size: 16),
-                                    label: Text('Cloud STT'),
+                                    label: Text('Cloud STT (Gemini)'),
                                   ),
                                 ],
                             selected: <TranslationEngineMode>{
@@ -285,49 +281,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               }
                             },
                           ),
-                          const SizedBox(height: 8),
-                          if (!isSttCloudMode)
-                            DropdownButtonFormField<SupportedOnDeviceSttModel>(
-                              key: const ValueKey(
-                                'on_device_stt_model_dropdown',
-                              ),
-                              isExpanded: true,
-                              isDense: true,
-                              initialValue: selectedOnDeviceSttModel,
-                              decoration: const InputDecoration(
-                                labelText: 'On-Device STT Model',
-                                isDense: true,
-                                contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
-                                ),
-                                border: OutlineInputBorder(),
-                              ),
-                              items: AppSettings.supportedOnDeviceSttModels
-                                  .map(
-                                    (model) =>
-                                        DropdownMenuItem<
-                                          SupportedOnDeviceSttModel
-                                        >(
-                                          value: model,
-                                          child: Text(
-                                            '${model.name} (${model.sizeLabel}) — ${model.description}',
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                  )
-                                  .toList(),
-                              onChanged: (model) {
-                                if (model != null) {
-                                  unawaited(
-                                    _settingsBloc.updateOnDeviceSttModelId(
-                                      model.id,
-                                    ),
-                                  );
-                                }
-                              },
-                            )
-                          else
+                          if (isSttCloudMode) ...[
+                            const SizedBox(height: 8),
                             DropdownButtonFormField<SupportedCloudModel>(
                               key: const ValueKey('cloud_stt_model_dropdown'),
                               isExpanded: true,
@@ -364,6 +319,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 }
                               },
                             ),
+                          ],
                         ],
                       ),
                     ),
@@ -772,14 +728,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 8),
 
-                    // On-Device AI Model Management Card (Gemma 4 + Edge Whisper Variants)
+                    // On-Device AI Model Management Card (Gemma 4 E2B)
                     BlocSignalBuilder<ModelManager, ModelDownloadState>(
                       bloc: _settingsBloc.modelManager,
                       builder: (context, modelState) {
                         return _SectionCard(
-                          title: 'On-Device AI Models (Gemma 4 & Whisper)',
+                          title: 'On-Device AI Model (Gemma 4 E2B)',
                           subtitle:
-                              'Download Gemma 4 E2B (~1.6 GB) and Edge Whisper STT variants.',
+                              'Download Gemma 4 E2B (~1.6 GB) once for offline speech-to-text and translation.',
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -881,43 +837,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   );
                                 },
                               ),
-                              const SizedBox(height: 8),
-                              _WhisperVariantRow(
-                                variant: activeWhisperVariant,
-                                isSelected: selectedOnDeviceSttModel.isWhisper,
-                                isInstalled: modelState.isSttModelInstalled(
-                                  activeWhisperVariant.id,
-                                ),
-                                isDownloadingThis:
-                                    modelState.isWhisperDownloading &&
-                                    modelState.whisperModelId ==
-                                        activeWhisperVariant.id,
-                                isAnyWhisperDownloading:
-                                    modelState.isWhisperDownloading,
-                                progress: modelState.whisperProgress,
-                                onDownload: () => unawaited(
-                                  _settingsBloc.downloadWhisperModel(
-                                    activeWhisperVariant.id,
-                                  ),
-                                ),
-                                onCancel: _settingsBloc
-                                    .modelManager
-                                    .cancelWhisperDownload,
-                                onRedownload: () => _settingsBloc.modelManager
-                                    .markWhisperUninstalled(
-                                      activeWhisperVariant.id,
-                                    ),
-                              ),
-                              if (modelState.whisperError != null) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  modelState.whisperError!,
-                                  key: const ValueKey('whisper_download_error'),
-                                  style: typography.bodySmall.copyWith(
-                                    color: AppTokens.errorRed,
-                                  ),
-                                ),
-                              ],
                             ],
                           ),
                         );
@@ -1287,116 +1206,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
       },
-    );
-  }
-}
-
-class _WhisperVariantRow extends StatelessWidget {
-  const _WhisperVariantRow({
-    required this.variant,
-    required this.isSelected,
-    required this.isInstalled,
-    required this.isDownloadingThis,
-    required this.isAnyWhisperDownloading,
-    required this.progress,
-    required this.onDownload,
-    required this.onCancel,
-    required this.onRedownload,
-  });
-
-  final SupportedOnDeviceSttModel variant;
-  final bool isSelected;
-  final bool isInstalled;
-  final bool isDownloadingThis;
-  final bool isAnyWhisperDownloading;
-  final double progress;
-  final VoidCallback onDownload;
-  final VoidCallback onCancel;
-  final VoidCallback onRedownload;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.flowColors;
-    final typography = context.flowTypography;
-
-    return Container(
-      key: ValueKey('whisper_variant_row_${variant.id}'),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: isSelected ? colors.primary : colors.outline,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Icon(
-                isInstalled
-                    ? Icons.check_circle_rounded
-                    : Icons.graphic_eq_rounded,
-                size: 18,
-                color: isInstalled ? AppTokens.listeningAccent : colors.primary,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  isInstalled
-                      ? 'Whisper Installed & Ready (${variant.filename})'
-                      : isDownloadingThis
-                      ? 'Downloading ${variant.name} (${(progress * 100).toStringAsFixed(0)}%)…'
-                      : '${variant.name} (${variant.sizeLabel})',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: typography.labelMedium.copyWith(
-                    color: colors.onSurface,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              if (isDownloadingThis)
-                OutlinedButton(
-                  key: ValueKey('settings_cancel_whisper_${variant.id}'),
-                  style: OutlinedButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  onPressed: onCancel,
-                  child: const Text('Cancel'),
-                )
-              else if (isInstalled)
-                TextButton(
-                  key: ValueKey('settings_redownload_whisper_${variant.id}'),
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  onPressed: onRedownload,
-                  child: const Text('Re-download Whisper'),
-                )
-              else
-                FilledButton.tonalIcon(
-                  key: ValueKey('settings_download_whisper_${variant.id}'),
-                  style: FilledButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  onPressed: isAnyWhisperDownloading ? null : onDownload,
-                  icon: const Icon(Icons.download_rounded, size: 16),
-                  label: const Text('Download Whisper'),
-                ),
-            ],
-          ),
-          if (isDownloadingThis) ...[
-            const SizedBox(height: 6),
-            LinearProgressIndicator(
-              value: progress > 0 ? progress : null,
-            ),
-          ],
-        ],
-      ),
     );
   }
 }

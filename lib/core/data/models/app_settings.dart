@@ -30,25 +30,6 @@ abstract class SupportedCloudModel with _$SupportedCloudModel {
       _$SupportedCloudModelFromJson(json);
 }
 
-/// Represents a selectable on-device speech-to-text (STT) model in Settings,
-/// including Edge Whisper variants (`flutter_edge_ai_speech`) and Gemma 4 E2B.
-@freezed
-abstract class SupportedOnDeviceSttModel with _$SupportedOnDeviceSttModel {
-  const factory SupportedOnDeviceSttModel({
-    required String id,
-    required String name,
-    required String sizeLabel,
-    required String description,
-    required bool isWhisper,
-    required String filename,
-    String? modelUrl,
-    String? tokenizerUrl,
-  }) = _SupportedOnDeviceSttModel;
-
-  factory SupportedOnDeviceSttModel.fromJson(Map<String, Object?> json) =>
-      _$SupportedOnDeviceSttModelFromJson(json);
-}
-
 /// Represents a language selectable in the translation app.
 @freezed
 abstract class SupportedLanguage with _$SupportedLanguage {
@@ -120,7 +101,6 @@ abstract class AppSettings with _$AppSettings {
     @Default(AppSettings.defaultTextScaleFactor) double textScaleFactor,
     @Default(TranslationEngineMode.onDevice)
     TranslationEngineMode sttEngineMode,
-    @Default(AppSettings.defaultOnDeviceSttModelId) String onDeviceSttModelId,
     @Default(AppSettings.defaultCloudModelId) String cloudSttModelId,
     @Default(TranslationEngineMode.onDevice)
     TranslationEngineMode translationEngineMode,
@@ -141,7 +121,6 @@ abstract class AppSettings with _$AppSettings {
   static const double minTextScaleFactor = 0.5;
   static const double maxTextScaleFactor = 3.0;
   static const String defaultCloudModelId = 'gemini-3.8-flash';
-  static const String defaultOnDeviceSttModelId = 'whisper-base-int8';
   static const int defaultRollingTurnCount = 3;
   static const int minRollingTurnCount = 0;
   static const int maxRollingTurnCount = 10;
@@ -191,71 +170,6 @@ abstract class AppSettings with _$AppSettings {
           'symptoms, pain, fever, allergy, prescription, medicine, dosage, pharmacy, doctor, emergency',
     ),
   ];
-
-  /// Available on-device Speech-to-Text (STT) models selectable in Settings,
-  /// including downloadable Edge Whisper variants alongside Gemma 4 E2B.
-  static const List<SupportedOnDeviceSttModel> supportedOnDeviceSttModels = [
-    SupportedOnDeviceSttModel(
-      id: 'whisper-base-int8',
-      name: 'Whisper Base (int8)',
-      sizeLabel: '73 MB',
-      description: 'Recommended multilingual edge Whisper ASR',
-      isWhisper: true,
-      filename: 'whisper_base_30s_i8.tflite',
-      modelUrl:
-          'https://huggingface.co/litert-community/whisper-base/resolve/main/whisper_base_30s_i8.tflite',
-      tokenizerUrl:
-          'https://huggingface.co/openai/whisper-base/resolve/main/tokenizer.json',
-    ),
-    SupportedOnDeviceSttModel(
-      id: 'whisper-tiny-int8',
-      name: 'Whisper Tiny (int8)',
-      sizeLabel: '39 MB',
-      description: 'Ultra-compact, fastest on-device Whisper ASR',
-      isWhisper: true,
-      filename: 'whisper_tiny_30s_i8.tflite',
-      modelUrl:
-          'https://huggingface.co/litert-community/whisper-tiny/resolve/main/whisper_tiny_30s_i8.tflite',
-      tokenizerUrl:
-          'https://huggingface.co/openai/whisper-tiny/resolve/main/tokenizer.json',
-    ),
-    SupportedOnDeviceSttModel(
-      id: 'whisper-tiny-f32',
-      name: 'Whisper Tiny (f32)',
-      sizeLabel: '151 MB',
-      description: 'Full-precision float32 Whisper Tiny ASR',
-      isWhisper: true,
-      filename: 'whisper_tiny_30s_f32.tflite',
-      modelUrl:
-          'https://huggingface.co/litert-community/whisper-tiny/resolve/main/whisper_tiny_30s_f32.tflite',
-      tokenizerUrl:
-          'https://huggingface.co/openai/whisper-tiny/resolve/main/tokenizer.json',
-    ),
-    SupportedOnDeviceSttModel(
-      id: 'gemma-4',
-      name: 'Gemma 4 E2B Audio',
-      sizeLabel: '1.6 GB',
-      description: 'Uses on-device Gemma 4 multimodal audio encoder',
-      isWhisper: false,
-      filename: 'gemma-4-E2B-it.litertlm',
-    ),
-  ];
-
-  /// Only the downloadable Edge Whisper variants from [supportedOnDeviceSttModels].
-  static List<SupportedOnDeviceSttModel> get whisperVariants =>
-      supportedOnDeviceSttModels.where((m) => m.isWhisper).toList();
-
-  /// Resolves the [SupportedOnDeviceSttModel] for [modelId], falling back to
-  /// the first Whisper variant (`whisper-base-int8`).
-  static SupportedOnDeviceSttModel onDeviceSttModelFor(String modelId) {
-    final trimmed = modelId.trim();
-    for (final model in supportedOnDeviceSttModels) {
-      if (model.id == trimmed || model.filename == trimmed) {
-        return model;
-      }
-    }
-    return supportedOnDeviceSttModels.first;
-  }
 
   /// Available cloud Gemini models selectable in Settings.
   static const List<SupportedCloudModel> supportedCloudModels = [
@@ -646,10 +560,6 @@ abstract class AppSettings with _$AppSettings {
       '${languageNameFor(baseLanguage)} ($baseCurrency) ⇄ '
       '${languageNameFor(targetLanguage)} ($targetCurrency)';
 
-  /// Returns the currently selected [SupportedOnDeviceSttModel].
-  SupportedOnDeviceSttModel get selectedOnDeviceSttModel =>
-      onDeviceSttModelFor(onDeviceSttModelId);
-
   /// Returns the human-readable name of a cloud model ID.
   static String cloudModelDisplayNameFor(String id) {
     final trimmed = id.trim();
@@ -665,11 +575,10 @@ abstract class AppSettings with _$AppSettings {
   }
 
   /// Returns the human-readable name of the currently active Speech-to-Text
-  /// model (e.g. `'Whisper Base (int8)'`, `'Gemma 4'`, or `'Gemini 3.8 Flash'`).
+  /// model (e.g. `'Gemma 4'` or `'Gemini 3.8 Flash'`).
   String get activeSttModelDisplayName {
     if (sttEngineMode == TranslationEngineMode.onDevice) {
-      final sttModel = selectedOnDeviceSttModel;
-      return sttModel.id == 'gemma-4' ? 'Gemma 4' : sttModel.name;
+      return 'Gemma 4';
     }
     return cloudModelDisplayNameFor(cloudSttModelId);
   }
@@ -684,7 +593,7 @@ abstract class AppSettings with _$AppSettings {
   }
 
   /// Returns the human-readable name of the active STT + Translation pipeline
-  /// (e.g. `'Gemma 4'`, `'Gemini 3.8 Flash'`, or `'Whisper Base (int8) → Gemma 4'`).
+  /// (e.g. `'Gemma 4'`, `'Gemini 3.8 Flash'`, or `'Gemma 4 → Gemini 3.1 Pro'`).
   String get activeModelDisplayName {
     final sttName = activeSttModelDisplayName;
     final transName = activeTranslationModelDisplayName;

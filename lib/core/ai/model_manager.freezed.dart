@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$ModelDownloadState {
 
- bool get isInstalled; bool get isDownloading; double get progress; String get modelId; String? get error; Map<String, bool> get installedWhisperModels; bool get isWhisperDownloading; double get whisperProgress; String get whisperModelId; String? get whisperError;
+ bool get isInstalled; bool get isDownloading; double get progress; String get modelId; String? get error;
 /// Create a copy of ModelDownloadState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,20 +27,20 @@ $ModelDownloadStateCopyWith<ModelDownloadState> get copyWith => _$ModelDownloadS
 @override
 bool operator ==(Object other) {
   final _this = this as ModelDownloadState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ModelDownloadState&&(identical(other.isInstalled, _this.isInstalled) || other.isInstalled == _this.isInstalled)&&(identical(other.isDownloading, _this.isDownloading) || other.isDownloading == _this.isDownloading)&&(identical(other.progress, _this.progress) || other.progress == _this.progress)&&(identical(other.modelId, _this.modelId) || other.modelId == _this.modelId)&&(identical(other.error, _this.error) || other.error == _this.error)&&const DeepCollectionEquality().equals(other.installedWhisperModels, _this.installedWhisperModels)&&(identical(other.isWhisperDownloading, _this.isWhisperDownloading) || other.isWhisperDownloading == _this.isWhisperDownloading)&&(identical(other.whisperProgress, _this.whisperProgress) || other.whisperProgress == _this.whisperProgress)&&(identical(other.whisperModelId, _this.whisperModelId) || other.whisperModelId == _this.whisperModelId)&&(identical(other.whisperError, _this.whisperError) || other.whisperError == _this.whisperError));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ModelDownloadState&&(identical(other.isInstalled, _this.isInstalled) || other.isInstalled == _this.isInstalled)&&(identical(other.isDownloading, _this.isDownloading) || other.isDownloading == _this.isDownloading)&&(identical(other.progress, _this.progress) || other.progress == _this.progress)&&(identical(other.modelId, _this.modelId) || other.modelId == _this.modelId)&&(identical(other.error, _this.error) || other.error == _this.error));
 }
 
 
 @override
 int get hashCode {
   final _this = this as ModelDownloadState;
-  return Object.hash(runtimeType,_this.isInstalled,_this.isDownloading,_this.progress,_this.modelId,_this.error,const DeepCollectionEquality().hash(_this.installedWhisperModels),_this.isWhisperDownloading,_this.whisperProgress,_this.whisperModelId,_this.whisperError);
+  return Object.hash(runtimeType,_this.isInstalled,_this.isDownloading,_this.progress,_this.modelId,_this.error);
 }
 
 @override
 String toString() {
   final _this = this as ModelDownloadState;
-  return 'ModelDownloadState(isInstalled: ${_this.isInstalled}, isDownloading: ${_this.isDownloading}, progress: ${_this.progress}, modelId: ${_this.modelId}, error: ${_this.error}, installedWhisperModels: ${_this.installedWhisperModels}, isWhisperDownloading: ${_this.isWhisperDownloading}, whisperProgress: ${_this.whisperProgress}, whisperModelId: ${_this.whisperModelId}, whisperError: ${_this.whisperError})';
+  return 'ModelDownloadState(isInstalled: ${_this.isInstalled}, isDownloading: ${_this.isDownloading}, progress: ${_this.progress}, modelId: ${_this.modelId}, error: ${_this.error})';
 }
 
 
@@ -51,7 +51,7 @@ abstract mixin class $ModelDownloadStateCopyWith<$Res>  {
   factory $ModelDownloadStateCopyWith(ModelDownloadState value, $Res Function(ModelDownloadState) _then) = _$ModelDownloadStateCopyWithImpl;
 @useResult
 $Res call({
- bool isInstalled, bool isDownloading, double progress, String modelId, String? error, Map<String, bool> installedWhisperModels, bool isWhisperDownloading, double whisperProgress, String whisperModelId, String? whisperError
+ bool isInstalled, bool isDownloading, double progress, String modelId, String? error
 });
 
 
@@ -68,18 +68,13 @@ class _$ModelDownloadStateCopyWithImpl<$Res>
 
 /// Create a copy of ModelDownloadState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? isInstalled = null,Object? isDownloading = null,Object? progress = null,Object? modelId = null,Object? error = freezed,Object? installedWhisperModels = null,Object? isWhisperDownloading = null,Object? whisperProgress = null,Object? whisperModelId = null,Object? whisperError = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? isInstalled = null,Object? isDownloading = null,Object? progress = null,Object? modelId = null,Object? error = freezed,}) {
   return _then(ModelDownloadState(
 isInstalled: null == isInstalled ? _self.isInstalled : isInstalled // ignore: cast_nullable_to_non_nullable
 as bool,isDownloading: null == isDownloading ? _self.isDownloading : isDownloading // ignore: cast_nullable_to_non_nullable
 as bool,progress: null == progress ? _self.progress : progress // ignore: cast_nullable_to_non_nullable
 as double,modelId: null == modelId ? _self.modelId : modelId // ignore: cast_nullable_to_non_nullable
 as String,error: freezed == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
-as String?,installedWhisperModels: null == installedWhisperModels ? _self.installedWhisperModels : installedWhisperModels // ignore: cast_nullable_to_non_nullable
-as Map<String, bool>,isWhisperDownloading: null == isWhisperDownloading ? _self.isWhisperDownloading : isWhisperDownloading // ignore: cast_nullable_to_non_nullable
-as bool,whisperProgress: null == whisperProgress ? _self.whisperProgress : whisperProgress // ignore: cast_nullable_to_non_nullable
-as double,whisperModelId: null == whisperModelId ? _self.whisperModelId : whisperModelId // ignore: cast_nullable_to_non_nullable
-as String,whisperError: freezed == whisperError ? _self.whisperError : whisperError // ignore: cast_nullable_to_non_nullable
 as String?,
   ));
 }
@@ -165,10 +160,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( bool isInstalled,  bool isDownloading,  double progress,  String modelId,  String? error,  Map<String, bool> installedWhisperModels,  bool isWhisperDownloading,  double whisperProgress,  String whisperModelId,  String? whisperError)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( bool isInstalled,  bool isDownloading,  double progress,  String modelId,  String? error)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _ModelDownloadState() when $default != null:
-return $default(_that.isInstalled,_that.isDownloading,_that.progress,_that.modelId,_that.error,_that.installedWhisperModels,_that.isWhisperDownloading,_that.whisperProgress,_that.whisperModelId,_that.whisperError);case _:
+return $default(_that.isInstalled,_that.isDownloading,_that.progress,_that.modelId,_that.error);case _:
   return orElse();
 
 }
@@ -186,10 +181,10 @@ return $default(_that.isInstalled,_that.isDownloading,_that.progress,_that.model
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( bool isInstalled,  bool isDownloading,  double progress,  String modelId,  String? error,  Map<String, bool> installedWhisperModels,  bool isWhisperDownloading,  double whisperProgress,  String whisperModelId,  String? whisperError)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( bool isInstalled,  bool isDownloading,  double progress,  String modelId,  String? error)  $default,) {final _that = this;
 switch (_that) {
 case _ModelDownloadState():
-return $default(_that.isInstalled,_that.isDownloading,_that.progress,_that.modelId,_that.error,_that.installedWhisperModels,_that.isWhisperDownloading,_that.whisperProgress,_that.whisperModelId,_that.whisperError);case _:
+return $default(_that.isInstalled,_that.isDownloading,_that.progress,_that.modelId,_that.error);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -206,10 +201,10 @@ return $default(_that.isInstalled,_that.isDownloading,_that.progress,_that.model
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( bool isInstalled,  bool isDownloading,  double progress,  String modelId,  String? error,  Map<String, bool> installedWhisperModels,  bool isWhisperDownloading,  double whisperProgress,  String whisperModelId,  String? whisperError)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( bool isInstalled,  bool isDownloading,  double progress,  String modelId,  String? error)?  $default,) {final _that = this;
 switch (_that) {
 case _ModelDownloadState() when $default != null:
-return $default(_that.isInstalled,_that.isDownloading,_that.progress,_that.modelId,_that.error,_that.installedWhisperModels,_that.isWhisperDownloading,_that.whisperProgress,_that.whisperModelId,_that.whisperError);case _:
+return $default(_that.isInstalled,_that.isDownloading,_that.progress,_that.modelId,_that.error);case _:
   return null;
 
 }
@@ -221,7 +216,7 @@ return $default(_that.isInstalled,_that.isDownloading,_that.progress,_that.model
 
 
 class _ModelDownloadState extends ModelDownloadState {
-  const _ModelDownloadState({this.isInstalled = false, this.isDownloading = false, this.progress = 0.0, this.modelId = 'gemma-4-E2B-it.litertlm', this.error, Map<String, bool> installedWhisperModels = const <String, bool>{}, this.isWhisperDownloading = false, this.whisperProgress = 0.0, this.whisperModelId = AppSettings.defaultOnDeviceSttModelId, this.whisperError}): _installedWhisperModels = installedWhisperModels,super._();
+  const _ModelDownloadState({this.isInstalled = false, this.isDownloading = false, this.progress = 0.0, this.modelId = 'gemma-4-E2B-it.litertlm', this.error}): super._();
   
 
 @override@JsonKey() final  bool isInstalled;
@@ -229,17 +224,6 @@ class _ModelDownloadState extends ModelDownloadState {
 @override@JsonKey() final  double progress;
 @override@JsonKey() final  String modelId;
 @override final  String? error;
- final  Map<String, bool> _installedWhisperModels;
-@override@JsonKey() Map<String, bool> get installedWhisperModels {
-  if (_installedWhisperModels is EqualUnmodifiableMapView) return _installedWhisperModels;
-  // ignore: implicit_dynamic_type
-  return EqualUnmodifiableMapView(_installedWhisperModels);
-}
-
-@override@JsonKey() final  bool isWhisperDownloading;
-@override@JsonKey() final  double whisperProgress;
-@override@JsonKey() final  String whisperModelId;
-@override final  String? whisperError;
 
 /// Create a copy of ModelDownloadState
 /// with the given fields replaced by the non-null parameter values.
@@ -251,18 +235,18 @@ _$ModelDownloadStateCopyWith<_ModelDownloadState> get copyWith => __$ModelDownlo
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ModelDownloadState&&(identical(other.isInstalled, isInstalled) || other.isInstalled == isInstalled)&&(identical(other.isDownloading, isDownloading) || other.isDownloading == isDownloading)&&(identical(other.progress, progress) || other.progress == progress)&&(identical(other.modelId, modelId) || other.modelId == modelId)&&(identical(other.error, error) || other.error == error)&&const DeepCollectionEquality().equals(other._installedWhisperModels, _installedWhisperModels)&&(identical(other.isWhisperDownloading, isWhisperDownloading) || other.isWhisperDownloading == isWhisperDownloading)&&(identical(other.whisperProgress, whisperProgress) || other.whisperProgress == whisperProgress)&&(identical(other.whisperModelId, whisperModelId) || other.whisperModelId == whisperModelId)&&(identical(other.whisperError, whisperError) || other.whisperError == whisperError));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ModelDownloadState&&(identical(other.isInstalled, isInstalled) || other.isInstalled == isInstalled)&&(identical(other.isDownloading, isDownloading) || other.isDownloading == isDownloading)&&(identical(other.progress, progress) || other.progress == progress)&&(identical(other.modelId, modelId) || other.modelId == modelId)&&(identical(other.error, error) || other.error == error));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,isInstalled,isDownloading,progress,modelId,error,const DeepCollectionEquality().hash(_installedWhisperModels),isWhisperDownloading,whisperProgress,whisperModelId,whisperError);
+    return Object.hash(runtimeType,isInstalled,isDownloading,progress,modelId,error);
 }
 
 @override
 String toString() {
-    return 'ModelDownloadState(isInstalled: $isInstalled, isDownloading: $isDownloading, progress: $progress, modelId: $modelId, error: $error, installedWhisperModels: $installedWhisperModels, isWhisperDownloading: $isWhisperDownloading, whisperProgress: $whisperProgress, whisperModelId: $whisperModelId, whisperError: $whisperError)';
+    return 'ModelDownloadState(isInstalled: $isInstalled, isDownloading: $isDownloading, progress: $progress, modelId: $modelId, error: $error)';
 }
 
 
@@ -273,7 +257,7 @@ abstract mixin class _$ModelDownloadStateCopyWith<$Res> implements $ModelDownloa
   factory _$ModelDownloadStateCopyWith(_ModelDownloadState value, $Res Function(_ModelDownloadState) _then) = __$ModelDownloadStateCopyWithImpl;
 @override @useResult
 $Res call({
- bool isInstalled, bool isDownloading, double progress, String modelId, String? error, Map<String, bool> installedWhisperModels, bool isWhisperDownloading, double whisperProgress, String whisperModelId, String? whisperError
+ bool isInstalled, bool isDownloading, double progress, String modelId, String? error
 });
 
 
@@ -290,18 +274,13 @@ class __$ModelDownloadStateCopyWithImpl<$Res>
 
 /// Create a copy of ModelDownloadState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? isInstalled = null,Object? isDownloading = null,Object? progress = null,Object? modelId = null,Object? error = freezed,Object? installedWhisperModels = null,Object? isWhisperDownloading = null,Object? whisperProgress = null,Object? whisperModelId = null,Object? whisperError = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? isInstalled = null,Object? isDownloading = null,Object? progress = null,Object? modelId = null,Object? error = freezed,}) {
   return _then(_ModelDownloadState(
 isInstalled: null == isInstalled ? _self.isInstalled : isInstalled // ignore: cast_nullable_to_non_nullable
 as bool,isDownloading: null == isDownloading ? _self.isDownloading : isDownloading // ignore: cast_nullable_to_non_nullable
 as bool,progress: null == progress ? _self.progress : progress // ignore: cast_nullable_to_non_nullable
 as double,modelId: null == modelId ? _self.modelId : modelId // ignore: cast_nullable_to_non_nullable
 as String,error: freezed == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
-as String?,installedWhisperModels: null == installedWhisperModels ? _self._installedWhisperModels : installedWhisperModels // ignore: cast_nullable_to_non_nullable
-as Map<String, bool>,isWhisperDownloading: null == isWhisperDownloading ? _self.isWhisperDownloading : isWhisperDownloading // ignore: cast_nullable_to_non_nullable
-as bool,whisperProgress: null == whisperProgress ? _self.whisperProgress : whisperProgress // ignore: cast_nullable_to_non_nullable
-as double,whisperModelId: null == whisperModelId ? _self.whisperModelId : whisperModelId // ignore: cast_nullable_to_non_nullable
-as String,whisperError: freezed == whisperError ? _self.whisperError : whisperError // ignore: cast_nullable_to_non_nullable
 as String?,
   ));
 }
