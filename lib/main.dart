@@ -5,6 +5,7 @@ import 'package:bloc_signals_flutter/bloc_signals_flutter.dart';
 import 'package:flow_ui/flow_ui.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 import 'package:flutter_edge_ai_litertlm/flutter_edge_ai_litertlm.dart';
+import 'package:flutter_edge_ai_speech/flutter_edge_ai_speech.dart';
 import 'package:get_it/get_it.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
@@ -47,11 +48,12 @@ Future<void> main() async {
     final edgeSw = Stopwatch()..start();
     await FlutterEdgeAi.initialize(
       inferenceEngines: const [LiteRtLmEngine()],
+      sttBackends: const [LiteRtSttBackend()],
     );
     FlutterEdgeAi.logLevel = EdgeAiLogLevel.verbose;
     edgeSw.stop();
     _log.info(
-      '[PERF] FlutterEdgeAi initialized with LiteRtLmEngine '
+      '[PERF] FlutterEdgeAi initialized with LiteRtLmEngine & LiteRtSttBackend '
       '(${edgeSw.elapsedMilliseconds}ms, logLevel=verbose).',
     );
   } on Object catch (e, st) {

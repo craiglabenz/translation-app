@@ -17,8 +17,8 @@ import 'package:translation_app/features/settings/bloc/settings_bloc.dart';
 import 'package:translation_app/features/settings/bloc/settings_state.dart';
 
 /// Home screen featuring the language/currency [FlowPill], on-device Gemma 4
-/// model readiness banner, central [RippleStartButton], and recent threads
-/// rendered with [FlowThreadList.flat].
+/// model readiness banner, central [RippleStartButton], and a navigation
+/// [Drawer] listing past conversations rendered with [FlowThreadList.flat].
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     this.settingsBloc,
@@ -63,10 +63,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadRecentConversations() async {
-    final recent = await _conversationRepository.getRecentConversations(
-      limit: 3,
-    );
-    _log.fine('Loaded ${recent.length} recent conversations.');
+    final recent = await _conversationRepository.getAllConversations();
+    _log.fine('Loaded ${recent.length} past conversations for drawer.');
     if (mounted) {
       setState(() {
         _recentConversations = recent;
@@ -110,6 +108,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
         return Scaffold(
           backgroundColor: colors.surface,
+          drawer: _PastConversationsDrawer(
+            conversations: _recentConversations,
+            onSelectConversation: (id) {
+              Navigator.maybeOf(context)?.pop();
+              _navigateTo(
+                ChatRoute(
+                  conversationId: id,
+                  autoStartListening: false,
+                ),
+              );
+            },
+            onDeleteConversation: _deleteConversation,
+            onSeeAll: () {
+              Navigator.maybeOf(context)?.pop();
+              _navigateTo(const HistoryRoute());
+            },
+          ),
           body: SafeArea(
             child: Center(
               child: ConstrainedBox(
@@ -124,9 +139,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Top Header with FlowPill and Settings / Swap actions
+                      // Top Header with Drawer button, FlowPill, and Settings / Swap actions
                       Row(
                         children: [
+                          Builder(
+                            builder: (drawerContext) => IconButton(
+                              key: const ValueKey('home_drawer_button'),
+                              tooltip: 'Past conversations',
+                              icon: Icon(
+                                Icons.menu_rounded,
+                                color: colors.onSurfaceVariant,
+                              ),
+                              onPressed: () =>
+                                  Scaffold.of(drawerContext).openDrawer(),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
                           Expanded(
                             child: Align(
                               alignment: AlignmentDirectional.centerStart,
@@ -210,7 +238,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       // Active Engine Readiness Banner (On-Device Model or Cloud API Key)
                       if (settings.translationEngineMode ==
-                          TranslationEngineMode.cloud) ...[
+                              TranslationEngineMode.cloud ||
+                          settings.sttEngineMode ==
+                              TranslationEngineMode.cloud) ...[
                         if (settings.geminiApiKey.trim().isEmpty)
                           Padding(
                             padding: const EdgeInsets.only(top: 12),
@@ -303,19 +333,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                         ),
-                      ),
-
-                      // Bottom Recent Conversations section
-                      _RecentConversationsSection(
-                        conversations: _recentConversations,
-                        onSelectConversation: (id) => _navigateTo(
-                          ChatRoute(
-                            conversationId: id,
-                            autoStartListening: false,
-                          ),
-                        ),
-                        onDeleteConversation: _deleteConversation,
-                        onSeeAll: () => _navigateTo(const HistoryRoute()),
                       ),
                     ],
                   ),
@@ -419,8 +436,8 @@ class _ModelStatusBanner extends StatelessWidget {
   }
 }
 
-class _RecentConversationsSection extends StatelessWidget {
-  const _RecentConversationsSection({
+class _PastConversationsDrawer extends StatelessWidget {
+  const _PastConversationsDrawer({
     required this.conversations,
     required this.onSelectConversation,
     required this.onDeleteConversation,
@@ -452,110 +469,129 @@ class _RecentConversationsSection extends StatelessWidget {
         )
         .toList();
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: colors.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: colors.outline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Drawer(
+      key: const ValueKey('home_conversations_drawer'),
+      backgroundColor: colors.surface,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: Text(
-                  'Recent Conversations',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: typography.labelLarge.copyWith(
-                    color: colors.onSurface,
-                    fontWeight: FontWeight.w600,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Past Conversations',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: typography.titleSmallEmphasised.copyWith(
+                        color: colors.onSurface,
+                      ),
+                    ),
                   ),
-                ),
+                  TextButton(
+                    key: const ValueKey('home_see_all_history_button'),
+                    onPressed: onSeeAll,
+                    child: const Text('See All'),
+                  ),
+                  IconButton(
+                    key: const ValueKey('home_close_drawer_button'),
+                    tooltip: 'Close drawer',
+                    icon: Icon(
+                      Icons.close_rounded,
+                      color: colors.onSurfaceVariant,
+                    ),
+                    onPressed: () => Navigator.maybeOf(context)?.pop(),
+                  ),
+                ],
               ),
-              TextButton(
-                key: const ValueKey('home_see_all_history_button'),
-                onPressed: onSeeAll,
-                child: const Text('See All'),
-              ),
-            ],
-          ),
-          if (threadItems.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Text(
-                'No conversations yet. Tap the microphone above to start translating.',
-                style: typography.bodySmall.copyWith(
-                  color: colors.onSurfaceVariant,
-                ),
-              ),
-            )
-          else
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+              const Divider(height: 16),
+              if (threadItems.isEmpty)
                 Expanded(
-                  child: FlowThreadList.flat(
-                    key: const ValueKey('home_recent_threads_list'),
-                    items: threadItems,
-                    shrinkWrap: true,
-                    onThreadSelected: onSelectConversation,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    for (var i = 0; i < conversations.length; i++)
-                      Padding(
-                        padding: EdgeInsets.only(top: i == 0 ? 0 : 2),
-                        child: SizedBox(
-                          height: 36,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                conversations[i].relativeTimeLabel(),
-                                key: ValueKey(
-                                  'home_conv_time_${conversations[i].id}',
-                                ),
-                                style: typography.labelSmall.copyWith(
-                                  color: colors.onSurfaceMuted,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              SizedBox(
-                                width: 36,
-                                height: 36,
-                                child: IconButton(
-                                  key: ValueKey(
-                                    'home_delete_conv_${conversations[i].id}',
-                                  ),
-                                  padding: EdgeInsets.zero,
-                                  tooltip: 'Delete conversation',
-                                  icon: Icon(
-                                    Icons.delete_outline_rounded,
-                                    size: 18,
-                                    color: colors.onSurfaceMuted,
-                                  ),
-                                  onPressed: () =>
-                                      onDeleteConversation(conversations[i].id),
-                                ),
-                              ),
-                            ],
-                          ),
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        'No conversations yet. Tap the microphone to start translating.',
+                        textAlign: TextAlign.center,
+                        style: typography.bodySmall.copyWith(
+                          color: colors.onSurfaceVariant,
                         ),
                       ),
-                  ],
+                    ),
+                  ),
+                )
+              else
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: FlowThreadList.flat(
+                            key: const ValueKey('home_recent_threads_list'),
+                            items: threadItems,
+                            shrinkWrap: true,
+                            onThreadSelected: onSelectConversation,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            for (var i = 0; i < conversations.length; i++)
+                              Padding(
+                                padding: EdgeInsets.only(top: i == 0 ? 0 : 2),
+                                child: SizedBox(
+                                  height: 36,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        conversations[i].relativeTimeLabel(),
+                                        key: ValueKey(
+                                          'home_conv_time_${conversations[i].id}',
+                                        ),
+                                        style: typography.labelSmall.copyWith(
+                                          color: colors.onSurfaceMuted,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      SizedBox(
+                                        width: 36,
+                                        height: 36,
+                                        child: IconButton(
+                                          key: ValueKey(
+                                            'home_delete_conv_${conversations[i].id}',
+                                          ),
+                                          padding: EdgeInsets.zero,
+                                          tooltip: 'Delete conversation',
+                                          icon: Icon(
+                                            Icons.delete_outline_rounded,
+                                            size: 18,
+                                            color: colors.onSurfaceMuted,
+                                          ),
+                                          onPressed: () => onDeleteConversation(
+                                            conversations[i].id,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ],
-            ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }

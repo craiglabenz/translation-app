@@ -53,6 +53,12 @@ abstract class TranslationResult with _$TranslationResult {
 
     /// Total time spent in milliseconds across all steps.
     int? totalDurationMs,
+
+    /// Display name of the model that performed Step 1 (Speech-to-Text).
+    String? speechToTextModel,
+
+    /// Display name of the model that performed Step 2 (Text Translation).
+    String? translationModel,
   }) = _TranslationResult;
 
   factory TranslationResult.fromJson(Map<String, Object?> json) =>

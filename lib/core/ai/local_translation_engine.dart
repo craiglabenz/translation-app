@@ -9,6 +9,7 @@ import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 import 'package:translation_app/core/ai/language_detector.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
 import 'package:translation_app/core/ai/prompt_templates.dart';
+import 'package:translation_app/core/ai/speech_to_text_engine.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/audio/vad_buffer.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
@@ -419,6 +420,8 @@ class LocalTranslationEngine implements TranslationEngine {
           speechToTextMs: sttMs,
           translationMs: transMs,
           totalDurationMs: totalMs,
+          speechToTextModel: 'Gemma 4',
+          translationModel: 'Gemma 4',
         );
       } else if (isNonSpeechOrHallucination(
         originalText: analysis.sourceTextForFallback,
@@ -431,6 +434,8 @@ class LocalTranslationEngine implements TranslationEngine {
           sourceLanguage: analysis.resolvedSourceCode,
           translatedText: '',
           originalText: '',
+          speechToTextModel: 'Gemma 4',
+          translationModel: 'Gemma 4',
         );
       }
     }
@@ -450,6 +455,293 @@ class LocalTranslationEngine implements TranslationEngine {
       speechToTextMs: sttMs,
       translationMs: transMs,
       totalDurationMs: totalMs,
+      speechToTextModel: 'Gemma 4',
+      translationModel: 'Gemma 4',
+    );
+  }
+
+  /// Step 1 (On-Device Gemma 4 Audio STT): Transcribes [audioWavChunk] and
+  /// detects whether [baseLanguage] or [targetLanguage] was spoken without
+  /// translating.
+  Future<SpeechToTextResult> transcribeAudioChunk({
+    required Float32List audioWavChunk,
+    required String baseLanguage,
+    required String targetLanguage,
+  }) async {
+    if (audioWavChunk.isEmpty) {
+      throw ArgumentError('Audio chunk cannot be empty.');
+    }
+
+    final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
+    final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
+
+    if (audioWavChunk.length >= 4000 &&
+        !VadBuffer.hasMeaningfulSpeech(audioWavChunk)) {
+      return SpeechToTextResult(
+        transcript: '',
+        detectedLanguageCode: baseCode,
+        durationMs: 0,
+        modelName: 'Gemma 4',
+      );
+    }
+
+    final stopwatch = Stopwatch()..start();
+
+    if (!_initialized || (_model != null && _model!.isClosed)) {
+      await initialize();
+    }
+
+    final systemPrompt = PromptTemplates.buildSpeechToTextSystemPrompt(
+      baseLanguage: baseLanguage,
+      targetLanguage: targetLanguage,
+    );
+    final userTurnPrompt = PromptTemplates.buildSpeechToTextTurnPrompt(
+      baseLanguage: baseLanguage,
+      targetLanguage: targetLanguage,
+    );
+
+    final (wavBytes, trimmedLength) = await encodeAudioChunkInIsolate(
+      audioWavChunk,
+    );
+    _log.info(
+      'transcribeAudioChunk() [Gemma4Audio] started: samples=$trimmedLength '
+      '(wavBytes=${wavBytes.length}), pair=$baseCode <-> $targetCode',
+    );
+
+    final String rawResponse;
+    if (_streamingInferenceRunner != null) {
+      final buffer = StringBuffer();
+      await for (final tokenChunk in _streamingInferenceRunner(
+        wavBytes: wavBytes,
+        systemPrompt: systemPrompt,
+        userPrompt: userTurnPrompt,
+      )) {
+        buffer.write(tokenChunk);
+      }
+      rawResponse = buffer.toString();
+    } else if (_inferenceRunner != null) {
+      rawResponse = await _inferenceRunner(
+        wavBytes: wavBytes,
+        systemPrompt: systemPrompt,
+      );
+    } else {
+      rawResponse = await _runModelInference(
+        wavBytes: wavBytes,
+        systemPrompt: systemPrompt,
+        userPrompt: userTurnPrompt,
+      );
+    }
+
+    stopwatch.stop();
+    final elapsedMs = stopwatch.elapsedMilliseconds;
+
+    final parsed = parseSpeechToTextResponse(
+      rawResponse,
+      baseLanguage: baseLanguage,
+      targetLanguage: targetLanguage,
+      durationMs: elapsedMs,
+      modelName: 'Gemma 4',
+    );
+    _log.info(
+      'transcribeAudioChunk() [Gemma4Audio] finished in ${elapsedMs}ms: '
+      'detected="${parsed.detectedLanguageCode}", transcript="${parsed.transcript}"',
+    );
+    return parsed;
+  }
+
+  /// Step 2 (On-Device Gemma 4 Text Translation): Translates [transcript] from
+  /// [sourceLanguage] into the opposite language between [baseLanguage] and
+  /// [targetLanguage].
+  Future<TranslationResult> translateText({
+    required String transcript,
+    required String sourceLanguage,
+    required String baseLanguage,
+    required String targetLanguage,
+    required double exchangeRate,
+    required String baseCurrency,
+    required String targetCurrency,
+    int? speechToTextMs,
+    String? speechToTextModel,
+    void Function(TranslationResult partialResult)? onPartialResult,
+  }) async {
+    final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
+    final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
+    final trimmedTranscript = transcript.trim();
+
+    if (trimmedTranscript.isEmpty ||
+        isNonSpeechOrHallucination(translatedText: trimmedTranscript)) {
+      return TranslationResult(
+        sourceLanguage: baseCode,
+        translatedText: '',
+        originalText: '',
+        speechToTextMs: speechToTextMs,
+        translationMs: 0,
+        totalDurationMs: speechToTextMs ?? 0,
+        speechToTextModel: speechToTextModel,
+        translationModel: 'Gemma 4',
+      );
+    }
+
+    final stopwatch = Stopwatch()..start();
+
+    if (!_initialized || (_model != null && _model!.isClosed)) {
+      await initialize();
+    }
+
+    final detectedFromText = LanguageDetector.detectLanguage(
+      trimmedTranscript,
+      candidateA: baseCode,
+      candidateB: targetCode,
+    );
+    final normalizedReported = LanguageDetector.normalizeLanguageCode(
+      sourceLanguage,
+    );
+    final resolvedSourceCode =
+        detectedFromText ??
+        (normalizedReported == targetCode ? targetCode : baseCode);
+    final targetOutputCode = resolvedSourceCode == baseCode
+        ? targetCode
+        : baseCode;
+
+    final sourceLangName = AppSettings.languageNameFor(resolvedSourceCode);
+    final targetLangName = AppSettings.languageNameFor(targetOutputCode);
+
+    final prompt = PromptTemplates.buildTextFallbackPrompt(
+      textToTranslate: trimmedTranscript,
+      sourceLanguage: sourceLangName,
+      targetLanguage: targetLangName,
+      exchangeRate: exchangeRate,
+      baseCurrency: baseCurrency,
+      targetCurrency: targetCurrency,
+    );
+    final systemPrompt = PromptTemplates.buildTextFallbackSystemPrompt(
+      sourceLanguage: sourceLangName,
+      targetLanguage: targetLangName,
+    );
+
+    final rawOutput = await _executeTextFallback(
+      prompt: prompt,
+      systemPrompt: systemPrompt,
+      resolvedSourceCode: resolvedSourceCode,
+      originalText: trimmedTranscript,
+      onPartialResult: onPartialResult,
+    );
+
+    stopwatch.stop();
+    final transMs = stopwatch.elapsedMilliseconds;
+    final totalMs = (speechToTextMs ?? 0) + transMs;
+
+    final cleaned = cleanTextFallbackOutput(
+      rawOutput,
+      fallbackSourceLanguage: resolvedSourceCode,
+    );
+
+    if (cleaned.isEmpty ||
+        isNonSpeechOrHallucination(
+          originalText: trimmedTranscript,
+          translatedText: cleaned,
+        )) {
+      return TranslationResult(
+        sourceLanguage: resolvedSourceCode,
+        translatedText: '',
+        originalText: '',
+        speechToTextMs: speechToTextMs,
+        translationMs: transMs,
+        totalDurationMs: totalMs,
+        speechToTextModel: speechToTextModel,
+        translationModel: 'Gemma 4',
+      );
+    }
+
+    return TranslationResult(
+      sourceLanguage: resolvedSourceCode,
+      originalText: trimmedTranscript,
+      translatedText: cleaned,
+      speechToTextMs: speechToTextMs,
+      translationMs: transMs,
+      totalDurationMs: totalMs,
+      speechToTextModel: speechToTextModel,
+      translationModel: 'Gemma 4',
+    );
+  }
+
+  /// Parses raw LLM output from a Speech-to-Text pass into a [SpeechToTextResult].
+  static SpeechToTextResult parseSpeechToTextResponse(
+    String rawOutput, {
+    required String baseLanguage,
+    required String targetLanguage,
+    required int durationMs,
+    String? modelName,
+  }) {
+    final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
+    final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
+    final trimmed = rawOutput.trim();
+    if (trimmed.isEmpty) {
+      return SpeechToTextResult(
+        transcript: '',
+        detectedLanguageCode: baseCode,
+        durationMs: durationMs,
+        modelName: modelName,
+      );
+    }
+
+    final stripped = stripMarkdownFences(trimmed);
+    final jsonCandidate = _extractJsonObject(stripped) ?? stripped;
+
+    var transcript = '';
+    var reportedLang = baseCode;
+
+    try {
+      final decoded = jsonDecode(jsonCandidate);
+      if (decoded is Map) {
+        final map = decoded.cast<String, Object?>();
+        transcript =
+            (map['original_transcript'] as String? ??
+                    map['original_text'] as String? ??
+                    map['transcript'] as String? ??
+                    map['translated_text'] as String? ??
+                    '')
+                .trim();
+        reportedLang =
+            (map['detected_language'] as String? ??
+                    map['source_language'] as String? ??
+                    baseCode)
+                .trim();
+      } else {
+        transcript = stripped;
+      }
+    } on Object {
+      if (!stripped.startsWith('{') && !stripped.startsWith('[')) {
+        transcript = stripped;
+      }
+    }
+
+    if (transcript.isEmpty ||
+        isNonSpeechOrHallucination(translatedText: transcript)) {
+      return SpeechToTextResult(
+        transcript: '',
+        detectedLanguageCode: baseCode,
+        durationMs: durationMs,
+        modelName: modelName,
+      );
+    }
+
+    final detected = LanguageDetector.detectLanguage(
+      transcript,
+      candidateA: baseCode,
+      candidateB: targetCode,
+    );
+    final normalizedReported = LanguageDetector.normalizeLanguageCode(
+      reportedLang,
+    );
+    final resolvedLang =
+        detected ?? (normalizedReported == targetCode ? targetCode : baseCode);
+
+    return SpeechToTextResult(
+      transcript: transcript,
+      detectedLanguageCode: resolvedLang,
+      durationMs: durationMs,
+      modelName: modelName,
     );
   }
 

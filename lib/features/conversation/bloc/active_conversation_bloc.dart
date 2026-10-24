@@ -668,6 +668,10 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           result.totalDurationMs != null
               ? result.totalDurationMs! + postProcessSw.elapsedMilliseconds
               : (speechToTextMs + translationMs);
+      final speechToTextModel =
+          result.speechToTextModel ?? settings.activeSttModelDisplayName;
+      final translationModel =
+          result.translationModel ?? settings.activeTranslationModelDisplayName;
 
       _log.info(
         'onAudioChunkReceived(): translation succeeded! '
@@ -676,6 +680,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         'originalText="$rawOriginal", '
         'translatedText="$rawTranslated", '
         'annotatedText="$annotatedText", '
+        'models=(stt=$speechToTextModel, translation=$translationModel), '
         'timing=(stt=${speechToTextMs}ms, translation=${translationMs}ms, total=${totalDurationMs}ms)',
       );
 
@@ -690,6 +695,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         speechToTextMs: speechToTextMs,
         translationMs: translationMs,
         totalDurationMs: totalDurationMs,
+        speechToTextModel: speechToTextModel,
+        translationModel: translationModel,
       );
 
       final savedMessage = await _conversationRepository.saveMessage(

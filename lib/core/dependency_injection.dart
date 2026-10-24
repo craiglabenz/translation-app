@@ -5,6 +5,7 @@ import 'package:injectable/injectable.dart';
 import 'package:translation_app/core/ai/local_translation_engine.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
 import 'package:translation_app/core/ai/network_translation_engine.dart';
+import 'package:translation_app/core/ai/speech_to_text_engine.dart';
 import 'package:translation_app/core/ai/switchable_translation_engine.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/audio/native_audio_service.dart';
@@ -98,7 +99,27 @@ void configureDependencies({
     getIt.registerLazySingleton<ModelManager>(
       () => ModelManager(
         initialInstalled: inMemory,
+        initialWhisperInstalled: inMemory,
         isInstalledCheck: inMemory ? () async => true : null,
+        isWhisperInstalledCheck: inMemory ? (_) async => true : null,
+        installRunner: inMemory
+            ? ({
+                required downloadUrl,
+                required onProgress,
+                cancelToken,
+              }) async {
+                onProgress(1.0);
+              }
+            : null,
+        whisperInstallRunner: inMemory
+            ? ({
+                required variant,
+                required onProgress,
+                cancelToken,
+              }) async {
+                onProgress(1.0);
+              }
+            : null,
       ),
       dispose: (manager) => manager.close(),
     );
@@ -118,12 +139,21 @@ void configureDependencies({
               ? getIt<SettingsBloc>().stateValue.settings.cloudModelId
               : AppSettings.defaultCloudModelId,
         );
+        final whisperSttEngine = WhisperSpeechToTextEngine(
+          modelManager: getIt<ModelManager>(),
+          modelIdProvider: () => getIt.isRegistered<SettingsBloc>()
+              ? getIt<SettingsBloc>().stateValue.settings.onDeviceSttModelId
+              : AppSettings.defaultOnDeviceSttModelId,
+        );
+        final defaultMode = kIsWeb
+            ? TranslationEngineMode.cloud
+            : TranslationEngineMode.onDevice;
         return SwitchableTranslationEngine(
           localEngine: localEngine,
           networkEngine: networkEngine,
-          initialMode: kIsWeb
-              ? TranslationEngineMode.cloud
-              : TranslationEngineMode.onDevice,
+          whisperSttEngine: whisperSttEngine,
+          initialMode: defaultMode,
+          initialSttMode: defaultMode,
         );
       },
       dispose: (engine) => engine.dispose(),

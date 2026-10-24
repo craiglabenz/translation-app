@@ -66,6 +66,9 @@ class SettingsRepository extends Repository<AppSettings> {
       var normalized = existing.cloudModelId == 'gemini-4'
           ? existing.copyWith(cloudModelId: 'gemini-3.1-pro')
           : existing;
+      if (normalized.cloudSttModelId == 'gemini-4') {
+        normalized = normalized.copyWith(cloudSttModelId: 'gemini-3.1-pro');
+      }
       if (normalized.geminiApiKey.trim().isEmpty &&
           _envGeminiApiKey.isNotEmpty) {
         normalized = normalized.copyWith(geminiApiKey: _envGeminiApiKey);
@@ -81,6 +84,9 @@ class SettingsRepository extends Repository<AppSettings> {
       return normalized;
     }
     const defaults = AppSettings(
+      sttEngineMode: kIsWeb
+          ? TranslationEngineMode.cloud
+          : TranslationEngineMode.onDevice,
       translationEngineMode: kIsWeb
           ? TranslationEngineMode.cloud
           : TranslationEngineMode.onDevice,

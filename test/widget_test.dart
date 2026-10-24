@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:translation_app/core/core.dart';
@@ -16,11 +17,15 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Tap to Translate'), findsOneWidget);
-      expect(find.text('Recent Conversations'), findsOneWidget);
+      expect(find.byKey(const ValueKey('home_drawer_button')), findsOneWidget);
       expect(
         find.text('English (USD) ⇄ Spanish (EUR)'),
         findsOneWidget,
       );
+
+      await tester.tap(find.byKey(const ValueKey('home_drawer_button')));
+      await tester.pumpAndSettle();
+      expect(find.text('Past Conversations'), findsOneWidget);
     });
   });
 }

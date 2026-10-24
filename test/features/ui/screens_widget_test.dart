@@ -316,7 +316,7 @@ void main() {
       );
     });
 
-    testWidgets('displays recent conversations and navigates to HistoryRoute and ChatRoute', (
+    testWidgets('displays past conversations in drawer and navigates to HistoryRoute and ChatRoute', (
       tester,
     ) async {
       configureDependencies();
@@ -330,6 +330,20 @@ void main() {
       await tester.pumpWidget(const MyApp());
       await tester.pumpAndSettle();
 
+      // Past conversations are inside the drawer, not inline on the home screen body
+      expect(
+        find.byKey(const ValueKey('home_recent_threads_list')),
+        findsNothing,
+      );
+
+      // Open the drawer via home_drawer_button
+      await tester.tap(find.byKey(const ValueKey('home_drawer_button')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('home_conversations_drawer')),
+        findsOneWidget,
+      );
       expect(
         find.byKey(const ValueKey('home_recent_threads_list')),
         findsOneWidget,
@@ -359,7 +373,9 @@ void main() {
         const HomeRoute(),
       );
 
-      // Tap recent thread to open ChatRoute in read-only mode
+      // Open drawer and tap thread to open ChatRoute in read-only mode
+      await tester.tap(find.byKey(const ValueKey('home_drawer_button')));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('¿Dónde está el hotel?'));
       await tester.pumpAndSettle();
 
@@ -1027,6 +1043,8 @@ void main() {
             speechToTextMs: 420,
             translationMs: 310,
             totalDurationMs: 730,
+            speechToTextModel: 'Whisper Base (int8)',
+            translationModel: 'Gemma 4',
           ),
         );
         await convRepo.saveMessage(
@@ -1041,6 +1059,8 @@ void main() {
             speechToTextMs: 1120,
             translationMs: 480,
             totalDurationMs: 1600,
+            speechToTextModel: 'Gemini 3.8 Flash',
+            translationModel: 'Gemini 3.1 Pro',
           ),
         );
 
@@ -1062,7 +1082,7 @@ void main() {
         expect(find.text(r'It is 15,000 won ($10.87 USD).'), findsOneWidget);
         expect(find.text('How much is this souvenir?'), findsNothing);
 
-        // 1. Tap the first message bubble -> modal opens showing originalText and step timing metadata
+        // 1. Tap the first message bubble -> modal opens showing originalText, step models, and step timing metadata
         await tester.tap(
           find.byKey(const ValueKey('chat_message_bubble_msg_tap_1')),
         );
@@ -1074,7 +1094,17 @@ void main() {
         );
         expect(find.text('How much is this souvenir?'), findsOneWidget);
         expect(find.text('Speech-to-text'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('modal_speech_to_text_model')),
+          findsOneWidget,
+        );
+        expect(find.text('Whisper Base (int8)'), findsOneWidget);
         expect(find.text('Translation'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('modal_translation_model')),
+          findsOneWidget,
+        );
+        expect(find.text('Gemma 4'), findsOneWidget);
         expect(find.text('Total'), findsOneWidget);
         expect(find.text('420 ms'), findsOneWidget);
         expect(find.text('310 ms'), findsOneWidget);
@@ -1090,12 +1120,14 @@ void main() {
           findsNothing,
         );
 
-        // 2. Tap the second message bubble -> modal opens showing Korean originalText and >=1s formatted durations
+        // 2. Tap the second message bubble -> modal opens showing Korean originalText, step models, and >=1s formatted durations
         await tester.tap(
           find.byKey(const ValueKey('chat_message_bubble_msg_tap_2')),
         );
         await tester.pumpAndSettle();
         expect(find.text('15,000원입니다.'), findsOneWidget);
+        expect(find.text('Gemini 3.8 Flash'), findsOneWidget);
+        expect(find.text('Gemini 3.1 Pro'), findsOneWidget);
         expect(find.text('1.12s (1120 ms)'), findsOneWidget);
         expect(find.text('480 ms'), findsOneWidget);
         expect(find.text('1.60s (1600 ms)'), findsOneWidget);
@@ -1187,8 +1219,10 @@ void main() {
           closeTo(1.2, 1e-3),
         );
 
-        // Return to HomeScreen and open the saved conversation in ActiveChatView
+        // Return to HomeScreen, open drawer, and open the saved conversation in ActiveChatView
         await tester.tap(find.byKey(const ValueKey('settings_back_button')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('home_drawer_button')));
         await tester.pumpAndSettle();
         await tester.tap(find.text('안녕하세요!'));
         await tester.pumpAndSettle();
@@ -1233,10 +1267,14 @@ void main() {
         await tester.pumpWidget(const MyApp());
         await tester.pumpAndSettle();
 
+        // Open past conversations drawer on HomeScreen
+        await tester.tap(find.byKey(const ValueKey('home_drawer_button')));
+        await tester.pumpAndSettle();
+
         expect(find.text('Delete me from Home'), findsOneWidget);
         expect(find.text('Delete me from Chat'), findsOneWidget);
 
-        // 1. Delete c1 directly from HomeScreen recent conversations
+        // 1. Delete c1 directly from HomeScreen drawer
         await tester.tap(
           find.byKey(ValueKey('home_delete_conv_${c1.id}')),
         );
@@ -1439,7 +1477,9 @@ void main() {
         await tester.pumpWidget(const MyApp());
         await tester.pumpAndSettle();
 
-        // 1. On HomeScreen list view, (userSummary ?? generatedSummary) is shown instead of previewText
+        // 1. Open HomeScreen drawer -> (userSummary ?? generatedSummary) is shown instead of previewText
+        await tester.tap(find.byKey(const ValueKey('home_drawer_button')));
+        await tester.pumpAndSettle();
         expect(find.text('Ordering tapas in Madrid'), findsOneWidget);
         expect(find.text('Seoul subway directions'), findsOneWidget);
         expect(find.text('Last raw translated message 1'), findsNothing);
@@ -1591,6 +1631,115 @@ void main() {
         expect(
           find.byKey(const ValueKey('home_cloud_api_key_banner')),
           findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'supports configuring Speech-to-Text (On-Device Whisper variants / Cloud STT) independently of Translation and downloading Whisper variants',
+      (tester) async {
+        configureDependencies();
+        final settingsBloc = GetIt.I<SettingsBloc>();
+        final modelManager = GetIt.I<ModelManager>();
+        await settingsBloc.load();
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light(),
+            home: SettingsScreen(settingsBloc: settingsBloc),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Verify Step 1 (STT) and Step 2 (Translation) cards and selectors are both present
+        expect(
+          find.byKey(const ValueKey('settings_step1_stt_card')),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Step 1: Speech-to-Text (Audio → Text)'),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('settings_step2_translation_card')),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Step 2: Text Translation (Source → Target)'),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('stt_engine_mode_selector')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('on_device_stt_model_dropdown')),
+          findsOneWidget,
+        );
+
+        // Switch On-Device STT model to Whisper Tiny (int8)
+        await tester.tap(
+          find.byKey(const ValueKey('on_device_stt_model_dropdown')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.textContaining('Whisper Tiny (int8)').last);
+        await tester.pumpAndSettle();
+
+        expect(
+          settingsBloc.stateValue.settings.onDeviceSttModelId,
+          'whisper-tiny-int8',
+        );
+
+        // Switch Step 1 to Cloud STT while Step 2 stays On-Device (Gemma 4)
+        await tester.tap(find.text('Cloud STT'));
+        await tester.pumpAndSettle();
+        expect(
+          settingsBloc.stateValue.settings.sttEngineMode,
+          TranslationEngineMode.cloud,
+        );
+        expect(
+          settingsBloc.stateValue.settings.translationEngineMode,
+          TranslationEngineMode.onDevice,
+        );
+        expect(
+          find.byKey(const ValueKey('cloud_stt_model_dropdown')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('gemini_api_key_text_field')),
+          findsOneWidget,
+        );
+
+        // Switch Step 1 back to On-Device STT
+        await tester.tap(find.text('On-Device STT'));
+        await tester.pumpAndSettle();
+        expect(
+          settingsBloc.stateValue.settings.sttEngineMode,
+          TranslationEngineMode.onDevice,
+        );
+
+        // Scroll down to On-Device AI Models card and verify Whisper variant download / re-download
+        modelManager.markWhisperUninstalled('whisper-tiny-int8');
+        await tester.drag(find.byType(ListView), const Offset(0, -550));
+        await tester.pumpAndSettle();
+
+        final downloadWhisperBtn = find.byKey(
+          const ValueKey('settings_download_whisper_whisper-tiny-int8'),
+        );
+        expect(downloadWhisperBtn, findsOneWidget);
+
+        await tester.ensureVisible(downloadWhisperBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(downloadWhisperBtn);
+        await tester.pumpAndSettle();
+
+        expect(
+          modelManager.stateValue.isSttModelInstalled('whisper-tiny-int8'),
+          isTrue,
+        );
+        expect(
+          find.text('Whisper Installed & Ready (whisper_tiny_30s_i8.tflite)'),
+          findsOneWidget,
         );
       },
     );

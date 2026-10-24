@@ -117,6 +117,52 @@ class SettingsBloc extends CubitSignal<SettingsState> {
     }
   }
 
+  /// Updates the active Speech-to-Text engine mode (`onDevice` vs `cloud`)
+  /// independently of the translation engine mode.
+  Future<void> updateSttEngineMode(TranslationEngineMode mode) async {
+    final engine = _translationEngine;
+    if (engine is SwitchableTranslationEngine) {
+      engine.setSttMode(mode);
+    }
+    final updated = stateValue.settings.copyWith(sttEngineMode: mode);
+    await _persistSettings(updated);
+    if (mode == TranslationEngineMode.cloud &&
+        updated.geminiApiKey.trim().isNotEmpty) {
+      unawaited(discoverCloudLanguages());
+    } else if (mode == TranslationEngineMode.onDevice) {
+      unawaited(
+        modelManager.checkWhisperModelReady(updated.onDeviceSttModelId),
+      );
+      _warmupEngineOptimistically();
+    }
+  }
+
+  /// Updates the selected on-device STT model ID (`whisper-base-int8`,
+  /// `whisper-tiny-int8`, `whisper-tiny-f32`, or `gemma-4`).
+  Future<void> updateOnDeviceSttModelId(String modelId) async {
+    final trimmed = modelId.trim();
+    if (trimmed.isEmpty) return;
+    final engine = _translationEngine;
+    if (engine is SwitchableTranslationEngine) {
+      engine.setOnDeviceSttModelId(trimmed);
+    }
+    final updated = stateValue.settings.copyWith(onDeviceSttModelId: trimmed);
+    await _persistSettings(updated);
+    await modelManager.checkWhisperModelReady(trimmed);
+    if (updated.sttEngineMode == TranslationEngineMode.onDevice &&
+        modelManager.stateValue.isSttModelInstalled(trimmed)) {
+      _warmupEngineOptimistically();
+    }
+  }
+
+  /// Updates the selected cloud Gemini STT model ID.
+  Future<void> updateCloudSttModelId(String modelId) async {
+    final trimmed = modelId.trim();
+    if (trimmed.isEmpty) return;
+    final updated = stateValue.settings.copyWith(cloudSttModelId: trimmed);
+    await _persistSettings(updated);
+  }
+
   /// Updates the selected cloud Gemini model ID (`gemini-3.8-flash` or `gemini-4`).
   Future<void> updateCloudModelId(String modelId) async {
     final trimmed = modelId.trim();
@@ -167,18 +213,30 @@ class SettingsBloc extends CubitSignal<SettingsState> {
       final settings = await _settingsRepository.getSettings();
       final engine = _translationEngine;
       if (engine is SwitchableTranslationEngine) {
-        engine.setMode(settings.translationEngineMode);
+        engine.syncWithSettings(settings);
       }
       final modelReady = await modelManager.checkModelReady();
       if (isClosed) return;
+      await modelManager.checkWhisperModelReady(settings.onDeviceSttModelId);
+      if (isClosed) return;
 
-      if (settings.translationEngineMode == TranslationEngineMode.onDevice &&
-          modelReady) {
+      final isTranslationReady =
+          settings.translationEngineMode == TranslationEngineMode.onDevice
+          ? modelReady
+          : settings.geminiApiKey.trim().isNotEmpty;
+      final isSttReady =
+          settings.sttEngineMode == TranslationEngineMode.onDevice
+          ? modelManager.stateValue.isSttModelInstalled(
+              settings.onDeviceSttModelId,
+            )
+          : settings.geminiApiKey.trim().isNotEmpty;
+
+      if (isTranslationReady && isSttReady) {
         _warmupEngineOptimistically();
-      } else if (settings.translationEngineMode ==
-              TranslationEngineMode.cloud &&
+      }
+      if ((settings.translationEngineMode == TranslationEngineMode.cloud ||
+              settings.sttEngineMode == TranslationEngineMode.cloud) &&
           settings.geminiApiKey.trim().isNotEmpty) {
-        _warmupEngineOptimistically();
         unawaited(discoverCloudLanguages());
       }
 
@@ -314,6 +372,16 @@ class SettingsBloc extends CubitSignal<SettingsState> {
     final success = await modelManager.downloadModel(
       fallbackUrl: stateValue.settings.modelDownloadUrl,
     );
+    if (success && !isClosed) {
+      _warmupEngineOptimistically();
+    }
+    return success;
+  }
+
+  /// Downloads an on-device Whisper STT model variant.
+  Future<bool> downloadWhisperModel([String? modelId]) async {
+    final targetId = modelId ?? stateValue.settings.onDeviceSttModelId;
+    final success = await modelManager.downloadWhisperModel(targetId);
     if (success && !isClosed) {
       _warmupEngineOptimistically();
     }

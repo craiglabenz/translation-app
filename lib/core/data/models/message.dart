@@ -38,6 +38,12 @@ abstract class Message with _$Message {
 
     /// Total time spent in milliseconds across all steps for this message.
     int? totalDurationMs,
+
+    /// Display name of the model that performed Step 1 (Speech-to-Text).
+    String? speechToTextModel,
+
+    /// Display name of the model that performed Step 2 (Text Translation).
+    String? translationModel,
   }) = _Message;
 
   const Message._();

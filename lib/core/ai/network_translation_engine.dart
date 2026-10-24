@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:translation_app/core/ai/language_detector.dart';
 import 'package:translation_app/core/ai/local_translation_engine.dart';
 import 'package:translation_app/core/ai/prompt_templates.dart';
+import 'package:translation_app/core/ai/speech_to_text_engine.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/audio/vad_buffer.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
@@ -537,6 +538,7 @@ class NetworkTranslationEngine implements TranslationEngine {
         final totalMs = totalStopwatch.elapsedMilliseconds;
         final sttMs = firstPassElapsedMs;
         final transMs = totalMs >= sttMs ? totalMs - sttMs : 0;
+        final modelDisplay = AppSettings.cloudModelDisplayNameFor(modelId);
         return TranslationResult(
           sourceLanguage: analysis.resolvedSourceCode,
           originalText: sourceTranscript,
@@ -544,6 +546,8 @@ class NetworkTranslationEngine implements TranslationEngine {
           speechToTextMs: sttMs,
           translationMs: transMs,
           totalDurationMs: totalMs,
+          speechToTextModel: modelDisplay,
+          translationModel: modelDisplay,
         );
       }
     }
@@ -557,13 +561,213 @@ class NetworkTranslationEngine implements TranslationEngine {
       sttMs = firstPassElapsedMs.clamp(0, totalMs);
     }
     final transMs = totalMs >= sttMs ? totalMs - sttMs : 0;
+    final modelDisplay = AppSettings.cloudModelDisplayNameFor(modelId);
 
     return parsed.copyWith(
       sourceLanguage: analysis.resolvedSourceCode,
       speechToTextMs: sttMs,
       translationMs: transMs,
       totalDurationMs: totalMs,
+      speechToTextModel: modelDisplay,
+      translationModel: modelDisplay,
     );
+  }
+
+  /// Step 1 (Cloud Gemini STT): Transcribes [audioWavChunk] and detects whether
+  /// [baseLanguage] or [targetLanguage] was spoken without translating.
+  Future<SpeechToTextResult> transcribeAudioChunk({
+    required Float32List audioWavChunk,
+    required String baseLanguage,
+    required String targetLanguage,
+    String? overrideModelId,
+  }) async {
+    if (audioWavChunk.isEmpty) {
+      throw ArgumentError('Audio chunk cannot be empty.');
+    }
+
+    final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
+    final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
+    final effectiveSttModel =
+        overrideModelId != null && overrideModelId.trim().isNotEmpty
+        ? resolveEffectiveModelId(overrideModelId, _availableApiModelIds)
+        : modelId;
+    final sttModelDisplay = AppSettings.cloudModelDisplayNameFor(
+      effectiveSttModel,
+    );
+
+    if (audioWavChunk.length >= 4000 &&
+        !VadBuffer.hasMeaningfulSpeech(audioWavChunk)) {
+      return SpeechToTextResult(
+        transcript: '',
+        detectedLanguageCode: baseCode,
+        durationMs: 0,
+        modelName: sttModelDisplay,
+      );
+    }
+
+    final stopwatch = Stopwatch()..start();
+
+    if (!_initialized) {
+      await initialize();
+    } else if (apiKey.isEmpty) {
+      throw StateError(
+        'Gemini API key is not configured. Please enter your Gemini API key in Settings.',
+      );
+    }
+
+    final systemPrompt = PromptTemplates.buildSpeechToTextSystemPrompt(
+      baseLanguage: baseLanguage,
+      targetLanguage: targetLanguage,
+    );
+    final userTurnPrompt = PromptTemplates.buildSpeechToTextTurnPrompt(
+      baseLanguage: baseLanguage,
+      targetLanguage: targetLanguage,
+    );
+
+    final (wavBytes, trimmedLength) =
+        await LocalTranslationEngine.encodeAudioChunkInIsolate(audioWavChunk);
+
+    _log.info(
+      'transcribeAudioChunk() [Cloud:$effectiveSttModel] started: '
+      'samples=$trimmedLength (wavBytes=${wavBytes.length}), '
+      'pair=$baseCode <-> $targetCode',
+    );
+
+    final rawResponse = await _streamAudioTranslationRequest(
+      wavBytes: wavBytes,
+      systemPrompt: systemPrompt,
+      userPrompt: userTurnPrompt,
+      onPartialAccumulated: (_) {},
+      overrideModelId: effectiveSttModel,
+    );
+    stopwatch.stop();
+    final elapsedMs = stopwatch.elapsedMilliseconds;
+
+    final parsed = LocalTranslationEngine.parseSpeechToTextResponse(
+      rawResponse,
+      baseLanguage: baseLanguage,
+      targetLanguage: targetLanguage,
+      durationMs: elapsedMs,
+      modelName: sttModelDisplay,
+    );
+    _log.info(
+      'transcribeAudioChunk() [Cloud:$effectiveSttModel] finished in ${elapsedMs}ms: '
+      'detected="${parsed.detectedLanguageCode}", transcript="${parsed.transcript}"',
+    );
+    return parsed;
+  }
+
+  /// Step 2 (Cloud Gemini Text Translation): Translates [transcript] from
+  /// [sourceLanguage] into the opposite language between [baseLanguage] and
+  /// [targetLanguage].
+  Future<TranslationResult> translateText({
+    required String transcript,
+    required String sourceLanguage,
+    required String baseLanguage,
+    required String targetLanguage,
+    required double exchangeRate,
+    required String baseCurrency,
+    required String targetCurrency,
+    int? speechToTextMs,
+    String? speechToTextModel,
+    void Function(TranslationResult partialResult)? onPartialResult,
+  }) async {
+    final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
+    final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
+    final trimmedTranscript = transcript.trim();
+    final transModelDisplay = AppSettings.cloudModelDisplayNameFor(modelId);
+
+    if (trimmedTranscript.isEmpty ||
+        LocalTranslationEngine.isNonSpeechOrHallucination(
+          translatedText: trimmedTranscript,
+        )) {
+      return TranslationResult(
+        sourceLanguage: baseCode,
+        translatedText: '',
+        originalText: '',
+        speechToTextMs: speechToTextMs,
+        translationMs: 0,
+        totalDurationMs: speechToTextMs ?? 0,
+        speechToTextModel: speechToTextModel,
+        translationModel: transModelDisplay,
+      );
+    }
+
+    if (!_initialized) {
+      await initialize();
+    } else if (apiKey.isEmpty) {
+      throw StateError(
+        'Gemini API key is not configured. Please enter your Gemini API key in Settings.',
+      );
+    }
+
+    final stopwatch = Stopwatch()..start();
+
+    final detectedFromText = LanguageDetector.detectLanguage(
+      trimmedTranscript,
+      candidateA: baseCode,
+      candidateB: targetCode,
+    );
+    final normalizedReported = LanguageDetector.normalizeLanguageCode(
+      sourceLanguage,
+    );
+    final resolvedSourceCode =
+        detectedFromText ??
+        (normalizedReported == targetCode ? targetCode : baseCode);
+    final targetOutputCode = resolvedSourceCode == baseCode
+        ? targetCode
+        : baseCode;
+
+    final sourceLangName = AppSettings.languageNameFor(resolvedSourceCode);
+    final targetLangName = AppSettings.languageNameFor(targetOutputCode);
+
+    final translatedRaw = await _runTextFallbackRequest(
+      sourceTranscript: trimmedTranscript,
+      sourceLanguage: sourceLangName,
+      targetLanguage: targetLangName,
+      exchangeRate: exchangeRate,
+      baseCurrency: baseCurrency,
+      targetCurrency: targetCurrency,
+    );
+
+    stopwatch.stop();
+    final transMs = stopwatch.elapsedMilliseconds;
+    final totalMs = (speechToTextMs ?? 0) + transMs;
+
+    final cleaned = LocalTranslationEngine.cleanTextFallbackOutput(
+      translatedRaw ?? '',
+      fallbackSourceLanguage: resolvedSourceCode,
+    );
+
+    if (cleaned.isEmpty ||
+        LocalTranslationEngine.isNonSpeechOrHallucination(
+          originalText: trimmedTranscript,
+          translatedText: cleaned,
+        )) {
+      return TranslationResult(
+        sourceLanguage: resolvedSourceCode,
+        translatedText: '',
+        originalText: '',
+        speechToTextMs: speechToTextMs,
+        translationMs: transMs,
+        totalDurationMs: totalMs,
+        speechToTextModel: speechToTextModel,
+        translationModel: transModelDisplay,
+      );
+    }
+
+    final result = TranslationResult(
+      sourceLanguage: resolvedSourceCode,
+      originalText: trimmedTranscript,
+      translatedText: cleaned,
+      speechToTextMs: speechToTextMs,
+      translationMs: transMs,
+      totalDurationMs: totalMs,
+      speechToTextModel: speechToTextModel,
+      translationModel: transModelDisplay,
+    );
+    onPartialResult?.call(result);
+    return result;
   }
 
   Future<String> _streamAudioTranslationRequest({
@@ -572,8 +776,11 @@ class NetworkTranslationEngine implements TranslationEngine {
     required String userPrompt,
     required void Function(String accumulatedRaw) onPartialAccumulated,
     bool allowModelRefreshRetry = true,
+    String? overrideModelId,
   }) async {
-    final activeModel = modelId;
+    final activeModel = overrideModelId != null && overrideModelId.isNotEmpty
+        ? resolveEffectiveModelId(overrideModelId, _availableApiModelIds)
+        : modelId;
     final uri = Uri.parse(
       '$_baseApiUrl/$activeModel:streamGenerateContent?alt=sse&key=$apiKey',
     );

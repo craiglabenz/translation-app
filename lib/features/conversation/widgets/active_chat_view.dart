@@ -424,6 +424,10 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                               const SizedBox(height: 8),
                               _TimingStepRow(
                                 label: 'Speech-to-text',
+                                modelName: message.speechToTextModel,
+                                modelKey: const ValueKey(
+                                  'modal_speech_to_text_model',
+                                ),
                                 value: Message.formatDurationMs(
                                   message.speechToTextMs,
                                 ),
@@ -431,9 +435,13 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                                   'modal_speech_to_text_duration',
                                 ),
                               ),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: 6),
                               _TimingStepRow(
                                 label: 'Translation',
+                                modelName: message.translationModel,
+                                modelKey: const ValueKey(
+                                  'modal_translation_model',
+                                ),
                                 value: Message.formatDurationMs(
                                   message.translationMs,
                                 ),
@@ -942,12 +950,16 @@ class _TimingStepRow extends StatelessWidget {
   const _TimingStepRow({
     required this.label,
     required this.value,
+    this.modelName,
+    this.modelKey,
     this.valueKey,
     this.isEmphasized = false,
   });
 
   final String label;
   final String value;
+  final String? modelName;
+  final Key? modelKey;
   final Key? valueKey;
   final bool isEmphasized;
 
@@ -962,15 +974,36 @@ class _TimingStepRow extends StatelessWidget {
           color: isEmphasized ? colors.onSurface : colors.onSurfaceVariant,
           fontWeight: isEmphasized ? FontWeight.w600 : FontWeight.w400,
         );
+    final trimmedModel = modelName?.trim();
+    final hasModel = trimmedModel != null && trimmedModel.isNotEmpty;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Expanded(
-          child: Text(
-            label,
-            style: textStyle,
-            overflow: TextOverflow.ellipsis,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: textStyle,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (hasModel) ...[
+                const SizedBox(height: 1),
+                Text(
+                  trimmedModel,
+                  key: modelKey,
+                  overflow: TextOverflow.ellipsis,
+                  style: typography.labelSmall.copyWith(
+                    color: colors.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
         const SizedBox(width: 8),

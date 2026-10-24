@@ -233,6 +233,8 @@ void main() {
         speechToTextMs: 340,
         translationMs: 210,
         totalDurationMs: 550,
+        speechToTextModel: 'Whisper Base (int8)',
+        translationModel: 'Gemini 3.8 Flash',
       );
       await bloc.onAudioChunkReceived(
         Float32List.fromList(<double>[0.25, -0.25, 0.2]),
@@ -247,6 +249,14 @@ void main() {
       expect(bloc.stateValue.messages.last.speechToTextMs, 340);
       expect(bloc.stateValue.messages.last.translationMs, greaterThanOrEqualTo(210));
       expect(bloc.stateValue.messages.last.totalDurationMs, greaterThanOrEqualTo(550));
+      expect(
+        bloc.stateValue.messages.last.speechToTextModel,
+        'Whisper Base (int8)',
+      );
+      expect(
+        bloc.stateValue.messages.last.translationModel,
+        'Gemini 3.8 Flash',
+      );
     });
 
     test('recognizes language names and regional BCP-47 tags for isBaseLanguage', () async {

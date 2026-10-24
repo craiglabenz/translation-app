@@ -56,6 +56,40 @@ Output ONLY valid JSON:
 {"original_transcript": "...", "detected_language": "$baseCode", "translated_text": "..."}''';
   }
 
+  /// Builds a dedicated system prompt for the Speech-to-Text (STT) and
+  /// language detection step (Step 1 of the separated pipeline).
+  static String buildSpeechToTextSystemPrompt({
+    required String baseLanguage,
+    required String targetLanguage,
+  }) {
+    final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
+    final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
+    return '''
+You are an accurate speech-to-text transcriber and language detector for conversations between "$baseLanguage" ($baseCode) and "$targetLanguage" ($targetCode).
+Listen to the provided audio, transcribe the exact words spoken in their original language, and identify whether "$baseCode" or "$targetCode" was spoken.
+Rules (CRITICAL):
+- Do NOT translate the speech. "original_transcript" MUST be written in the exact language spoken in the audio.
+- Set "detected_language" to "$baseCode" if $baseLanguage was spoken, or "$targetCode" if $targetLanguage was spoken.
+- If the audio contains only silence, a pause, breathing, or background noise with no clear human speech, return empty strings: {"original_transcript": "", "detected_language": "$baseCode"}.
+- NEVER invent, guess, or hallucinate example phrases when nothing was said, and NEVER output meta-commentary about missing or silent audio files.
+- Return ONLY a valid JSON object: {"original_transcript": "...", "detected_language": "$baseCode"}.''';
+  }
+
+  /// Builds the user-turn prompt for the Speech-to-Text (STT) step.
+  static String buildSpeechToTextTurnPrompt({
+    required String baseLanguage,
+    required String targetLanguage,
+  }) {
+    final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
+    final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
+    return '''
+Transcribe the spoken audio verbatim in its original language ($baseLanguage ($baseCode) or $targetLanguage ($targetCode)) without translating:
+1. "original_transcript": exact spoken words in their original language, or "" if no clear speech was spoken.
+2. "detected_language": "$baseCode" if $baseLanguage was spoken, or "$targetCode" if $targetLanguage was spoken.
+Output ONLY valid JSON:
+{"original_transcript": "...", "detected_language": "$baseCode"}''';
+  }
+
   /// Builds a text-only system instruction for the automatic self-correction
   /// fallback pass so the text-only session is never told to "Listen to the
   /// provided audio".

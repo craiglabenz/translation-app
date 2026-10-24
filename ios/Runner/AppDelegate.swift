@@ -128,6 +128,111 @@ final class NativeAudioCaptureController: NSObject, FlutterStreamHandler {
     }
   }
 
+  private func configureAndActivateAudioSession(
+    _ session: AVAudioSession,
+    targetSampleRate: Double
+  ) throws {
+    let configurations: [(
+      category: AVAudioSession.Category,
+      mode: AVAudioSession.Mode,
+      options: AVAudioSession.CategoryOptions,
+      setPreferredRate: Bool,
+      label: String
+    )] = [
+      (
+        .playAndRecord,
+        .default,
+        [.defaultToSpeaker, .allowBluetooth],
+        true,
+        "playAndRecord/default/defaultToSpeaker+bluetooth"
+      ),
+      (
+        .playAndRecord,
+        .default,
+        [.defaultToSpeaker],
+        false,
+        "playAndRecord/default/defaultToSpeaker"
+      ),
+      (
+        .playAndRecord,
+        .default,
+        [.defaultToSpeaker, .allowBluetooth, .mixWithOthers],
+        false,
+        "playAndRecord/default/defaultToSpeaker+bluetooth+mix"
+      ),
+      (
+        .playAndRecord,
+        .default,
+        [.defaultToSpeaker, .mixWithOthers],
+        false,
+        "playAndRecord/default/defaultToSpeaker+mix"
+      ),
+      (
+        .record,
+        .default,
+        [.allowBluetooth],
+        false,
+        "record/default/bluetooth"
+      ),
+      (
+        .record,
+        .measurement,
+        [],
+        false,
+        "record/measurement/none"
+      ),
+      (
+        .record,
+        .default,
+        [.mixWithOthers],
+        false,
+        "record/default/mix"
+      ),
+      (
+        .record,
+        .default,
+        [],
+        false,
+        "record/default/none"
+      ),
+    ]
+
+    var lastError: Error?
+    for attempt in 1...2 {
+      for config in configurations {
+        do {
+          try session.setCategory(
+            config.category,
+            mode: config.mode,
+            options: config.options
+          )
+          if config.setPreferredRate {
+            try? session.setPreferredSampleRate(targetSampleRate)
+          }
+          try? session.setPreferredIOBufferDuration(0.02)
+          try session.setActive(true)
+          NSLog(
+            "[NativeAudioCapture] Activated AVAudioSession with \(config.label) (attempt \(attempt))."
+          )
+          return
+        } catch {
+          lastError = error
+          NSLog(
+            "[NativeAudioCapture] AVAudioSession config '\(config.label)' (attempt \(attempt)) failed (\(error.localizedDescription)); trying fallback..."
+          )
+          try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        }
+      }
+      if attempt == 1 {
+        Thread.sleep(forTimeInterval: 0.15)
+      }
+    }
+
+    if let error = lastError {
+      throw error
+    }
+  }
+
   private func startEngine(
     targetSampleRate: Double,
     result: @escaping FlutterResult
@@ -138,18 +243,17 @@ final class NativeAudioCaptureController: NSObject, FlutterStreamHandler {
 
     do {
       let session = AVAudioSession.sharedInstance()
-      try session.setCategory(
-        .playAndRecord,
-        mode: .default,
-        options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+      try configureAndActivateAudioSession(
+        session,
+        targetSampleRate: targetSampleRate
       )
-      try session.setPreferredSampleRate(targetSampleRate)
-      try session.setPreferredIOBufferDuration(0.02)
-      try session.setActive(true, options: .notifyOthersOnDeactivation)
 
       let engine = AVAudioEngine()
       let inputNode = engine.inputNode
-      let hardwareFormat = inputNode.outputFormat(forBus: 0)
+      var hardwareFormat = inputNode.outputFormat(forBus: 0)
+      if hardwareFormat.sampleRate <= 0 || hardwareFormat.channelCount <= 0 {
+        hardwareFormat = inputNode.inputFormat(forBus: 0)
+      }
 
       NSLog(
         "[NativeAudioCapture] Hardware input format: sampleRate=\(hardwareFormat.sampleRate), channels=\(hardwareFormat.channelCount)"
@@ -269,6 +373,7 @@ final class NativeAudioCaptureController: NSObject, FlutterStreamHandler {
     if let engine = audioEngine {
       engine.inputNode.removeTap(onBus: 0)
       engine.stop()
+      engine.reset()
       audioEngine = nil
     }
     isRunning = false

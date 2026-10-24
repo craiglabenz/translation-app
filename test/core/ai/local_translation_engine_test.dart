@@ -10,6 +10,7 @@ import 'package:translation_app/core/ai/local_translation_engine.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
 import 'package:translation_app/core/ai/network_translation_engine.dart';
 import 'package:translation_app/core/ai/prompt_templates.dart';
+import 'package:translation_app/core/ai/speech_to_text_engine.dart';
 import 'package:translation_app/core/ai/switchable_translation_engine.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
@@ -1155,6 +1156,276 @@ Let me know if you need anything else!
         ),
         'gemini-2.5-flash',
       );
+    });
+  });
+
+  group('Separated Speech-to-Text (Whisper / Gemma 4 / Cloud) & Translation Pipeline', () {
+    test('WhisperSpeechToTextEngine encodes PCM16, normalizes language codes, and transcribes speech', () async {
+      expect(
+        WhisperSpeechToTextEngine.normalizeWhisperLanguageCode('English'),
+        'en',
+      );
+      expect(
+        WhisperSpeechToTextEngine.normalizeWhisperLanguageCode('ko-KR'),
+        'ko',
+      );
+      expect(
+        WhisperSpeechToTextEngine.normalizeWhisperLanguageCode('fil'),
+        'tl',
+      );
+
+      final pcm16 = WhisperSpeechToTextEngine.encodeFloat32PcmToInt16Bytes(
+        Float32List.fromList(<double>[0.0, 0.5, -0.5, 1.0, -1.0]),
+      );
+      expect(pcm16.length, 10);
+
+      final modelManager = ModelManager(
+        initialWhisperInstalled: true,
+        isWhisperInstalledCheck: (_) async => true,
+      );
+
+      final requestedLanguages = <String>[];
+      final whisperEngine = WhisperSpeechToTextEngine(
+        modelManager: modelManager,
+        modelIdProvider: () => 'whisper-base-int8',
+        transcribeRunner: (bytes, {language}) async {
+          requestedLanguages.add(language ?? '');
+          return '이 기념품은 얼마인가요?';
+        },
+      );
+
+      final sttResult = await whisperEngine.transcribeAudio(
+        audioWavChunk: Float32List.fromList(<double>[0.2, -0.25, 0.3, -0.15]),
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+      );
+
+      expect(requestedLanguages, equals(<String>['en']));
+      expect(sttResult.transcript, '이 기념품은 얼마인가요?');
+      expect(sttResult.detectedLanguageCode, 'ko');
+      expect(sttResult.durationMs, greaterThanOrEqualTo(0));
+
+      await whisperEngine.dispose();
+      await modelManager.close();
+    });
+
+    test('ModelManager manages Edge Whisper variants alongside Gemma 4', () async {
+      String? downloadedModelUrl;
+      String? downloadedTokenizerUrl;
+      final progressUpdates = <double>[];
+
+      final manager = ModelManager(
+        isWhisperInstalledCheck: (_) async => false,
+        whisperInstallRunner: ({
+          required variant,
+          required onProgress,
+          cancelToken,
+        }) async {
+          downloadedModelUrl = variant.modelUrl;
+          downloadedTokenizerUrl = variant.tokenizerUrl;
+          onProgress(0.5);
+          onProgress(1.0);
+        },
+      );
+      final unsub = manager.state.subscribe((s) {
+        if (s.isWhisperDownloading) {
+          progressUpdates.add(s.whisperProgress);
+        }
+      });
+
+      expect(
+        manager.stateValue.isSttModelInstalled('whisper-tiny-int8'),
+        isFalse,
+      );
+
+      final ok = await manager.downloadWhisperModel('whisper-tiny-int8');
+      expect(ok, isTrue);
+      expect(
+        downloadedModelUrl,
+        contains('whisper_tiny_30s_i8.tflite'),
+      );
+      expect(
+        downloadedTokenizerUrl,
+        contains('tokenizer.json'),
+      );
+      expect(
+        manager.stateValue.isSttModelInstalled('whisper-tiny-int8'),
+        isTrue,
+      );
+      expect(progressUpdates, contains(0.5));
+
+      manager.markWhisperUninstalled('whisper-tiny-int8');
+      expect(
+        manager.stateValue.isSttModelInstalled('whisper-tiny-int8'),
+        isFalse,
+      );
+
+      unsub();
+      await manager.close();
+    });
+
+    test('SwitchableTranslationEngine executes Step 1 (STT) and Step 2 (Translation) across mixed On-Device and Cloud configurations', () async {
+      final modelManager = ModelManager(
+        initialInstalled: true,
+        isInstalledCheck: () async => true,
+        initialWhisperInstalled: true,
+        isWhisperInstalledCheck: (_) async => true,
+      );
+
+      var whisperCalls = 0;
+      var localAudioSttCalls = 0;
+      var localTextTranslationCalls = 0;
+      var cloudCalls = 0;
+
+      final whisperEngine = WhisperSpeechToTextEngine(
+        modelManager: modelManager,
+        modelIdProvider: () => 'whisper-base-int8',
+        transcribeRunner: (pcmBytes, {language}) async {
+          whisperCalls++;
+          return 'How much is this train ticket, 20 dollars?';
+        },
+      );
+
+      final localEngine = LocalTranslationEngine(
+        modelManager: modelManager,
+        inferenceRunner: ({required wavBytes, required systemPrompt}) async {
+          localAudioSttCalls++;
+          return '{"original_transcript": "지하철역이 어디에 있나요?", "detected_language": "ko"}';
+        },
+        textInferenceRunner: ({required prompt, required systemPrompt}) async {
+          localTextTranslationCalls++;
+          if (prompt.contains('How much is this train ticket')) {
+            return '이 기차표는 얼마인가요, 20달러(27600 KRW)인가요?';
+          }
+          return 'Where is the subway station?';
+        },
+      );
+
+      final mockClient = MockClient.streaming((request, bodyStream) async {
+        await bodyStream.toBytes();
+        if (request.url.path.contains('models') &&
+            request.method == 'GET') {
+          return http.StreamedResponse(
+            Stream<List<int>>.fromIterable(<List<int>>[
+              utf8.encode('{"models":[]}'),
+            ]),
+            200,
+          );
+        }
+        cloudCalls++;
+        if (request.url.path.contains('streamGenerateContent')) {
+          // Cloud STT request (SSE)
+          const sttPayload =
+              '{"candidates":[{"content":{"parts":[{"text":"{\\"original_transcript\\": \\"Good morning\\", \\"detected_language\\": \\"en\\"}"}]}}]}';
+          return http.StreamedResponse(
+            Stream<List<int>>.fromIterable(<List<int>>[
+              utf8.encode('data: $sttPayload\n\n'),
+            ]),
+            200,
+          );
+        } else {
+          // Cloud Text Translation request (:generateContent JSON)
+          const transPayload =
+              '{"candidates":[{"content":{"parts":[{"text":"이 기차표는 클라우드에서 번역되었습니다."}]}}]}';
+          return http.StreamedResponse(
+            Stream<List<int>>.fromIterable(<List<int>>[
+              utf8.encode(transPayload),
+            ]),
+            200,
+            headers: const <String, String>{
+              'content-type': 'application/json; charset=utf-8',
+            },
+          );
+        }
+      });
+
+      final networkEngine = NetworkTranslationEngine(
+        apiKeyProvider: () => 'AIzaTestKey',
+        modelIdProvider: () => 'gemini-3.8-flash',
+        httpClient: mockClient,
+      );
+
+      final switchable = SwitchableTranslationEngine(
+        localEngine: localEngine,
+        networkEngine: networkEngine,
+        whisperSttEngine: whisperEngine,
+        initialMode: TranslationEngineMode.onDevice,
+        initialSttMode: TranslationEngineMode.onDevice,
+        initialOnDeviceSttModelId: 'whisper-base-int8',
+      );
+
+      final sampleAudio = Float32List.fromList(<double>[0.25, -0.25, 0.3, -0.2]);
+
+      // Case 1: On-Device Whisper STT + On-Device Gemma 4 Text Translation
+      final result1 = await switchable.translateAudioChunk(
+        audioWavChunk: sampleAudio,
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+        exchangeRate: 1380.0,
+        baseCurrency: 'USD',
+        targetCurrency: 'KRW',
+      );
+      expect(whisperCalls, 1);
+      expect(localTextTranslationCalls, 1);
+      expect(result1.sourceLanguage, 'en');
+      expect(result1.originalText, 'How much is this train ticket, 20 dollars?');
+      expect(
+        result1.translatedText,
+        '이 기차표는 얼마인가요, 20달러(27600 KRW)인가요?',
+      );
+      expect(result1.speechToTextMs, isNotNull);
+      expect(result1.translationMs, isNotNull);
+
+      // Case 2: On-Device Whisper STT + Cloud Gemini Text Translation
+      switchable.setMode(TranslationEngineMode.cloud);
+      final result2 = await switchable.translateAudioChunk(
+        audioWavChunk: sampleAudio,
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+        exchangeRate: 1380.0,
+        baseCurrency: 'USD',
+        targetCurrency: 'KRW',
+      );
+      expect(whisperCalls, 2);
+      expect(cloudCalls, 1);
+      expect(result2.translatedText, '이 기차표는 클라우드에서 번역되었습니다.');
+
+      // Case 3: Cloud Gemini STT + On-Device Gemma 4 Text Translation
+      switchable
+        ..setSttMode(TranslationEngineMode.cloud)
+        ..setMode(TranslationEngineMode.onDevice);
+      final result3 = await switchable.translateAudioChunk(
+        audioWavChunk: sampleAudio,
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+        exchangeRate: 1380.0,
+        baseCurrency: 'USD',
+        targetCurrency: 'KRW',
+      );
+      expect(cloudCalls, 2);
+      expect(localTextTranslationCalls, 2);
+      expect(result3.originalText, 'Good morning');
+
+      // Case 4: On-Device Gemma 4 Audio STT + On-Device Gemma 4 Text Translation
+      switchable
+        ..setSttMode(TranslationEngineMode.onDevice)
+        ..setOnDeviceSttModelId('gemma-4');
+      final result4 = await switchable.translateAudioChunk(
+        audioWavChunk: sampleAudio,
+        baseLanguage: 'English',
+        targetLanguage: 'Korean',
+        exchangeRate: 1380.0,
+        baseCurrency: 'USD',
+        targetCurrency: 'KRW',
+      );
+      expect(localAudioSttCalls, 1);
+      expect(localTextTranslationCalls, 3);
+      expect(result4.sourceLanguage, 'ko');
+      expect(result4.originalText, '지하철역이 어디에 있나요?');
+      expect(result4.translatedText, 'Where is the subway station?');
+
+      await switchable.dispose();
+      await modelManager.close();
     });
   });
 }
