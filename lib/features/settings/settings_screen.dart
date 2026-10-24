@@ -31,6 +31,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _urlController;
   late final TextEditingController _apiKeyController;
   bool _obscureApiKey = true;
+  bool _expandPresetManager = false;
 
   @override
   void initState() {
@@ -59,6 +60,107 @@ class _SettingsScreenState extends State<SettingsScreen> {
       unawaited(GetIt.I<AppRouter>().config.router.pop());
     } else {
       Navigator.maybeOf(context)?.maybePop();
+    }
+  }
+
+  Future<void> _showEditPresetDialog(
+    BuildContext context, {
+    ConversationContextPreset? preset,
+  }) async {
+    var iconText = preset?.icon ?? '💬';
+    var nameText = preset?.name ?? '';
+    var keywordsText = preset?.keywords ?? '';
+
+    final saved = await showDialog<ConversationContextPreset>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          key: const ValueKey('settings_preset_editor_dialog'),
+          title: Text(preset == null ? 'Add Topic Preset' : 'Edit Topic Preset'),
+          content: SizedBox(
+            width: 400,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 72,
+                        child: TextFormField(
+                          key: const ValueKey('settings_preset_icon_input'),
+                          initialValue: iconText,
+                          decoration: const InputDecoration(
+                            labelText: 'Icon',
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (val) => iconText = val,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextFormField(
+                          key: const ValueKey('settings_preset_name_input'),
+                          initialValue: nameText,
+                          autofocus: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Preset Name',
+                            hintText: 'e.g., Coffee Shop',
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (val) => nameText = val,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: const ValueKey('settings_preset_keywords_input'),
+                    initialValue: keywordsText,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Vocabulary Keywords (comma-separated)',
+                      hintText: 'espresso, oat milk, croissant, decaf',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (val) => keywordsText = val,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              key: const ValueKey('settings_preset_cancel_button'),
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const ValueKey('settings_preset_save_button'),
+              onPressed: () {
+                if (nameText.trim().isEmpty) return;
+                final id =
+                    preset?.id ??
+                    'custom_${DateTime.now().millisecondsSinceEpoch}_${nameText.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}';
+                Navigator.of(dialogContext).pop(
+                  ConversationContextPreset(
+                    id: id,
+                    name: nameText.trim(),
+                    icon: iconText.trim().isEmpty ? '💬' : iconText.trim(),
+                    keywords: keywordsText.trim(),
+                  ),
+                );
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (saved != null && mounted) {
+      await _settingsBloc.saveContextPreset(saved);
     }
   }
 
@@ -139,7 +241,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     vertical: 8,
                   ),
                   children: [
-                    // Step 1: Speech-to-Text (Transcription) Card
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Step 1: Speech-to-Text (Transcription) Card
                     _SectionCard(
                       key: const ValueKey('settings_step1_stt_card'),
                       title: 'Step 1: Speech-to-Text (Audio → Text)',
@@ -559,9 +664,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           DropdownButtonFormField<SupportedCurrency>(
                             key: const ValueKey('base_currency_dropdown'),
                             isExpanded: true,
+                            isDense: true,
                             initialValue: selectedBaseCurrency,
                             decoration: const InputDecoration(
                               labelText: 'Primary (Base) Currency',
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
                               border: OutlineInputBorder(),
                             ),
                             items: AppSettings.supportedCurrencies
@@ -584,13 +695,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               }
                             },
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 8),
                           DropdownButtonFormField<SupportedCurrency>(
                             key: const ValueKey('target_currency_dropdown'),
                             isExpanded: true,
+                            isDense: true,
                             initialValue: selectedTargetCurrency,
                             decoration: const InputDecoration(
                               labelText: 'Target Currency',
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
                               border: OutlineInputBorder(),
                             ),
                             items: AppSettings.supportedCurrencies
@@ -613,7 +730,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               }
                             },
                           ),
-                          const SizedBox(height: 14),
+                          const SizedBox(height: 6),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -632,6 +749,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               TextButton.icon(
                                 key: const ValueKey('refresh_rates_button'),
+                                style: TextButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                ),
                                 onPressed: state.isRefreshingRates
                                     ? null
                                     : _settingsBloc.refreshExchangeRates,
@@ -650,7 +770,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
 
                     // On-Device AI Model Management Card (Gemma 4 + Edge Whisper Variants)
                     BlocSignalBuilder<ModelManager, ModelDownloadState>(
@@ -868,6 +988,297 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ],
                       ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Situational Context Presets & Rolling Turn History Card
+                    _SectionCard(
+                      key: const ValueKey('settings_context_card'),
+                      title: 'Conversation Context & Rolling History',
+                      subtitle:
+                          'Injects prior turns and situational vocabulary hints into both Speech-to-Text and Translation.',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  settings.rollingTurnCount <= 0
+                                      ? 'Rolling History: Off (0 turns)'
+                                      : 'Rolling History: Last ${settings.rollingTurnCount} ${settings.rollingTurnCount == 1 ? 'turn' : 'turns'}',
+                                  key: const ValueKey(
+                                    'rolling_turn_count_label',
+                                  ),
+                                  style: typography.labelLarge.copyWith(
+                                    color: colors.onSurface,
+                                  ),
+                                ),
+                              ),
+                              TextButton(
+                                key: const ValueKey(
+                                  'rolling_turn_count_reset_button',
+                                ),
+                                style: TextButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                onPressed:
+                                    settings.rollingTurnCount ==
+                                        AppSettings.defaultRollingTurnCount
+                                    ? null
+                                    : () => unawaited(
+                                        _settingsBloc.updateRollingTurnCount(
+                                          AppSettings.defaultRollingTurnCount,
+                                        ),
+                                      ),
+                                child: const Text('Default (3)'),
+                              ),
+                            ],
+                          ),
+                          SizedBox(
+                            height: 32,
+                            child: Slider(
+                              key: const ValueKey('rolling_turn_count_slider'),
+                              value: settings.rollingTurnCount
+                                  .clamp(
+                                    AppSettings.minRollingTurnCount,
+                                    AppSettings.maxRollingTurnCount,
+                                  )
+                                  .toDouble(),
+                              min: AppSettings.minRollingTurnCount.toDouble(),
+                              max: AppSettings.maxRollingTurnCount.toDouble(),
+                              divisions: AppSettings.maxRollingTurnCount,
+                              label: '${settings.rollingTurnCount} turns',
+                              onChanged: (value) {
+                                unawaited(
+                                  _settingsBloc.updateRollingTurnCount(
+                                    value.round(),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          const Divider(height: 10),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Topic Presets (${settings.contextPresets.length})',
+                                  style: typography.labelMedium.copyWith(
+                                    color: colors.onSurface,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              TextButton(
+                                key: const ValueKey(
+                                  'settings_toggle_manage_presets_button',
+                                ),
+                                style: TextButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _expandPresetManager =
+                                        !_expandPresetManager;
+                                  });
+                                },
+                                child: Text(
+                                  _expandPresetManager ? 'Hide' : 'Manage',
+                                ),
+                              ),
+                              TextButton(
+                                key: const ValueKey(
+                                  'settings_reset_context_presets_button',
+                                ),
+                                style: TextButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                onPressed: _settingsBloc
+                                    .resetContextPresetsToDefaults,
+                                child: const Text('Reset'),
+                              ),
+                              FilledButton.tonalIcon(
+                                key: const ValueKey(
+                                  'settings_add_context_preset_button',
+                                ),
+                                style: FilledButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                onPressed: () =>
+                                    _showEditPresetDialog(context),
+                                icon: const Icon(Icons.add_rounded, size: 14),
+                                label: const Text('Add'),
+                              ),
+                            ],
+                          ),
+                          if (!_expandPresetManager)
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  for (final preset in settings.contextPresets)
+                                    Padding(
+                                      padding: const EdgeInsets.only(right: 6),
+                                      child: ActionChip(
+                                        key: ValueKey(
+                                          'settings_preset_chip_${preset.id}',
+                                        ),
+                                        visualDensity: VisualDensity.compact,
+                                        label: Text(preset.displayLabel),
+                                        onPressed: () => _showEditPresetDialog(
+                                          context,
+                                          preset: preset,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            )
+                          else ...[
+                            const SizedBox(height: 6),
+                            for (
+                              var i = 0;
+                              i < settings.contextPresets.length;
+                              i++
+                            )
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: Container(
+                                  key: ValueKey(
+                                    'settings_preset_row_${settings.contextPresets[i].id}',
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: colors.surface,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: colors.outline),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              settings
+                                                  .contextPresets[i]
+                                                  .displayLabel,
+                                              style: typography.labelMedium
+                                                  .copyWith(
+                                                    color: colors.onSurface,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                            ),
+                                            if (settings
+                                                .contextPresets[i]
+                                                .keywords
+                                                .trim()
+                                                .isNotEmpty)
+                                              Text(
+                                                settings
+                                                    .contextPresets[i]
+                                                    .keywords,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: typography.bodySmall
+                                                    .copyWith(
+                                                      color: colors
+                                                          .onSurfaceVariant,
+                                                    ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                      IconButton(
+                                        key: ValueKey(
+                                          'settings_move_up_preset_${settings.contextPresets[i].id}',
+                                        ),
+                                        tooltip: 'Move up',
+                                        visualDensity: VisualDensity.compact,
+                                        icon: const Icon(
+                                          Icons.arrow_upward_rounded,
+                                          size: 18,
+                                        ),
+                                        onPressed: i == 0
+                                            ? null
+                                            : () => unawaited(
+                                                _settingsBloc
+                                                    .reorderContextPresets(
+                                                      i,
+                                                      i - 1,
+                                                    ),
+                                              ),
+                                      ),
+                                      IconButton(
+                                        key: ValueKey(
+                                          'settings_move_down_preset_${settings.contextPresets[i].id}',
+                                        ),
+                                        tooltip: 'Move down',
+                                        visualDensity: VisualDensity.compact,
+                                        icon: const Icon(
+                                          Icons.arrow_downward_rounded,
+                                          size: 18,
+                                        ),
+                                        onPressed:
+                                            i ==
+                                                settings.contextPresets.length -
+                                                    1
+                                            ? null
+                                            : () => unawaited(
+                                                _settingsBloc
+                                                    .reorderContextPresets(
+                                                      i,
+                                                      i + 2,
+                                                    ),
+                                              ),
+                                      ),
+                                      IconButton(
+                                        key: ValueKey(
+                                          'settings_edit_preset_${settings.contextPresets[i].id}',
+                                        ),
+                                        tooltip: 'Edit preset',
+                                        visualDensity: VisualDensity.compact,
+                                        icon: const Icon(
+                                          Icons.edit_outlined,
+                                          size: 18,
+                                        ),
+                                        onPressed: () => _showEditPresetDialog(
+                                          context,
+                                          preset: settings.contextPresets[i],
+                                        ),
+                                      ),
+                                      IconButton(
+                                        key: ValueKey(
+                                          'settings_delete_preset_${settings.contextPresets[i].id}',
+                                        ),
+                                        tooltip: 'Delete preset',
+                                        visualDensity: VisualDensity.compact,
+                                        icon: const Icon(
+                                          Icons.delete_outline_rounded,
+                                          size: 18,
+                                        ),
+                                        onPressed: () => unawaited(
+                                          _settingsBloc.deleteContextPreset(
+                                            settings.contextPresets[i].id,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ],
+                      ),
+                    ),
+                      ],
                     ),
                   ],
                 ),

@@ -7,6 +7,76 @@ import 'package:translation_app/core/data/models/message.dart';
 class PromptTemplates {
   const PromptTemplates._();
 
+  /// Formats active situational [presets], ad-hoc [customKeywords], and
+  /// [recentTurns] into a concise context block appended to Step 1 (STT) and
+  /// Step 2 (Translation) prompts.
+  static String buildContextPromptBlock({
+    List<ConversationContextPreset> presets =
+        const <ConversationContextPreset>[],
+    List<String> customKeywords = const <String>[],
+    List<Message> recentTurns = const <Message>[],
+    required String baseLanguage,
+    required String targetLanguage,
+  }) {
+    final cleanedKeywords = customKeywords
+        .map((k) => k.trim())
+        .where((k) => k.isNotEmpty)
+        .toList();
+    final validTurns = recentTurns
+        .where(
+          (m) =>
+              m.originalText.trim().isNotEmpty ||
+              m.translatedText.trim().isNotEmpty,
+        )
+        .toList();
+
+    if (presets.isEmpty && cleanedKeywords.isEmpty && validTurns.isEmpty) {
+      return '';
+    }
+
+    final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
+    final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
+    final buffer = StringBuffer();
+
+    if (presets.isNotEmpty || cleanedKeywords.isNotEmpty) {
+      buffer.writeln(
+        'Conversation Context & Domain Vocabulary (use this to disambiguate noisy/accented speech, homophones, and domain terms):',
+      );
+      for (final preset in presets) {
+        final kw = preset.keywords.trim();
+        if (kw.isNotEmpty) {
+          buffer.writeln('- Topic: ${preset.name} (expected terms: $kw)');
+        } else {
+          buffer.writeln('- Topic: ${preset.name}');
+        }
+      }
+      if (cleanedKeywords.isNotEmpty) {
+        buffer.writeln(
+          '- Custom keywords / names: ${cleanedKeywords.join(', ')}',
+        );
+      }
+    }
+
+    if (validTurns.isNotEmpty) {
+      buffer.writeln(
+        'Recent Conversation History (for topic and vocabulary continuity ONLY — NEVER repeat, re-transcribe, or re-translate these prior turns; process ONLY the new current utterance):',
+      );
+      for (final turn in validTurns) {
+        final srcCode = turn.isBaseLanguage ? baseCode : targetCode;
+        final dstCode = turn.isBaseLanguage ? targetCode : baseCode;
+        final orig = turn.originalText.trim();
+        final trans = turn.translatedText.trim();
+        if (orig.isNotEmpty && trans.isNotEmpty && orig != trans) {
+          buffer.writeln('- [$srcCode -> $dstCode]: "$orig" -> "$trans"');
+        } else {
+          buffer.writeln('- [$srcCode]: "${orig.isNotEmpty ? orig : trans}"');
+        }
+      }
+    }
+
+    return buffer.toString().trimRight();
+  }
+
   /// Builds the system prompt for translating spoken audio between
   /// [baseLanguage] and [targetLanguage] with automatic time and price
   /// formatting and graceful silence/pause handling.
@@ -16,10 +86,13 @@ class PromptTemplates {
     required double exchangeRate,
     required String baseCurrency,
     required String targetCurrency,
+    String? contextPromptBlock,
   }) {
     final formattedRate = exchangeRate.toStringAsFixed(4);
     final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
     final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
+    final trimmedContext = contextPromptBlock?.trim() ?? '';
+    final contextSuffix = trimmedContext.isEmpty ? '' : '\n$trimmedContext';
     return '''
 You are a real-time translator. The user's base language is "$baseLanguage" and the target is "$targetLanguage".
 Listen to the provided audio. Identify which of these two languages is being spoken. Translate the speech into the other language.
@@ -33,7 +106,7 @@ Silence & Pause Rules (CRITICAL):
 Formatting Rules:
 1. Convert any spoken times into standard 24-hour and 12-hour format (e.g., '18:00 (6PM)').
 2. Convert any spoken prices into $baseCurrency using the exchange rate: 1 $targetCurrency = $formattedRate $baseCurrency. Output format: 'original price (converted price)'.
-3. Return ONLY a valid JSON object matching this schema: {"detected_language": "en", "translated_text": "...", "original_transcript": "..."}.''';
+3. Return ONLY a valid JSON object matching this schema: {"detected_language": "en", "translated_text": "...", "original_transcript": "..."}.$contextSuffix''';
   }
 
   /// Builds the user-turn instruction accompanying the WAV audio clip.
@@ -61,9 +134,12 @@ Output ONLY valid JSON:
   static String buildSpeechToTextSystemPrompt({
     required String baseLanguage,
     required String targetLanguage,
+    String? contextPromptBlock,
   }) {
     final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
     final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
+    final trimmedContext = contextPromptBlock?.trim() ?? '';
+    final contextSuffix = trimmedContext.isEmpty ? '' : '\n$trimmedContext';
     return '''
 You are an accurate speech-to-text transcriber and language detector for conversations between "$baseLanguage" ($baseCode) and "$targetLanguage" ($targetCode).
 Listen to the provided audio, transcribe the exact words spoken in their original language, and identify whether "$baseCode" or "$targetCode" was spoken.
@@ -72,7 +148,7 @@ Rules (CRITICAL):
 - Set "detected_language" to "$baseCode" if $baseLanguage was spoken, or "$targetCode" if $targetLanguage was spoken.
 - If the audio contains only silence, a pause, breathing, or background noise with no clear human speech, return empty strings: {"original_transcript": "", "detected_language": "$baseCode"}.
 - NEVER invent, guess, or hallucinate example phrases when nothing was said, and NEVER output meta-commentary about missing or silent audio files.
-- Return ONLY a valid JSON object: {"original_transcript": "...", "detected_language": "$baseCode"}.''';
+- Return ONLY a valid JSON object: {"original_transcript": "...", "detected_language": "$baseCode"}.$contextSuffix''';
   }
 
   /// Builds the user-turn prompt for the Speech-to-Text (STT) step.
@@ -96,11 +172,14 @@ Output ONLY valid JSON:
   static String buildTextFallbackSystemPrompt({
     required String sourceLanguage,
     required String targetLanguage,
+    String? contextPromptBlock,
   }) {
+    final trimmedContext = contextPromptBlock?.trim() ?? '';
+    final contextSuffix = trimmedContext.isEmpty ? '' : '\n$trimmedContext';
     return '''
 You are a text translator between $sourceLanguage and $targetLanguage.
 Translate the provided $sourceLanguage text directly into $targetLanguage.
-Never ask for an audio file, never repeat the source language, and output nothing if the input is empty or indicates no speech.''';
+Never ask for an audio file, never repeat the source language, and output nothing if the input is empty or indicates no speech.$contextSuffix''';
   }
 
   /// Builds a focused text-to-text translation prompt used as an automatic
@@ -113,15 +192,17 @@ Never ask for an audio file, never repeat the source language, and output nothin
     required double exchangeRate,
     required String baseCurrency,
     required String targetCurrency,
+    String? contextPromptBlock,
   }) {
     final formattedRate = exchangeRate.toStringAsFixed(4);
+    final trimmedContext = contextPromptBlock?.trim() ?? '';
+    final contextSection = trimmedContext.isEmpty ? '' : '\n$trimmedContext\n';
     return '''
 Translate the following $sourceLanguage text into $targetLanguage.
 CRITICAL RULES:
 1. Your output MUST be written in $targetLanguage. NEVER repeat or echo the $sourceLanguage text.
 2. Format any times as '24-hour (12-hour)' (e.g., '18:00 (6PM)') and any prices using 1 $targetCurrency = $formattedRate $baseCurrency as 'original price (converted price)'.
-3. Output ONLY the translated $targetLanguage text, with no JSON, no markdown, and no explanation.
-
+3. Output ONLY the translated $targetLanguage text, with no JSON, no markdown, and no explanation.$contextSection
 $sourceLanguage text: "$textToTranslate"
 $targetLanguage translation:''';
   }

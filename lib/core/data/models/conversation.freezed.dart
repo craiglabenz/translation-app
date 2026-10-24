@@ -16,7 +16,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$Conversation {
 
- String get id; DateTime get createdAt; String get baseLanguage; String get targetLanguage; String get previewText; String? get generatedSummary; String? get userSummary; DateTime? get lastMessageAt;
+ String get id; DateTime get createdAt; String get baseLanguage; String get targetLanguage; String get previewText; String? get generatedSummary; String? get userSummary; DateTime? get lastMessageAt; List<String> get activeContextIds; List<String> get customKeywords;
 /// Create a copy of Conversation
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -30,20 +30,20 @@ $ConversationCopyWith<Conversation> get copyWith => _$ConversationCopyWithImpl<C
 @override
 bool operator ==(Object other) {
   final _this = this as Conversation;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is Conversation&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.createdAt, _this.createdAt) || other.createdAt == _this.createdAt)&&(identical(other.baseLanguage, _this.baseLanguage) || other.baseLanguage == _this.baseLanguage)&&(identical(other.targetLanguage, _this.targetLanguage) || other.targetLanguage == _this.targetLanguage)&&(identical(other.previewText, _this.previewText) || other.previewText == _this.previewText)&&(identical(other.generatedSummary, _this.generatedSummary) || other.generatedSummary == _this.generatedSummary)&&(identical(other.userSummary, _this.userSummary) || other.userSummary == _this.userSummary)&&(identical(other.lastMessageAt, _this.lastMessageAt) || other.lastMessageAt == _this.lastMessageAt));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is Conversation&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.createdAt, _this.createdAt) || other.createdAt == _this.createdAt)&&(identical(other.baseLanguage, _this.baseLanguage) || other.baseLanguage == _this.baseLanguage)&&(identical(other.targetLanguage, _this.targetLanguage) || other.targetLanguage == _this.targetLanguage)&&(identical(other.previewText, _this.previewText) || other.previewText == _this.previewText)&&(identical(other.generatedSummary, _this.generatedSummary) || other.generatedSummary == _this.generatedSummary)&&(identical(other.userSummary, _this.userSummary) || other.userSummary == _this.userSummary)&&(identical(other.lastMessageAt, _this.lastMessageAt) || other.lastMessageAt == _this.lastMessageAt)&&const DeepCollectionEquality().equals(other.activeContextIds, _this.activeContextIds)&&const DeepCollectionEquality().equals(other.customKeywords, _this.customKeywords));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
   final _this = this as Conversation;
-  return Object.hash(runtimeType,_this.id,_this.createdAt,_this.baseLanguage,_this.targetLanguage,_this.previewText,_this.generatedSummary,_this.userSummary,_this.lastMessageAt);
+  return Object.hash(runtimeType,_this.id,_this.createdAt,_this.baseLanguage,_this.targetLanguage,_this.previewText,_this.generatedSummary,_this.userSummary,_this.lastMessageAt,const DeepCollectionEquality().hash(_this.activeContextIds),const DeepCollectionEquality().hash(_this.customKeywords));
 }
 
 @override
 String toString() {
   final _this = this as Conversation;
-  return 'Conversation(id: ${_this.id}, createdAt: ${_this.createdAt}, baseLanguage: ${_this.baseLanguage}, targetLanguage: ${_this.targetLanguage}, previewText: ${_this.previewText}, generatedSummary: ${_this.generatedSummary}, userSummary: ${_this.userSummary}, lastMessageAt: ${_this.lastMessageAt})';
+  return 'Conversation(id: ${_this.id}, createdAt: ${_this.createdAt}, baseLanguage: ${_this.baseLanguage}, targetLanguage: ${_this.targetLanguage}, previewText: ${_this.previewText}, generatedSummary: ${_this.generatedSummary}, userSummary: ${_this.userSummary}, lastMessageAt: ${_this.lastMessageAt}, activeContextIds: ${_this.activeContextIds}, customKeywords: ${_this.customKeywords})';
 }
 
 
@@ -54,7 +54,7 @@ abstract mixin class $ConversationCopyWith<$Res>  {
   factory $ConversationCopyWith(Conversation value, $Res Function(Conversation) _then) = _$ConversationCopyWithImpl;
 @useResult
 $Res call({
- String id, DateTime createdAt, String baseLanguage, String targetLanguage, String previewText, String? generatedSummary, String? userSummary, DateTime? lastMessageAt
+ String id, DateTime createdAt, String baseLanguage, String targetLanguage, String previewText, String? generatedSummary, String? userSummary, DateTime? lastMessageAt, List<String> activeContextIds, List<String> customKeywords
 });
 
 
@@ -71,7 +71,7 @@ class _$ConversationCopyWithImpl<$Res>
 
 /// Create a copy of Conversation
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? createdAt = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? previewText = null,Object? generatedSummary = freezed,Object? userSummary = freezed,Object? lastMessageAt = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? createdAt = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? previewText = null,Object? generatedSummary = freezed,Object? userSummary = freezed,Object? lastMessageAt = freezed,Object? activeContextIds = null,Object? customKeywords = null,}) {
   return _then(Conversation(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,createdAt: null == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
@@ -81,7 +81,9 @@ as String,previewText: null == previewText ? _self.previewText : previewText // 
 as String,generatedSummary: freezed == generatedSummary ? _self.generatedSummary : generatedSummary // ignore: cast_nullable_to_non_nullable
 as String?,userSummary: freezed == userSummary ? _self.userSummary : userSummary // ignore: cast_nullable_to_non_nullable
 as String?,lastMessageAt: freezed == lastMessageAt ? _self.lastMessageAt : lastMessageAt // ignore: cast_nullable_to_non_nullable
-as DateTime?,
+as DateTime?,activeContextIds: null == activeContextIds ? _self.activeContextIds : activeContextIds // ignore: cast_nullable_to_non_nullable
+as List<String>,customKeywords: null == customKeywords ? _self.customKeywords : customKeywords // ignore: cast_nullable_to_non_nullable
+as List<String>,
   ));
 }
 
@@ -166,10 +168,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  DateTime createdAt,  String baseLanguage,  String targetLanguage,  String previewText,  String? generatedSummary,  String? userSummary,  DateTime? lastMessageAt)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  DateTime createdAt,  String baseLanguage,  String targetLanguage,  String previewText,  String? generatedSummary,  String? userSummary,  DateTime? lastMessageAt,  List<String> activeContextIds,  List<String> customKeywords)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _Conversation() when $default != null:
-return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage,_that.previewText,_that.generatedSummary,_that.userSummary,_that.lastMessageAt);case _:
+return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage,_that.previewText,_that.generatedSummary,_that.userSummary,_that.lastMessageAt,_that.activeContextIds,_that.customKeywords);case _:
   return orElse();
 
 }
@@ -187,10 +189,10 @@ return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  DateTime createdAt,  String baseLanguage,  String targetLanguage,  String previewText,  String? generatedSummary,  String? userSummary,  DateTime? lastMessageAt)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  DateTime createdAt,  String baseLanguage,  String targetLanguage,  String previewText,  String? generatedSummary,  String? userSummary,  DateTime? lastMessageAt,  List<String> activeContextIds,  List<String> customKeywords)  $default,) {final _that = this;
 switch (_that) {
 case _Conversation():
-return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage,_that.previewText,_that.generatedSummary,_that.userSummary,_that.lastMessageAt);case _:
+return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage,_that.previewText,_that.generatedSummary,_that.userSummary,_that.lastMessageAt,_that.activeContextIds,_that.customKeywords);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -207,10 +209,10 @@ return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  DateTime createdAt,  String baseLanguage,  String targetLanguage,  String previewText,  String? generatedSummary,  String? userSummary,  DateTime? lastMessageAt)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  DateTime createdAt,  String baseLanguage,  String targetLanguage,  String previewText,  String? generatedSummary,  String? userSummary,  DateTime? lastMessageAt,  List<String> activeContextIds,  List<String> customKeywords)?  $default,) {final _that = this;
 switch (_that) {
 case _Conversation() when $default != null:
-return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage,_that.previewText,_that.generatedSummary,_that.userSummary,_that.lastMessageAt);case _:
+return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage,_that.previewText,_that.generatedSummary,_that.userSummary,_that.lastMessageAt,_that.activeContextIds,_that.customKeywords);case _:
   return null;
 
 }
@@ -222,7 +224,7 @@ return $default(_that.id,_that.createdAt,_that.baseLanguage,_that.targetLanguage
 @JsonSerializable()
 
 class _Conversation extends Conversation {
-  const _Conversation({required this.id, required this.createdAt, required this.baseLanguage, required this.targetLanguage, this.previewText = '', this.generatedSummary, this.userSummary, this.lastMessageAt}): super._();
+  const _Conversation({required this.id, required this.createdAt, required this.baseLanguage, required this.targetLanguage, this.previewText = '', this.generatedSummary, this.userSummary, this.lastMessageAt, List<String> activeContextIds = const <String>[], List<String> customKeywords = const <String>[]}): _activeContextIds = activeContextIds,_customKeywords = customKeywords,super._();
   factory _Conversation.fromJson(Map<String, dynamic> json) => _$ConversationFromJson(json);
 
 @override final  String id;
@@ -233,6 +235,20 @@ class _Conversation extends Conversation {
 @override final  String? generatedSummary;
 @override final  String? userSummary;
 @override final  DateTime? lastMessageAt;
+ final  List<String> _activeContextIds;
+@override@JsonKey() List<String> get activeContextIds {
+  if (_activeContextIds is EqualUnmodifiableListView) return _activeContextIds;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableListView(_activeContextIds);
+}
+
+ final  List<String> _customKeywords;
+@override@JsonKey() List<String> get customKeywords {
+  if (_customKeywords is EqualUnmodifiableListView) return _customKeywords;
+  // ignore: implicit_dynamic_type
+  return EqualUnmodifiableListView(_customKeywords);
+}
+
 
 /// Create a copy of Conversation
 /// with the given fields replaced by the non-null parameter values.
@@ -247,18 +263,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _Conversation&&(identical(other.id, id) || other.id == id)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.baseLanguage, baseLanguage) || other.baseLanguage == baseLanguage)&&(identical(other.targetLanguage, targetLanguage) || other.targetLanguage == targetLanguage)&&(identical(other.previewText, previewText) || other.previewText == previewText)&&(identical(other.generatedSummary, generatedSummary) || other.generatedSummary == generatedSummary)&&(identical(other.userSummary, userSummary) || other.userSummary == userSummary)&&(identical(other.lastMessageAt, lastMessageAt) || other.lastMessageAt == lastMessageAt));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _Conversation&&(identical(other.id, id) || other.id == id)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.baseLanguage, baseLanguage) || other.baseLanguage == baseLanguage)&&(identical(other.targetLanguage, targetLanguage) || other.targetLanguage == targetLanguage)&&(identical(other.previewText, previewText) || other.previewText == previewText)&&(identical(other.generatedSummary, generatedSummary) || other.generatedSummary == generatedSummary)&&(identical(other.userSummary, userSummary) || other.userSummary == userSummary)&&(identical(other.lastMessageAt, lastMessageAt) || other.lastMessageAt == lastMessageAt)&&const DeepCollectionEquality().equals(other._activeContextIds, _activeContextIds)&&const DeepCollectionEquality().equals(other._customKeywords, _customKeywords));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
 int get hashCode {
-    return Object.hash(runtimeType,id,createdAt,baseLanguage,targetLanguage,previewText,generatedSummary,userSummary,lastMessageAt);
+    return Object.hash(runtimeType,id,createdAt,baseLanguage,targetLanguage,previewText,generatedSummary,userSummary,lastMessageAt,const DeepCollectionEquality().hash(_activeContextIds),const DeepCollectionEquality().hash(_customKeywords));
 }
 
 @override
 String toString() {
-    return 'Conversation(id: $id, createdAt: $createdAt, baseLanguage: $baseLanguage, targetLanguage: $targetLanguage, previewText: $previewText, generatedSummary: $generatedSummary, userSummary: $userSummary, lastMessageAt: $lastMessageAt)';
+    return 'Conversation(id: $id, createdAt: $createdAt, baseLanguage: $baseLanguage, targetLanguage: $targetLanguage, previewText: $previewText, generatedSummary: $generatedSummary, userSummary: $userSummary, lastMessageAt: $lastMessageAt, activeContextIds: $activeContextIds, customKeywords: $customKeywords)';
 }
 
 
@@ -269,7 +285,7 @@ abstract mixin class _$ConversationCopyWith<$Res> implements $ConversationCopyWi
   factory _$ConversationCopyWith(_Conversation value, $Res Function(_Conversation) _then) = __$ConversationCopyWithImpl;
 @override @useResult
 $Res call({
- String id, DateTime createdAt, String baseLanguage, String targetLanguage, String previewText, String? generatedSummary, String? userSummary, DateTime? lastMessageAt
+ String id, DateTime createdAt, String baseLanguage, String targetLanguage, String previewText, String? generatedSummary, String? userSummary, DateTime? lastMessageAt, List<String> activeContextIds, List<String> customKeywords
 });
 
 
@@ -286,7 +302,7 @@ class __$ConversationCopyWithImpl<$Res>
 
 /// Create a copy of Conversation
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? createdAt = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? previewText = null,Object? generatedSummary = freezed,Object? userSummary = freezed,Object? lastMessageAt = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? createdAt = null,Object? baseLanguage = null,Object? targetLanguage = null,Object? previewText = null,Object? generatedSummary = freezed,Object? userSummary = freezed,Object? lastMessageAt = freezed,Object? activeContextIds = null,Object? customKeywords = null,}) {
   return _then(_Conversation(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,createdAt: null == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
@@ -296,7 +312,9 @@ as String,previewText: null == previewText ? _self.previewText : previewText // 
 as String,generatedSummary: freezed == generatedSummary ? _self.generatedSummary : generatedSummary // ignore: cast_nullable_to_non_nullable
 as String?,userSummary: freezed == userSummary ? _self.userSummary : userSummary // ignore: cast_nullable_to_non_nullable
 as String?,lastMessageAt: freezed == lastMessageAt ? _self.lastMessageAt : lastMessageAt // ignore: cast_nullable_to_non_nullable
-as DateTime?,
+as DateTime?,activeContextIds: null == activeContextIds ? _self._activeContextIds : activeContextIds // ignore: cast_nullable_to_non_nullable
+as List<String>,customKeywords: null == customKeywords ? _self._customKeywords : customKeywords // ignore: cast_nullable_to_non_nullable
+as List<String>,
   ));
 }
 

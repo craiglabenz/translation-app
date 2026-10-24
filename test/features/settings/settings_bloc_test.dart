@@ -34,6 +34,7 @@ class _TrackingTranslationEngine implements TranslationEngine {
     required double exchangeRate,
     required String baseCurrency,
     required String targetCurrency,
+    String? contextPromptBlock,
     void Function(TranslationResult partialResult)? onPartialResult,
   }) async {
     return const TranslationResult(
@@ -427,6 +428,65 @@ void main() {
       expect(
         modelManager.stateValue.isSttModelInstalled('whisper-tiny-int8'),
         isTrue,
+      );
+    });
+
+    test('manages rollingTurnCount and contextPresets (save, delete, reorder, reset)', () async {
+      await bloc.load();
+      expect(bloc.stateValue.settings.rollingTurnCount, 3);
+      expect(
+        bloc.stateValue.settings.contextPresets,
+        equals(AppSettings.defaultContextPresets),
+      );
+
+      // Clamp rollingTurnCount between 0 and 10
+      await bloc.updateRollingTurnCount(7);
+      expect(bloc.stateValue.settings.rollingTurnCount, 7);
+      await bloc.updateRollingTurnCount(99);
+      expect(bloc.stateValue.settings.rollingTurnCount, 10);
+      await bloc.updateRollingTurnCount(-4);
+      expect(bloc.stateValue.settings.rollingTurnCount, 0);
+
+      // Save a new preset
+      const customPreset = ConversationContextPreset(
+        id: 'coffee_shop',
+        name: 'Coffee Shop',
+        icon: '☕',
+        keywords: 'espresso, oat milk, croissant',
+      );
+      await bloc.saveContextPreset(customPreset);
+      expect(bloc.stateValue.settings.contextPresets.length, 7);
+      expect(bloc.stateValue.settings.contextPresets.last, equals(customPreset));
+
+      // Update an existing preset
+      await bloc.saveContextPreset(
+        customPreset.copyWith(keywords: 'espresso, oat milk, matcha'),
+      );
+      expect(bloc.stateValue.settings.contextPresets.length, 7);
+      expect(
+        bloc.stateValue.settings.contextPresets.last.keywords,
+        'espresso, oat milk, matcha',
+      );
+
+      // Reorder presets (move index 0 to index 2)
+      final firstId = bloc.stateValue.settings.contextPresets[0].id;
+      final secondId = bloc.stateValue.settings.contextPresets[1].id;
+      await bloc.reorderContextPresets(0, 2);
+      expect(bloc.stateValue.settings.contextPresets[0].id, secondId);
+      expect(bloc.stateValue.settings.contextPresets[1].id, firstId);
+
+      // Delete preset
+      await bloc.deleteContextPreset('coffee_shop');
+      expect(
+        bloc.stateValue.settings.contextPresets.any((p) => p.id == 'coffee_shop'),
+        isFalse,
+      );
+
+      // Reset to defaults
+      await bloc.resetContextPresetsToDefaults();
+      expect(
+        bloc.stateValue.settings.contextPresets,
+        equals(AppSettings.defaultContextPresets),
       );
     });
   });

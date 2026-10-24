@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:bloc_signals/bloc_signals.dart';
 import 'package:translation_app/core/ai/language_detector.dart';
 import 'package:translation_app/core/ai/local_translation_engine.dart';
+import 'package:translation_app/core/ai/prompt_templates.dart';
 import 'package:translation_app/core/ai/translation_annotator.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/audio/audio_exceptions.dart';
@@ -45,25 +47,35 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   Float32List? _lastCompletedSnapshotChunk;
   TranslationResult? _lastCompletedSnapshotResult;
   bool _isFinalChunkTranslating = false;
+  List<String> _pendingContextIds = const <String>[];
+  List<String> _pendingCustomKeywords = const <String>[];
 
   /// Initializes the session either for an existing [conversationId] or a new
   /// live translation session.
   Future<void> initialize({
     String? conversationId,
     bool autoStartListening = true,
+    List<String> initialContextIds = const <String>[],
+    List<String> initialCustomKeywords = const <String>[],
   }) async {
     final sw = Stopwatch()..start();
     _log.info(
       '[PERF] ActiveConversationBloc.initialize START '
-      '(conversationId=$conversationId, autoStartListening=$autoStartListening)',
+      '(conversationId=$conversationId, autoStartListening=$autoStartListening, '
+      'initialContextIds=$initialContextIds, initialCustomKeywords=$initialCustomKeywords)',
     );
+    _pendingContextIds = List<String>.unmodifiable(initialContextIds);
+    _pendingCustomKeywords = List<String>.unmodifiable(initialCustomKeywords);
     if (conversationId != null) {
       await loadConversation(
         conversationId,
         autoStartListening: autoStartListening,
       );
     } else if (autoStartListening) {
-      await startNewSession();
+      await startNewSession(
+        initialContextIds: initialContextIds,
+        initialCustomKeywords: initialCustomKeywords,
+      );
     } else {
       _log.info(
         'initialize(): staying idle (no conversationId and autoStartListening=false).',
@@ -77,20 +89,29 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   }
 
   /// Creates a fresh [Conversation] using current settings and starts listening.
-  Future<void> startNewSession() async {
+  Future<void> startNewSession({
+    List<String>? initialContextIds,
+    List<String>? initialCustomKeywords,
+  }) async {
     final sw = Stopwatch()..start();
     _log.info('[PERF] ActiveConversationBloc.startNewSession() START');
     emit(stateValue.copyWith(error: null));
     final settings = await _settingsRepository.getSettings();
+    final effectiveContextIds = initialContextIds ?? _pendingContextIds;
+    final effectiveCustomKeywords =
+        initialCustomKeywords ?? _pendingCustomKeywords;
     final conversation = await _conversationRepository.createConversation(
       baseLanguage: settings.baseLanguage,
       targetLanguage: settings.targetLanguage,
+      activeContextIds: effectiveContextIds,
+      customKeywords: effectiveCustomKeywords,
     );
     if (isClosed) return;
 
     _log.info(
       '[PERF] startNewSession(): created conversation id=${conversation.id} '
-      'in ${sw.elapsedMilliseconds}ms (${conversation.baseLanguage} <-> ${conversation.targetLanguage}).',
+      'in ${sw.elapsedMilliseconds}ms (${conversation.baseLanguage} <-> ${conversation.targetLanguage}, '
+      'contexts=${conversation.activeContextIds}, keywords=${conversation.customKeywords}).',
     );
     emit(
       stateValue.copyWith(
@@ -190,6 +211,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       conversation = await _conversationRepository.createConversation(
         baseLanguage: settings.baseLanguage,
         targetLanguage: settings.targetLanguage,
+        activeContextIds: _pendingContextIds,
+        customKeywords: _pendingCustomKeywords,
       );
       if (isClosed) return;
       _log.info(
@@ -301,6 +324,133 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     }
   }
 
+  /// Returns the currently active context preset IDs for this session.
+  List<String> get activeContextIds =>
+      stateValue.conversation?.activeContextIds ?? _pendingContextIds;
+
+  /// Returns the currently active ad-hoc custom keywords for this session.
+  List<String> get customKeywords =>
+      stateValue.conversation?.customKeywords ?? _pendingCustomKeywords;
+
+  /// Updates the active situational context presets and/or custom keywords
+  /// for the current conversation, persisting to storage.
+  Future<void> updateConversationContext({
+    List<String>? activeContextIds,
+    List<String>? customKeywords,
+  }) async {
+    final normalizedIds = activeContextIds != null
+        ? activeContextIds
+              .map((id) => id.trim())
+              .where((id) => id.isNotEmpty)
+              .toSet()
+              .toList(growable: false)
+        : this.activeContextIds;
+    final normalizedKeywords = customKeywords != null
+        ? customKeywords
+              .map((kw) => kw.trim())
+              .where((kw) => kw.isNotEmpty)
+              .toSet()
+              .toList(growable: false)
+        : this.customKeywords;
+
+    _pendingContextIds = normalizedIds;
+    _pendingCustomKeywords = normalizedKeywords;
+
+    var conversation = stateValue.conversation;
+    if (conversation == null) {
+      final settings = await _settingsRepository.getSettings();
+      conversation = await _conversationRepository.createConversation(
+        baseLanguage: settings.baseLanguage,
+        targetLanguage: settings.targetLanguage,
+        activeContextIds: normalizedIds,
+        customKeywords: normalizedKeywords,
+      );
+      if (isClosed) return;
+      emit(stateValue.copyWith(conversation: conversation));
+      return;
+    }
+
+    final updated = conversation.copyWith(
+      activeContextIds: normalizedIds,
+      customKeywords: normalizedKeywords,
+    );
+    final saved = await _conversationRepository.updateConversation(updated);
+    if (isClosed) return;
+    emit(stateValue.copyWith(conversation: saved));
+  }
+
+  /// Toggles a single situational context preset ID on or off for this session.
+  Future<void> toggleContextPreset(String presetId) async {
+    final trimmed = presetId.trim();
+    if (trimmed.isEmpty) return;
+    final current = List<String>.of(activeContextIds);
+    if (current.contains(trimmed)) {
+      current.remove(trimmed);
+    } else {
+      current.add(trimmed);
+    }
+    await updateConversationContext(activeContextIds: current);
+  }
+
+  /// Adds one or more comma-separated custom keywords to this session.
+  Future<void> addCustomKeyword(String rawInput) async {
+    final parts = rawInput
+        .split(RegExp(r'[,;\n]+'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return;
+    final current = List<String>.of(customKeywords);
+    for (final part in parts) {
+      if (!current.contains(part)) {
+        current.add(part);
+      }
+    }
+    await updateConversationContext(customKeywords: current);
+  }
+
+  /// Removes a single custom keyword from this session.
+  Future<void> removeCustomKeyword(String keyword) async {
+    final current = customKeywords
+        .where((kw) => kw != keyword)
+        .toList(growable: false);
+    await updateConversationContext(customKeywords: current);
+  }
+
+  ({String? promptBlock, int rollingTurnsUsed, String? contextSummary})
+  _buildTurnContextMetadata({
+    required AppSettings settings,
+    required Conversation conversation,
+    required List<Message> priorMessages,
+  }) {
+    final activePresets = settings.resolveContextPresets(
+      conversation.activeContextIds,
+    );
+    final maxTurns = settings.rollingTurnCount.clamp(
+      AppSettings.minRollingTurnCount,
+      AppSettings.maxRollingTurnCount,
+    );
+    final recentTurns = maxTurns > 0 && priorMessages.isNotEmpty
+        ? priorMessages.sublist(math.max(0, priorMessages.length - maxTurns))
+        : const <Message>[];
+    final block = PromptTemplates.buildContextPromptBlock(
+      presets: activePresets,
+      customKeywords: conversation.customKeywords,
+      recentTurns: recentTurns,
+      baseLanguage: settings.baseLanguage,
+      targetLanguage: settings.targetLanguage,
+    );
+    final summary = settings.formatContextSummary(
+      contextIds: conversation.activeContextIds,
+      customKeywords: conversation.customKeywords,
+    );
+    return (
+      promptBlock: block.isEmpty ? null : block,
+      rollingTurnsUsed: recentTurns.length,
+      contextSummary: summary,
+    );
+  }
+
   /// Translates a cumulative live active-speech snapshot while the user is
   /// still speaking (or during a brief pause before the full VAD silence
   /// cutoff expires), streaming the in-progress translation into the UI.
@@ -362,6 +512,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         conversation = await _conversationRepository.createConversation(
           baseLanguage: settings.baseLanguage,
           targetLanguage: settings.targetLanguage,
+          activeContextIds: _pendingContextIds,
+          customKeywords: _pendingCustomKeywords,
         );
         if (isClosed) return null;
       }
@@ -382,6 +534,12 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       );
       if (isClosed) return null;
 
+      final turnContext = _buildTurnContextMetadata(
+        settings: settings,
+        conversation: conversation,
+        priorMessages: stateValue.messages,
+      );
+
       final durationSec =
           (snapshotChunk.length / _audioService.vadBuffer.sampleRate)
               .toStringAsFixed(2);
@@ -397,6 +555,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         exchangeRate: exchangeRate.rate,
         baseCurrency: settings.baseCurrency,
         targetCurrency: settings.targetCurrency,
+        contextPromptBlock: turnContext.promptBlock,
         onPartialResult: (partial) {
           if (isClosed || _isFinalChunkTranslating) return;
           if (partial.translatedText.trim().isEmpty) return;
@@ -537,6 +696,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         conversation = await _conversationRepository.createConversation(
           baseLanguage: settings.baseLanguage,
           targetLanguage: settings.targetLanguage,
+          activeContextIds: _pendingContextIds,
+          customKeywords: _pendingCustomKeywords,
         );
         if (isClosed) return;
       }
@@ -552,6 +713,12 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       final exchangeRate = await _settingsRepository.getExchangeRate(
         baseCurrency: settings.baseCurrency,
         targetCurrency: settings.targetCurrency,
+      );
+
+      final turnContext = _buildTurnContextMetadata(
+        settings: settings,
+        conversation: conversation,
+        priorMessages: stateValue.messages,
       );
 
       TranslationResult? result;
@@ -591,7 +758,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           'onAudioChunkReceived(): invoking translationEngine.translateAudioChunk '
           'for conversation=${conversation.id} '
           '(${settings.baseLanguage}/${settings.baseCurrency} <-> '
-          '${settings.targetLanguage}/${settings.targetCurrency}, rate=${exchangeRate.rate})...',
+          '${settings.targetLanguage}/${settings.targetCurrency}, rate=${exchangeRate.rate}, '
+          'context=${turnContext.contextSummary ?? "none"}, rollingTurns=${turnContext.rollingTurnsUsed})...',
         );
 
         result = await _translationEngine.translateAudioChunk(
@@ -601,6 +769,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           exchangeRate: exchangeRate.rate,
           baseCurrency: settings.baseCurrency,
           targetCurrency: settings.targetCurrency,
+          contextPromptBlock: turnContext.promptBlock,
           onPartialResult: (partial) {
             if (isClosed || !stateValue.isLoading) return;
             final partialIsBase = _resolveIsBaseLanguage(
@@ -697,6 +866,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         totalDurationMs: totalDurationMs,
         speechToTextModel: speechToTextModel,
         translationModel: translationModel,
+        activeContextSummary: turnContext.contextSummary,
+        rollingTurnsUsed: turnContext.rollingTurnsUsed,
       );
 
       final savedMessage = await _conversationRepository.saveMessage(

@@ -19,6 +19,8 @@ _Message _$MessageFromJson(Map<String, dynamic> json) => _Message(
   totalDurationMs: (json['totalDurationMs'] as num?)?.toInt(),
   speechToTextModel: json['speechToTextModel'] as String?,
   translationModel: json['translationModel'] as String?,
+  activeContextSummary: json['activeContextSummary'] as String?,
+  rollingTurnsUsed: (json['rollingTurnsUsed'] as num?)?.toInt(),
 );
 
 Map<String, dynamic> _$MessageToJson(_Message instance) => <String, dynamic>{
@@ -34,4 +36,6 @@ Map<String, dynamic> _$MessageToJson(_Message instance) => <String, dynamic>{
   'totalDurationMs': instance.totalDurationMs,
   'speechToTextModel': instance.speechToTextModel,
   'translationModel': instance.translationModel,
+  'activeContextSummary': instance.activeContextSummary,
+  'rollingTurnsUsed': instance.rollingTurnsUsed,
 };

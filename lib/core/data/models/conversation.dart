@@ -22,6 +22,8 @@ abstract class Conversation with _$Conversation {
     String? generatedSummary,
     String? userSummary,
     DateTime? lastMessageAt,
+    @Default(<String>[]) List<String> activeContextIds,
+    @Default(<String>[]) List<String> customKeywords,
   }) = _Conversation;
 
   const Conversation._();

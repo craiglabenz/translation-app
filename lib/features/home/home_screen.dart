@@ -95,6 +95,138 @@ class _HomeScreenState extends State<HomeScreen> {
     await _conversationRepository.deleteConversation(conversationId);
   }
 
+  Future<void> _showCustomContextStartDialog(BuildContext context) async {
+    var keywordsText = '';
+    var saveAsPreset = false;
+    var presetName = '';
+    var presetIcon = '💬';
+
+    final shouldStart = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              key: const ValueKey('home_custom_context_dialog'),
+              title: const Text('Start with Custom Context'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'Enter topic keywords, names, dishes, or jargon (comma-separated) to boost speech recognition and translation accuracy.',
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const ValueKey('home_custom_keywords_input'),
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Keywords / Vocabulary Hints',
+                        hintText: 'e.g., shellfish allergy, Shinjuku, oat milk',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) => keywordsText = value,
+                    ),
+                    const SizedBox(height: 8),
+                    CheckboxListTile(
+                      key: const ValueKey('home_save_preset_checkbox'),
+                      contentPadding: EdgeInsets.zero,
+                      value: saveAsPreset,
+                      title: const Text('Save as reusable preset'),
+                      onChanged: (val) {
+                        setDialogState(() {
+                          saveAsPreset = val ?? false;
+                        });
+                      },
+                    ),
+                    if (saveAsPreset) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          SizedBox(
+                            width: 72,
+                            child: TextFormField(
+                              key: const ValueKey('home_preset_icon_input'),
+                              initialValue: presetIcon,
+                              decoration: const InputDecoration(
+                                labelText: 'Icon',
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: (val) => presetIcon = val,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextFormField(
+                              key: const ValueKey('home_preset_name_input'),
+                              decoration: const InputDecoration(
+                                labelText: 'Preset Name',
+                                hintText: 'e.g., Coffee Shop',
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: (val) => presetName = val,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  key: const ValueKey('home_custom_context_cancel_button'),
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton.icon(
+                  key: const ValueKey('home_custom_context_start_button'),
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  icon: const Icon(Icons.mic_rounded, size: 18),
+                  label: const Text('Start Conversation'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (shouldStart != true || !mounted) return;
+
+    final parsedKeywords = keywordsText
+        .split(RegExp(r'[,;\n]+'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList(growable: false);
+
+    final initialContextIds = <String>[];
+    if (saveAsPreset && presetName.trim().isNotEmpty) {
+      final presetId =
+          'custom_${DateTime.now().millisecondsSinceEpoch}_${presetName.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}';
+      final newPreset = ConversationContextPreset(
+        id: presetId,
+        name: presetName.trim(),
+        icon: presetIcon.trim().isEmpty ? '💬' : presetIcon.trim(),
+        keywords: parsedKeywords.join(', '),
+      );
+      await _settingsBloc.saveContextPreset(newPreset);
+      initialContextIds.add(presetId);
+    }
+
+    if (!mounted) return;
+    _navigateTo(
+      ChatRoute(
+        autoStartListening: true,
+        initialContextIds: initialContextIds,
+        initialCustomKeywords: initialContextIds.isEmpty
+            ? parsedKeywords
+            : const <String>[],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.flowColors;
@@ -333,6 +465,79 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                         ),
+                      ),
+
+                      // Bottom Horizontal Scrolling Strip of Quick-Start Topic Pills
+                      const SizedBox(height: 8),
+                      Column(
+                        key: const ValueKey('home_context_presets_strip'),
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.auto_awesome_outlined,
+                                size: 14,
+                                color: colors.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'Quick-Start with Topic Context (1-tap)',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: typography.labelSmall.copyWith(
+                                    color: colors.onSurfaceVariant,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                for (final preset in settings.contextPresets)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 8),
+                                    child: ActionChip(
+                                      key: ValueKey(
+                                        'home_context_pill_${preset.id}',
+                                      ),
+                                      label: Text(preset.displayLabel),
+                                      tooltip:
+                                          'Start translating with ${preset.name} vocabulary hints',
+                                      onPressed: () => _navigateTo(
+                                        ChatRoute(
+                                          autoStartListening: true,
+                                          initialContextIds: <String>[
+                                            preset.id,
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ActionChip(
+                                  key: const ValueKey(
+                                    'home_custom_context_pill',
+                                  ),
+                                  avatar: const Icon(
+                                    Icons.add_rounded,
+                                    size: 16,
+                                  ),
+                                  label: const Text('Custom'),
+                                  tooltip:
+                                      'Start with custom keywords or save a new preset',
+                                  onPressed: () =>
+                                      _showCustomContextStartDialog(context),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

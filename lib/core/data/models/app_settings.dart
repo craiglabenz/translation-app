@@ -84,9 +84,30 @@ abstract class SupportedCurrency with _$SupportedCurrency {
       _$SupportedCurrencyFromJson(json);
 }
 
+/// Represents a situational topic preset ("Easy Button") that supplies
+/// domain-specific vocabulary hints to Step 1 (STT) and Step 2 (Translation).
+@freezed
+abstract class ConversationContextPreset with _$ConversationContextPreset {
+  const factory ConversationContextPreset({
+    required String id,
+    required String name,
+    required String icon,
+    required String keywords,
+  }) = _ConversationContextPreset;
+
+  const ConversationContextPreset._();
+
+  factory ConversationContextPreset.fromJson(Map<String, Object?> json) =>
+      _$ConversationContextPresetFromJson(json);
+
+  /// Compact label combining icon and name (e.g. `'🍽️ Restaurant & Dining'`).
+  String get displayLabel => icon.trim().isEmpty ? name : '${icon.trim()} $name';
+}
+
 /// Persistent application settings for language pairs, currencies, model URL,
-/// multiplicative text scaling, and independent speech-to-text (STT) and
-/// translation engine configurations (on-device vs cloud).
+/// multiplicative text scaling, independent speech-to-text (STT) and
+/// translation engine configurations, rolling turn window size, and starting
+/// conversation context presets.
 @freezed
 abstract class AppSettings with _$AppSettings {
   const factory AppSettings({
@@ -105,6 +126,9 @@ abstract class AppSettings with _$AppSettings {
     TranslationEngineMode translationEngineMode,
     @Default(AppSettings.defaultCloudModelId) String cloudModelId,
     @Default('') String geminiApiKey,
+    @Default(AppSettings.defaultRollingTurnCount) int rollingTurnCount,
+    @Default(AppSettings.defaultContextPresets)
+    List<ConversationContextPreset> contextPresets,
   }) = _AppSettings;
 
   const AppSettings._();
@@ -118,6 +142,55 @@ abstract class AppSettings with _$AppSettings {
   static const double maxTextScaleFactor = 3.0;
   static const String defaultCloudModelId = 'gemini-3.8-flash';
   static const String defaultOnDeviceSttModelId = 'whisper-base-int8';
+  static const int defaultRollingTurnCount = 3;
+  static const int minRollingTurnCount = 0;
+  static const int maxRollingTurnCount = 10;
+
+  /// Default built-in starting context presets ("Easy Buttons").
+  static const List<ConversationContextPreset> defaultContextPresets = [
+    ConversationContextPreset(
+      id: 'restaurant',
+      name: 'Restaurant & Dining',
+      icon: '🍽️',
+      keywords:
+          'menu, order, dish, ingredients, allergy, bill, check, table, reservation, spicy, vegetarian',
+    ),
+    ConversationContextPreset(
+      id: 'airport',
+      name: 'Airport & Flights',
+      icon: '✈️',
+      keywords:
+          'flight, boarding pass, gate, terminal, baggage claim, customs, passport, security, layover, delay',
+    ),
+    ConversationContextPreset(
+      id: 'taxi',
+      name: 'Taxi & Transit',
+      icon: '🚕',
+      keywords:
+          'destination, address, turn left, turn right, stop here, meter, fare, station, subway, drop-off',
+    ),
+    ConversationContextPreset(
+      id: 'hotel',
+      name: 'Hotel & Lodging',
+      icon: '🏨',
+      keywords:
+          'check-in, check-out, reservation, room key, Wi-Fi, breakfast, luggage, towels, front desk',
+    ),
+    ConversationContextPreset(
+      id: 'shopping',
+      name: 'Shopping & Market',
+      icon: '🛍️',
+      keywords:
+          'how much, price, discount, size, color, receipt, cash, credit card, tax-free, fitting room',
+    ),
+    ConversationContextPreset(
+      id: 'medical',
+      name: 'Medical & Pharmacy',
+      icon: '⚕️',
+      keywords:
+          'symptoms, pain, fever, allergy, prescription, medicine, dosage, pharmacy, doctor, emergency',
+    ),
+  ];
 
   /// Available on-device Speech-to-Text (STT) models selectable in Settings,
   /// including downloadable Edge Whisper variants alongside Gemma 4 E2B.
@@ -621,6 +694,57 @@ abstract class AppSettings with _$AppSettings {
     return '$sttName → $transName';
   }
 
+  /// Looks up a [ConversationContextPreset] by [id] from [contextPresets]
+  /// (falling back to [defaultContextPresets]).
+  ConversationContextPreset? contextPresetById(String id) {
+    final trimmed = id.trim();
+    if (trimmed.isEmpty) return null;
+    for (final preset in contextPresets) {
+      if (preset.id == trimmed) return preset;
+    }
+    for (final preset in defaultContextPresets) {
+      if (preset.id == trimmed) return preset;
+    }
+    return null;
+  }
+
+  /// Resolves a list of [contextIds] into their corresponding
+  /// [ConversationContextPreset] objects.
+  List<ConversationContextPreset> resolveContextPresets(
+    Iterable<String> contextIds,
+  ) {
+    final resolved = <ConversationContextPreset>[];
+    final seen = <String>{};
+    for (final id in contextIds) {
+      final preset = contextPresetById(id);
+      if (preset != null && seen.add(preset.id)) {
+        resolved.add(preset);
+      }
+    }
+    return resolved;
+  }
+
+  /// Formats active [contextIds] and [customKeywords] into a concise human-readable
+  /// summary string for analytics and badges, or returns `null` if none are active.
+  String? formatContextSummary({
+    required Iterable<String> contextIds,
+    required Iterable<String> customKeywords,
+  }) {
+    final presets = resolveContextPresets(contextIds);
+    final keywords = customKeywords
+        .map((k) => k.trim())
+        .where((k) => k.isNotEmpty)
+        .toList();
+    if (presets.isEmpty && keywords.isEmpty) {
+      return null;
+    }
+    final parts = <String>[
+      for (final preset in presets) preset.displayLabel,
+      if (keywords.isNotEmpty) keywords.join(', '),
+    ];
+    return parts.join(' • ');
+  }
+
   static Bindings<AppSettings> get bindings => Bindings<AppSettings>(
     getId: (obj) => obj.id,
     fromJson: AppSettings.fromJson,
@@ -633,9 +757,24 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
   @override
   final int typeId = 1;
 
+  static Map<String, Object?> _deepCastMap(Map<Object?, Object?> raw) {
+    return raw.map((key, value) {
+      final k = key.toString();
+      if (value is Map) {
+        return MapEntry(k, _deepCastMap(value));
+      } else if (value is List) {
+        return MapEntry(
+          k,
+          value.map((e) => e is Map ? _deepCastMap(e) : e).toList(),
+        );
+      }
+      return MapEntry(k, value);
+    });
+  }
+
   @override
   AppSettings read(BinaryReader reader) {
-    final map = reader.readMap().cast<String, Object?>();
+    final map = _deepCastMap(reader.readMap());
     return AppSettings.fromJson(map);
   }
 

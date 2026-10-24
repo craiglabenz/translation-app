@@ -21,6 +21,7 @@ abstract class TranslationEngine {
     required double exchangeRate,
     required String baseCurrency,
     required String targetCurrency,
+    String? contextPromptBlock,
     void Function(TranslationResult partialResult)? onPartialResult,
   });
 

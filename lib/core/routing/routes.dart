@@ -24,13 +24,22 @@ final class ChatRoute extends AppRoute {
   const ChatRoute({
     this.conversationId,
     this.autoStartListening = true,
+    this.initialContextIds = const <String>[],
+    this.initialCustomKeywords = const <String>[],
   });
 
   final String? conversationId;
   final bool autoStartListening;
+  final List<String> initialContextIds;
+  final List<String> initialCustomKeywords;
 
   @override
-  List<Object?> get props => <Object?>[conversationId, autoStartListening];
+  List<Object?> get props => <Object?>[
+    conversationId,
+    autoStartListening,
+    initialContextIds,
+    initialCustomKeywords,
+  ];
 }
 
 /// Full conversation history list route.

@@ -24,6 +24,8 @@ class ActiveChatView extends StatefulWidget {
   const ActiveChatView({
     this.conversationId,
     this.autoStartListening = true,
+    this.initialContextIds = const <String>[],
+    this.initialCustomKeywords = const <String>[],
     this.conversationBloc,
     this.settingsBloc,
     super.key,
@@ -31,6 +33,8 @@ class ActiveChatView extends StatefulWidget {
 
   final String? conversationId;
   final bool autoStartListening;
+  final List<String> initialContextIds;
+  final List<String> initialCustomKeywords;
   final ActiveConversationBloc? conversationBloc;
   final SettingsBloc? settingsBloc;
 
@@ -193,6 +197,8 @@ class _ActiveChatViewState extends State<ActiveChatView> {
           .initialize(
             conversationId: widget.conversationId,
             autoStartListening: widget.autoStartListening,
+            initialContextIds: widget.initialContextIds,
+            initialCustomKeywords: widget.initialCustomKeywords,
           )
           .whenComplete(() {
             _log.info(
@@ -301,6 +307,306 @@ class _ActiveChatViewState extends State<ActiveChatView> {
     if (newSummary != null && newSummary.trim().isNotEmpty && mounted) {
       await _conversationBloc.updateSummary(newSummary);
     }
+  }
+
+  Future<void> _showContextEditorDialog(BuildContext context) async {
+    _log.info('ActiveChatView._showContextEditorDialog() tapped.');
+    var keywordInput = '';
+    var showNewPresetForm = false;
+    var newPresetIcon = '💬';
+    var newPresetName = '';
+    var newPresetKeywords = '';
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return BlocSignalBuilder<SettingsBloc, SettingsState>(
+              bloc: _settingsBloc,
+              builder: (context, settingsState) {
+                final settings = settingsState.settings;
+                return BlocSignalBuilder<
+                  ActiveConversationBloc,
+                  ActiveConversationState
+                >(
+                  bloc: _conversationBloc,
+                  builder: (context, convState) {
+                    final activeIds =
+                        convState.conversation?.activeContextIds ??
+                        _conversationBloc.activeContextIds;
+                    final activeKeywords =
+                        convState.conversation?.customKeywords ??
+                        _conversationBloc.customKeywords;
+
+                    return AlertDialog(
+                      key: const ValueKey('chat_context_editor_dialog'),
+                      title: const Text('Conversation Context'),
+                      content: SizedBox(
+                        width: 420,
+                        child: SingleChildScrollView(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                'Topic Presets (Multi-Select)',
+                                style: context.flowTypography.labelLarge
+                                    .copyWith(fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 4,
+                                children: [
+                                  for (final preset in settings.contextPresets)
+                                    FilterChip(
+                                      key: ValueKey(
+                                        'chat_editor_preset_chip_${preset.id}',
+                                      ),
+                                      visualDensity: VisualDensity.compact,
+                                      label: Text(preset.displayLabel),
+                                      selected: activeIds.contains(preset.id),
+                                      onSelected: (_) {
+                                        unawaited(
+                                          _conversationBloc.toggleContextPreset(
+                                            preset.id,
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Custom Keywords & Names',
+                                style: context.flowTypography.labelLarge
+                                    .copyWith(fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextFormField(
+                                      key: const ValueKey(
+                                        'chat_editor_custom_keyword_input',
+                                      ),
+                                      decoration: const InputDecoration(
+                                        hintText:
+                                            'e.g., shellfish, Shinjuku, oat milk',
+                                        isDense: true,
+                                        border: OutlineInputBorder(),
+                                      ),
+                                      onChanged: (val) => keywordInput = val,
+                                      onFieldSubmitted: (val) {
+                                        if (val.trim().isNotEmpty) {
+                                          unawaited(
+                                            _conversationBloc.addCustomKeyword(
+                                              val,
+                                            ),
+                                          );
+                                          keywordInput = '';
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  FilledButton.tonal(
+                                    key: const ValueKey(
+                                      'chat_editor_add_keyword_button',
+                                    ),
+                                    onPressed: () {
+                                      if (keywordInput.trim().isNotEmpty) {
+                                        unawaited(
+                                          _conversationBloc.addCustomKeyword(
+                                            keywordInput,
+                                          ),
+                                        );
+                                        keywordInput = '';
+                                      }
+                                    },
+                                    child: const Text('Add'),
+                                  ),
+                                ],
+                              ),
+                              if (activeKeywords.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: [
+                                    for (final kw in activeKeywords)
+                                      InputChip(
+                                        key: ValueKey(
+                                          'chat_editor_keyword_chip_$kw',
+                                        ),
+                                        label: Text(kw),
+                                        onDeleted: () {
+                                          unawaited(
+                                            _conversationBloc
+                                                .removeCustomKeyword(kw),
+                                          );
+                                        },
+                                      ),
+                                  ],
+                                ),
+                              ],
+                              const Divider(height: 24),
+                              if (!showNewPresetForm)
+                                OutlinedButton.icon(
+                                  key: const ValueKey(
+                                    'chat_save_new_preset_button',
+                                  ),
+                                  onPressed: () {
+                                    setDialogState(() {
+                                      showNewPresetForm = true;
+                                      newPresetKeywords = activeKeywords.join(
+                                        ', ',
+                                      );
+                                    });
+                                  },
+                                  icon: const Icon(
+                                    Icons.bookmark_add_outlined,
+                                    size: 16,
+                                  ),
+                                  label: const Text('Save New Topic Preset'),
+                                )
+                              else
+                                Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Text(
+                                      'New Topic Preset',
+                                      style: context.flowTypography.labelMedium
+                                          .copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      children: [
+                                        SizedBox(
+                                          width: 64,
+                                          child: TextFormField(
+                                            key: const ValueKey(
+                                              'chat_new_preset_icon_input',
+                                            ),
+                                            initialValue: newPresetIcon,
+                                            decoration: const InputDecoration(
+                                              labelText: 'Icon',
+                                              isDense: true,
+                                              border: OutlineInputBorder(),
+                                            ),
+                                            onChanged: (val) =>
+                                                newPresetIcon = val,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: TextFormField(
+                                            key: const ValueKey(
+                                              'chat_new_preset_name_input',
+                                            ),
+                                            decoration: const InputDecoration(
+                                              labelText: 'Preset Name',
+                                              hintText: 'e.g., Coffee Shop',
+                                              isDense: true,
+                                              border: OutlineInputBorder(),
+                                            ),
+                                            onChanged: (val) =>
+                                                newPresetName = val,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    TextFormField(
+                                      key: const ValueKey(
+                                        'chat_new_preset_keywords_input',
+                                      ),
+                                      initialValue: newPresetKeywords,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Vocabulary Keywords',
+                                        hintText:
+                                            'espresso, oat milk, croissant',
+                                        isDense: true,
+                                        border: OutlineInputBorder(),
+                                      ),
+                                      onChanged: (val) =>
+                                          newPresetKeywords = val,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.end,
+                                      children: [
+                                        TextButton(
+                                          onPressed: () {
+                                            setDialogState(() {
+                                              showNewPresetForm = false;
+                                            });
+                                          },
+                                          child: const Text('Cancel'),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        FilledButton.tonal(
+                                          key: const ValueKey(
+                                            'chat_confirm_save_preset_button',
+                                          ),
+                                          onPressed: () async {
+                                            if (newPresetName.trim().isEmpty) {
+                                              return;
+                                            }
+                                            final presetId =
+                                                'custom_${DateTime.now().millisecondsSinceEpoch}_${newPresetName.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}';
+                                            final preset =
+                                                ConversationContextPreset(
+                                                  id: presetId,
+                                                  name: newPresetName.trim(),
+                                                  icon:
+                                                      newPresetIcon
+                                                          .trim()
+                                                          .isEmpty
+                                                      ? '💬'
+                                                      : newPresetIcon.trim(),
+                                                  keywords: newPresetKeywords
+                                                      .trim(),
+                                                );
+                                            await _settingsBloc
+                                                .saveContextPreset(preset);
+                                            await _conversationBloc
+                                                .toggleContextPreset(presetId);
+                                            setDialogState(() {
+                                              showNewPresetForm = false;
+                                            });
+                                          },
+                                          child: const Text('Save Preset'),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      actions: [
+                        FilledButton(
+                          key: const ValueKey('chat_context_editor_done_button'),
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          child: const Text('Done'),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _showOriginalMessageModal(
@@ -464,6 +770,30 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                                   'modal_total_duration',
                                 ),
                                 isEmphasized: true,
+                              ),
+                              const Divider(height: 12),
+                              _TimingStepRow(
+                                label: 'Situational Context',
+                                value:
+                                    message.activeContextSummary != null &&
+                                        message.activeContextSummary!
+                                            .trim()
+                                            .isNotEmpty
+                                    ? message.activeContextSummary!.trim()
+                                    : 'General (None)',
+                                valueKey: const ValueKey(
+                                  'modal_context_summary',
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              _TimingStepRow(
+                                label: 'Rolling History',
+                                value: message.rollingTurnsUsed != null
+                                    ? '${message.rollingTurnsUsed} prior ${message.rollingTurnsUsed == 1 ? 'turn' : 'turns'}'
+                                    : '0 prior turns',
+                                valueKey: const ValueKey(
+                                  'modal_rolling_turns_used',
+                                ),
                               ),
                             ],
                           ),
@@ -657,6 +987,97 @@ class _ActiveChatViewState extends State<ActiveChatView> {
               body: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  Builder(
+                    builder: (context) {
+                      final activeIds =
+                          state.conversation?.activeContextIds ??
+                          _conversationBloc.activeContextIds;
+                      final activePresets = settings.resolveContextPresets(
+                        activeIds,
+                      );
+                      final activeKeywords =
+                          state.conversation?.customKeywords ??
+                          _conversationBloc.customKeywords;
+
+                      return Container(
+                        key: const ValueKey('chat_context_strip'),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colors.surfaceContainerLow,
+                          border: Border(
+                            bottom: BorderSide(
+                              color: colors.outline.withValues(alpha: 0.5),
+                            ),
+                          ),
+                        ),
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              for (final preset in activePresets)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: InputChip(
+                                    key: ValueKey(
+                                      'chat_active_preset_chip_${preset.id}',
+                                    ),
+                                    label: Text(preset.displayLabel),
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: () =>
+                                        _showContextEditorDialog(context),
+                                    onDeleted: () {
+                                      unawaited(
+                                        _conversationBloc.toggleContextPreset(
+                                          preset.id,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              for (final kw in activeKeywords)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: InputChip(
+                                    key: ValueKey(
+                                      'chat_active_keyword_chip_$kw',
+                                    ),
+                                    label: Text('🏷️ $kw'),
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: () =>
+                                        _showContextEditorDialog(context),
+                                    onDeleted: () {
+                                      unawaited(
+                                        _conversationBloc.removeCustomKeyword(
+                                          kw,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ActionChip(
+                                key: const ValueKey('chat_add_context_chip'),
+                                avatar: const Icon(Icons.add_rounded, size: 16),
+                                label: Text(
+                                  activePresets.isEmpty &&
+                                          activeKeywords.isEmpty
+                                      ? 'Context'
+                                      : 'Edit Context',
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                tooltip:
+                                    'Add or edit topic context & custom keywords',
+                                onPressed: () =>
+                                    _showContextEditorDialog(context),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                   BlocSignalBuilder<ModelManager, ModelDownloadState>(
                     bloc: _settingsBloc.modelManager,
                     builder: (context, modelState) {

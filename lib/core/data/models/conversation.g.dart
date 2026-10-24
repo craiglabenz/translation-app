@@ -18,6 +18,16 @@ _Conversation _$ConversationFromJson(Map<String, dynamic> json) =>
       lastMessageAt: json['lastMessageAt'] == null
           ? null
           : DateTime.parse(json['lastMessageAt'] as String),
+      activeContextIds:
+          (json['activeContextIds'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const <String>[],
+      customKeywords:
+          (json['customKeywords'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const <String>[],
     );
 
 Map<String, dynamic> _$ConversationToJson(_Conversation instance) =>
@@ -30,4 +40,6 @@ Map<String, dynamic> _$ConversationToJson(_Conversation instance) =>
       'generatedSummary': instance.generatedSummary,
       'userSummary': instance.userSummary,
       'lastMessageAt': instance.lastMessageAt?.toIso8601String(),
+      'activeContextIds': instance.activeContextIds,
+      'customKeywords': instance.customKeywords,
     };

@@ -40,6 +40,7 @@ class _ConfigurableTranslationEngine implements TranslationEngine {
   int translateCallCount = 0;
   int summarizeCallCount = 0;
   String nextSummary = 'Asking about item price';
+  String? lastContextPromptBlock;
 
   @override
   Future<TranslationResult> translateAudioChunk({
@@ -49,9 +50,11 @@ class _ConfigurableTranslationEngine implements TranslationEngine {
     required double exchangeRate,
     required String baseCurrency,
     required String targetCurrency,
+    String? contextPromptBlock,
     void Function(TranslationResult partialResult)? onPartialResult,
   }) async {
     translateCallCount++;
+    lastContextPromptBlock = contextPromptBlock;
     if (translateError != null) {
       throw translateError!;
     }
@@ -737,6 +740,116 @@ void main() {
       expect(
         persistedAfterEdit?.userSummary,
         'Madrid station ticket chat',
+      );
+    });
+
+    test('injects situational context presets, custom keywords, and rolling prior turns into translateAudioChunk and records analytics on Message', () async {
+      await settingsRepo.saveSettings(
+        const AppSettings(
+          baseLanguage: 'en',
+          targetLanguage: 'es',
+          rollingTurnCount: 2,
+        ),
+      );
+
+      await bloc.initialize(
+        autoStartListening: true,
+        initialContextIds: const <String>['restaurant'],
+        initialCustomKeywords: const <String>['shellfish allergy'],
+      );
+
+      expect(
+        bloc.stateValue.conversation?.activeContextIds,
+        equals(const <String>['restaurant']),
+      );
+      expect(
+        bloc.stateValue.conversation?.customKeywords,
+        equals(const <String>['shellfish allergy']),
+      );
+
+      // Turn 1: No prior messages yet -> rollingTurnsUsed == 0, context has Restaurant & shellfish allergy
+      fakeEngine.nextResult = const TranslationResult(
+        sourceLanguage: 'en',
+        originalText: 'Does this soup have shellfish?',
+        translatedText: '¿Esta sopa tiene mariscos?',
+      );
+      await bloc.onAudioChunkReceived(
+        Float32List.fromList(<double>[0.25, -0.25, 0.3]),
+      );
+
+      expect(fakeEngine.lastContextPromptBlock, isNotNull);
+      expect(
+        fakeEngine.lastContextPromptBlock,
+        contains('Restaurant & Dining'),
+      );
+      expect(
+        fakeEngine.lastContextPromptBlock,
+        contains('shellfish allergy'),
+      );
+      expect(
+        fakeEngine.lastContextPromptBlock,
+        isNot(contains('Recent Conversation History')),
+      );
+
+      final msg1 = bloc.stateValue.messages.single;
+      expect(
+        msg1.activeContextSummary,
+        '🍽️ Restaurant & Dining • shellfish allergy',
+      );
+      expect(msg1.rollingTurnsUsed, 0);
+
+      // Toggle an additional preset ('medical') and add a keyword ('epipen')
+      await bloc.toggleContextPreset('medical');
+      await bloc.addCustomKeyword('epipen');
+      expect(
+        bloc.stateValue.conversation?.activeContextIds,
+        equals(const <String>['restaurant', 'medical']),
+      );
+      expect(
+        bloc.stateValue.conversation?.customKeywords,
+        equals(const <String>['shellfish allergy', 'epipen']),
+      );
+
+      // Turn 2: 1 prior message exists -> rollingTurnsUsed == 1, prompt includes Turn 1 original & translated text
+      fakeEngine.nextResult = const TranslationResult(
+        sourceLanguage: 'es',
+        originalText: 'No, solo tiene verduras.',
+        translatedText: 'No, it only has vegetables.',
+      );
+      await bloc.onAudioChunkReceived(
+        Float32List.fromList(<double>[0.3, -0.3, 0.25]),
+      );
+
+      expect(
+        fakeEngine.lastContextPromptBlock,
+        contains('Recent Conversation History'),
+      );
+      expect(
+        fakeEngine.lastContextPromptBlock,
+        contains('Does this soup have shellfish?'),
+      );
+      expect(
+        fakeEngine.lastContextPromptBlock,
+        contains('¿Esta sopa tiene mariscos?'),
+      );
+      expect(
+        fakeEngine.lastContextPromptBlock,
+        contains('Medical & Pharmacy'),
+      );
+      expect(fakeEngine.lastContextPromptBlock, contains('epipen'));
+
+      final msg2 = bloc.stateValue.messages.last;
+      expect(
+        msg2.activeContextSummary,
+        '🍽️ Restaurant & Dining • ⚕️ Medical & Pharmacy • shellfish allergy, epipen',
+      );
+      expect(msg2.rollingTurnsUsed, 1);
+
+      // Remove custom keyword
+      await bloc.removeCustomKeyword('epipen');
+      expect(
+        bloc.stateValue.conversation?.customKeywords,
+        equals(const <String>['shellfish allergy']),
       );
     });
   });

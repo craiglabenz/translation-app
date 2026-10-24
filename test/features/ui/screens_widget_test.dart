@@ -42,6 +42,7 @@ class _StubTranslationEngine implements TranslationEngine {
     required double exchangeRate,
     required String baseCurrency,
     required String targetCurrency,
+    String? contextPromptBlock,
     void Function(TranslationResult partialResult)? onPartialResult,
   }) async {
     return const TranslationResult(
@@ -1045,6 +1046,8 @@ void main() {
             totalDurationMs: 730,
             speechToTextModel: 'Whisper Base (int8)',
             translationModel: 'Gemma 4',
+            activeContextSummary: '🛍️ Shopping & Market',
+            rollingTurnsUsed: 2,
           ),
         );
         await convRepo.saveMessage(
@@ -1109,6 +1112,16 @@ void main() {
         expect(find.text('420 ms'), findsOneWidget);
         expect(find.text('310 ms'), findsOneWidget);
         expect(find.text('730 ms'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('modal_context_summary')),
+          findsOneWidget,
+        );
+        expect(find.text('🛍️ Shopping & Market'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('modal_rolling_turns_used')),
+          findsOneWidget,
+        );
+        expect(find.text('2 prior turns'), findsOneWidget);
 
         // Tap directly inside the modal card text -> hides the modal
         await tester.tap(
@@ -1739,6 +1752,80 @@ void main() {
         );
         expect(
           find.text('Whisper Installed & Ready (whisper_tiny_30s_i8.tflite)'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'HomeScreen 1-tap topic preset pills navigate to ActiveChatView with active context strip and modal context analytics',
+      (tester) async {
+        configureDependencies();
+        await GetIt.I.unregister<TranslationEngine>();
+        GetIt.I.registerSingleton<TranslationEngine>(_StubTranslationEngine());
+
+        await tester.pumpWidget(const MyApp());
+        await tester.pumpAndSettle();
+
+        // Verify HomeScreen renders the bottom strip of topic pills
+        expect(
+          find.byKey(const ValueKey('home_context_presets_strip')),
+          findsOneWidget,
+        );
+        final restaurantPill = find.byKey(
+          const ValueKey('home_context_pill_restaurant'),
+        );
+        expect(restaurantPill, findsOneWidget);
+
+        // 1-tap on Restaurant pill launches ActiveChatView with Restaurant active
+        await tester.tap(restaurantPill);
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const ValueKey('chat_context_strip')), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('chat_active_preset_chip_restaurant')),
+          findsOneWidget,
+        );
+
+        // Open the in-conversation context editor via "+ Edit Context" chip
+        await tester.tap(find.byKey(const ValueKey('chat_add_context_chip')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('chat_context_editor_dialog')),
+          findsOneWidget,
+        );
+
+        // Toggle Airport preset on and add a custom keyword
+        await tester.tap(
+          find.byKey(const ValueKey('chat_editor_preset_chip_airport')),
+        );
+        await tester.pumpAndSettle();
+
+        final kwInput = find.byKey(
+          const ValueKey('chat_editor_custom_keyword_input'),
+        );
+        await tester.ensureVisible(kwInput);
+        await tester.pumpAndSettle();
+        await tester.enterText(kwInput, 'Terminal 2');
+        final addBtn = find.byKey(
+          const ValueKey('chat_editor_add_keyword_button'),
+        );
+        await tester.ensureVisible(addBtn);
+        await tester.pumpAndSettle();
+        await tester.tap(addBtn);
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey('chat_context_editor_done_button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('chat_active_preset_chip_airport')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('chat_active_keyword_chip_Terminal 2')),
           findsOneWidget,
         );
       },

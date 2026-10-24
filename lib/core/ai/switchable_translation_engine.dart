@@ -122,6 +122,7 @@ class SwitchableTranslationEngine implements TranslationEngine {
     required Float32List audioWavChunk,
     required String baseLanguage,
     required String targetLanguage,
+    String? contextPromptBlock,
   }) async {
     if (_sttMode == TranslationEngineMode.cloud) {
       return networkEngine.transcribeAudioChunk(
@@ -129,6 +130,7 @@ class SwitchableTranslationEngine implements TranslationEngine {
         baseLanguage: baseLanguage,
         targetLanguage: targetLanguage,
         overrideModelId: _cloudSttModelId,
+        contextPromptBlock: contextPromptBlock,
       );
     }
 
@@ -155,6 +157,7 @@ class SwitchableTranslationEngine implements TranslationEngine {
       audioWavChunk: audioWavChunk,
       baseLanguage: baseLanguage,
       targetLanguage: targetLanguage,
+      contextPromptBlock: contextPromptBlock,
     );
   }
 
@@ -170,6 +173,7 @@ class SwitchableTranslationEngine implements TranslationEngine {
     required String targetCurrency,
     int? speechToTextMs,
     String? speechToTextModel,
+    String? contextPromptBlock,
     void Function(TranslationResult partialResult)? onPartialResult,
   }) {
     if (_mode == TranslationEngineMode.cloud) {
@@ -183,6 +187,7 @@ class SwitchableTranslationEngine implements TranslationEngine {
         targetCurrency: targetCurrency,
         speechToTextMs: speechToTextMs,
         speechToTextModel: speechToTextModel,
+        contextPromptBlock: contextPromptBlock,
         onPartialResult: onPartialResult,
       );
     }
@@ -196,6 +201,7 @@ class SwitchableTranslationEngine implements TranslationEngine {
       targetCurrency: targetCurrency,
       speechToTextMs: speechToTextMs,
       speechToTextModel: speechToTextModel,
+      contextPromptBlock: contextPromptBlock,
       onPartialResult: onPartialResult,
     );
   }
@@ -208,6 +214,7 @@ class SwitchableTranslationEngine implements TranslationEngine {
     required double exchangeRate,
     required String baseCurrency,
     required String targetCurrency,
+    String? contextPromptBlock,
     void Function(TranslationResult partialResult)? onPartialResult,
   }) async {
     final fallbackSourceCode = LanguageDetector.normalizeLanguageCode(
@@ -219,6 +226,7 @@ class SwitchableTranslationEngine implements TranslationEngine {
       audioWavChunk: audioWavChunk,
       baseLanguage: baseLanguage,
       targetLanguage: targetLanguage,
+      contextPromptBlock: contextPromptBlock,
     );
 
     final activeTransModel = _mode == TranslationEngineMode.cloud
@@ -249,6 +257,7 @@ class SwitchableTranslationEngine implements TranslationEngine {
       targetCurrency: targetCurrency,
       speechToTextMs: sttResult.durationMs,
       speechToTextModel: sttResult.modelName,
+      contextPromptBlock: contextPromptBlock,
       onPartialResult: onPartialResult,
     );
   }

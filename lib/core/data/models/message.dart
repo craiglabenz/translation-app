@@ -44,6 +44,14 @@ abstract class Message with _$Message {
 
     /// Display name of the model that performed Step 2 (Text Translation).
     String? translationModel,
+
+    /// Human-readable summary of active topic presets and custom keywords used
+    /// when translating this message (e.g. `'🍽️ Restaurant & Dining • allergy'`).
+    String? activeContextSummary,
+
+    /// Number of prior conversation turns supplied as rolling context for this
+    /// message turn.
+    int? rollingTurnsUsed,
   }) = _Message;
 
   const Message._();

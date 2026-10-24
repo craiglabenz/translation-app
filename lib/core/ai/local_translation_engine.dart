@@ -192,6 +192,7 @@ class LocalTranslationEngine implements TranslationEngine {
     required double exchangeRate,
     required String baseCurrency,
     required String targetCurrency,
+    String? contextPromptBlock,
     void Function(TranslationResult partialResult)? onPartialResult,
   }) async {
     if (audioWavChunk.isEmpty) {
@@ -229,6 +230,7 @@ class LocalTranslationEngine implements TranslationEngine {
       exchangeRate: exchangeRate,
       baseCurrency: baseCurrency,
       targetCurrency: targetCurrency,
+      contextPromptBlock: contextPromptBlock,
     );
     final userTurnPrompt = PromptTemplates.buildAudioTurnPrompt(
       baseLanguage: baseLanguage,
@@ -380,11 +382,13 @@ class LocalTranslationEngine implements TranslationEngine {
         exchangeRate: exchangeRate,
         baseCurrency: baseCurrency,
         targetCurrency: targetCurrency,
+        contextPromptBlock: contextPromptBlock,
       );
       final fallbackSystemPrompt =
           PromptTemplates.buildTextFallbackSystemPrompt(
             sourceLanguage: sourceLangName,
             targetLanguage: targetLangName,
+            contextPromptBlock: contextPromptBlock,
           );
 
       final fallbackRaw = await _executeTextFallback(
@@ -467,6 +471,7 @@ class LocalTranslationEngine implements TranslationEngine {
     required Float32List audioWavChunk,
     required String baseLanguage,
     required String targetLanguage,
+    String? contextPromptBlock,
   }) async {
     if (audioWavChunk.isEmpty) {
       throw ArgumentError('Audio chunk cannot be empty.');
@@ -494,6 +499,7 @@ class LocalTranslationEngine implements TranslationEngine {
     final systemPrompt = PromptTemplates.buildSpeechToTextSystemPrompt(
       baseLanguage: baseLanguage,
       targetLanguage: targetLanguage,
+      contextPromptBlock: contextPromptBlock,
     );
     final userTurnPrompt = PromptTemplates.buildSpeechToTextTurnPrompt(
       baseLanguage: baseLanguage,
@@ -562,6 +568,7 @@ class LocalTranslationEngine implements TranslationEngine {
     required String targetCurrency,
     int? speechToTextMs,
     String? speechToTextModel,
+    String? contextPromptBlock,
     void Function(TranslationResult partialResult)? onPartialResult,
   }) async {
     final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
@@ -613,10 +620,12 @@ class LocalTranslationEngine implements TranslationEngine {
       exchangeRate: exchangeRate,
       baseCurrency: baseCurrency,
       targetCurrency: targetCurrency,
+      contextPromptBlock: contextPromptBlock,
     );
     final systemPrompt = PromptTemplates.buildTextFallbackSystemPrompt(
       sourceLanguage: sourceLangName,
       targetLanguage: targetLangName,
+      contextPromptBlock: contextPromptBlock,
     );
 
     final rawOutput = await _executeTextFallback(

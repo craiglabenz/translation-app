@@ -76,6 +76,24 @@ Map<String, dynamic> _$SupportedCurrencyToJson(_SupportedCurrency instance) =>
       'symbol': instance.symbol,
     };
 
+_ConversationContextPreset _$ConversationContextPresetFromJson(
+  Map<String, dynamic> json,
+) => _ConversationContextPreset(
+  id: json['id'] as String,
+  name: json['name'] as String,
+  icon: json['icon'] as String? ?? '',
+  keywords: json['keywords'] as String? ?? '',
+);
+
+Map<String, dynamic> _$ConversationContextPresetToJson(
+  _ConversationContextPreset instance,
+) => <String, dynamic>{
+  'id': instance.id,
+  'name': instance.name,
+  'icon': instance.icon,
+  'keywords': instance.keywords,
+};
+
 _AppSettings _$AppSettingsFromJson(Map<String, dynamic> json) => _AppSettings(
   id: json['id'] as String? ?? AppSettings.defaultId,
   baseLanguage: json['baseLanguage'] as String? ?? 'en',
@@ -108,6 +126,18 @@ _AppSettings _$AppSettingsFromJson(Map<String, dynamic> json) => _AppSettings(
   cloudModelId:
       json['cloudModelId'] as String? ?? AppSettings.defaultCloudModelId,
   geminiApiKey: json['geminiApiKey'] as String? ?? '',
+  rollingTurnCount:
+      (json['rollingTurnCount'] as num?)?.toInt() ??
+      AppSettings.defaultRollingTurnCount,
+  contextPresets:
+      (json['contextPresets'] as List<dynamic>?)
+          ?.map(
+            (e) => ConversationContextPreset.fromJson(
+              (e as Map).cast<String, Object?>(),
+            ),
+          )
+          .toList() ??
+      AppSettings.defaultContextPresets,
 );
 
 Map<String, dynamic> _$AppSettingsToJson(_AppSettings instance) =>
@@ -127,6 +157,8 @@ Map<String, dynamic> _$AppSettingsToJson(_AppSettings instance) =>
           _$TranslationEngineModeEnumMap[instance.translationEngineMode]!,
       'cloudModelId': instance.cloudModelId,
       'geminiApiKey': instance.geminiApiKey,
+      'rollingTurnCount': instance.rollingTurnCount,
+      'contextPresets': instance.contextPresets.map((e) => e.toJson()).toList(),
     };
 
 const _$TranslationEngineModeEnumMap = {

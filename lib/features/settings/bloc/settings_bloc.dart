@@ -340,6 +340,87 @@ class SettingsBloc extends CubitSignal<SettingsState> {
     await _persistSettings(updated);
   }
 
+  /// Updates the rolling prior-turn context count (clamped between 0 and 10).
+  Future<void> updateRollingTurnCount(int count) async {
+    final clamped = count.clamp(
+      AppSettings.minRollingTurnCount,
+      AppSettings.maxRollingTurnCount,
+    );
+    final updated = stateValue.settings.copyWith(rollingTurnCount: clamped);
+    await _persistSettings(updated);
+  }
+
+  /// Adds a new [ConversationContextPreset] or updates an existing preset with
+  /// the same [ConversationContextPreset.id].
+  Future<void> saveContextPreset(ConversationContextPreset preset) async {
+    final trimmedId = preset.id.trim();
+    final trimmedName = preset.name.trim();
+    if (trimmedId.isEmpty || trimmedName.isEmpty) return;
+
+    final normalized = preset.copyWith(
+      id: trimmedId,
+      name: trimmedName,
+      icon: preset.icon.trim().isEmpty ? '💬' : preset.icon.trim(),
+      keywords: preset.keywords.trim(),
+    );
+
+    final currentList = List<ConversationContextPreset>.of(
+      stateValue.settings.contextPresets,
+    );
+    final existingIdx = currentList.indexWhere((p) => p.id == normalized.id);
+    if (existingIdx >= 0) {
+      currentList[existingIdx] = normalized;
+    } else {
+      currentList.add(normalized);
+    }
+
+    final updated = stateValue.settings.copyWith(contextPresets: currentList);
+    await _persistSettings(updated);
+  }
+
+  /// Deletes a [ConversationContextPreset] by [presetId].
+  Future<void> deleteContextPreset(String presetId) async {
+    final currentList = stateValue.settings.contextPresets
+        .where((p) => p.id != presetId)
+        .toList();
+    final updated = stateValue.settings.copyWith(contextPresets: currentList);
+    await _persistSettings(updated);
+  }
+
+  /// Reorders [AppSettings.contextPresets] from [oldIndex] to [newIndex].
+  Future<void> reorderContextPresets(int oldIndex, int newIndex) async {
+    final currentList = List<ConversationContextPreset>.of(
+      stateValue.settings.contextPresets,
+    );
+    if (oldIndex < 0 ||
+        oldIndex >= currentList.length ||
+        newIndex < 0 ||
+        newIndex > currentList.length) {
+      return;
+    }
+    var targetIndex = newIndex;
+    if (oldIndex < targetIndex) {
+      targetIndex -= 1;
+    }
+    if (oldIndex == targetIndex ||
+        targetIndex < 0 ||
+        targetIndex >= currentList.length) {
+      return;
+    }
+    final moved = currentList.removeAt(oldIndex);
+    currentList.insert(targetIndex, moved);
+    final updated = stateValue.settings.copyWith(contextPresets: currentList);
+    await _persistSettings(updated);
+  }
+
+  /// Resets [AppSettings.contextPresets] to [AppSettings.defaultContextPresets].
+  Future<void> resetContextPresetsToDefaults() async {
+    final updated = stateValue.settings.copyWith(
+      contextPresets: AppSettings.defaultContextPresets,
+    );
+    await _persistSettings(updated);
+  }
+
   /// Forces an immediate refresh of the exchange rate from Frankfurter.
   Future<void> refreshExchangeRates() async {
     emit(stateValue.copyWith(isRefreshingRates: true, error: null));

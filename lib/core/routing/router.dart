@@ -40,10 +40,17 @@ class AppRouter {
       return switch (route) {
         LoginRoute() => const LoginScreen(),
         HomeRoute() => const HomeScreen(),
-        ChatRoute(:final conversationId, :final autoStartListening) =>
+        ChatRoute(
+          :final conversationId,
+          :final autoStartListening,
+          :final initialContextIds,
+          :final initialCustomKeywords,
+        ) =>
           ActiveChatView(
             conversationId: conversationId,
             autoStartListening: autoStartListening,
+            initialContextIds: initialContextIds,
+            initialCustomKeywords: initialCustomKeywords,
           ),
         HistoryRoute() => const HistoryScreen(),
         SettingsRoute() => const SettingsScreen(),

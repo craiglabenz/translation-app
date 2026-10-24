@@ -139,6 +139,8 @@ class ConversationRepository extends Repository<Conversation> {
     String? id,
     DateTime? createdAt,
     DateTime? lastMessageAt,
+    List<String> activeContextIds = const <String>[],
+    List<String> customKeywords = const <String>[],
   }) async {
     final sw = Stopwatch()..start();
     _log.info(
@@ -153,6 +155,8 @@ class ConversationRepository extends Repository<Conversation> {
       previewText: previewText,
       generatedSummary: generatedSummary,
       userSummary: userSummary,
+      activeContextIds: activeContextIds,
+      customKeywords: customKeywords,
     );
     final saved = await setItem(
       draft,

@@ -381,6 +381,7 @@ class NetworkTranslationEngine implements TranslationEngine {
     required double exchangeRate,
     required String baseCurrency,
     required String targetCurrency,
+    String? contextPromptBlock,
     void Function(TranslationResult partialResult)? onPartialResult,
   }) async {
     if (audioWavChunk.isEmpty) {
@@ -420,6 +421,7 @@ class NetworkTranslationEngine implements TranslationEngine {
       exchangeRate: exchangeRate,
       baseCurrency: baseCurrency,
       targetCurrency: targetCurrency,
+      contextPromptBlock: contextPromptBlock,
     );
     final userTurnPrompt = PromptTemplates.buildAudioTurnPrompt(
       baseLanguage: baseLanguage,
@@ -531,6 +533,7 @@ class NetworkTranslationEngine implements TranslationEngine {
         exchangeRate: exchangeRate,
         baseCurrency: baseCurrency,
         targetCurrency: targetCurrency,
+        contextPromptBlock: contextPromptBlock,
       );
 
       if (fallbackText != null && fallbackText.trim().isNotEmpty) {
@@ -580,6 +583,7 @@ class NetworkTranslationEngine implements TranslationEngine {
     required String baseLanguage,
     required String targetLanguage,
     String? overrideModelId,
+    String? contextPromptBlock,
   }) async {
     if (audioWavChunk.isEmpty) {
       throw ArgumentError('Audio chunk cannot be empty.');
@@ -618,6 +622,7 @@ class NetworkTranslationEngine implements TranslationEngine {
     final systemPrompt = PromptTemplates.buildSpeechToTextSystemPrompt(
       baseLanguage: baseLanguage,
       targetLanguage: targetLanguage,
+      contextPromptBlock: contextPromptBlock,
     );
     final userTurnPrompt = PromptTemplates.buildSpeechToTextTurnPrompt(
       baseLanguage: baseLanguage,
@@ -670,6 +675,7 @@ class NetworkTranslationEngine implements TranslationEngine {
     required String targetCurrency,
     int? speechToTextMs,
     String? speechToTextModel,
+    String? contextPromptBlock,
     void Function(TranslationResult partialResult)? onPartialResult,
   }) async {
     final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
@@ -728,6 +734,7 @@ class NetworkTranslationEngine implements TranslationEngine {
       exchangeRate: exchangeRate,
       baseCurrency: baseCurrency,
       targetCurrency: targetCurrency,
+      contextPromptBlock: contextPromptBlock,
     );
 
     stopwatch.stop();
@@ -891,6 +898,7 @@ class NetworkTranslationEngine implements TranslationEngine {
     required double exchangeRate,
     required String baseCurrency,
     required String targetCurrency,
+    String? contextPromptBlock,
   }) async {
     try {
       final activeModel = modelId;
@@ -900,6 +908,7 @@ class NetworkTranslationEngine implements TranslationEngine {
       final systemPrompt = PromptTemplates.buildTextFallbackSystemPrompt(
         sourceLanguage: sourceLanguage,
         targetLanguage: targetLanguage,
+        contextPromptBlock: contextPromptBlock,
       );
       final fallbackPrompt = PromptTemplates.buildTextFallbackPrompt(
         textToTranslate: sourceTranscript,
@@ -908,6 +917,7 @@ class NetworkTranslationEngine implements TranslationEngine {
         exchangeRate: exchangeRate,
         baseCurrency: baseCurrency,
         targetCurrency: targetCurrency,
+        contextPromptBlock: contextPromptBlock,
       );
       final response = await _client.post(
         uri,
