@@ -462,24 +462,38 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     if (snapshotChunk.isEmpty ||
         isClosed ||
         _isFinalChunkTranslating) {
+      _log.info(
+        '[SNAPSHOT IGNORED] onActiveSpeechSnapshotReceived(): '
+        'isEmpty=${snapshotChunk.isEmpty}, isClosed=$isClosed, '
+        'isFinalChunkTranslating=$_isFinalChunkTranslating',
+      );
       return;
     }
+
+    final snapRms = VadBuffer.computeRms(snapshotChunk);
+    final snapDurationSec =
+        (snapshotChunk.length / _audioService.vadBuffer.sampleRate)
+            .toStringAsFixed(2);
 
     if (snapshotChunk.length >= 4000 &&
         !VadBuffer.hasMeaningfulSpeech(
           snapshotChunk,
-          silenceThreshold: _audioService.vadBuffer.effectiveSilenceThreshold,
           sampleRate: _audioService.vadBuffer.sampleRate,
         )) {
-      _audioService.reportNonSpeechAudio(snapshotChunk);
+      _log.info(
+        '[SNAPSHOT SKIPPED] onActiveSpeechSnapshotReceived(): '
+        '${snapshotChunk.length} samples (~${snapDurationSec}s, rms=${snapRms.toStringAsFixed(4)}) '
+        'lacks meaningful speech energy.',
+      );
       return;
     }
 
     if (_inFlightSnapshotFuture != null) {
       _latestPendingSnapshotChunk = snapshotChunk;
       _log.info(
-        'onActiveSpeechSnapshotReceived(): coalescing ${snapshotChunk.length}-sample '
-        'snapshot behind in-flight snapshot inference.',
+        '[SNAPSHOT COALESCED] onActiveSpeechSnapshotReceived(): '
+        'queued ${snapshotChunk.length} samples (~${snapDurationSec}s, rms=${snapRms.toStringAsFixed(4)}) '
+        'behind in-flight snapshot (${_inFlightSnapshotChunk?.length ?? 0} samples).',
       );
       return;
     }
@@ -545,9 +559,12 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       final durationSec =
           (snapshotChunk.length / _audioService.vadBuffer.sampleRate)
               .toStringAsFixed(2);
+      final snapRms = VadBuffer.computeRms(snapshotChunk).toStringAsFixed(4);
       _log.info(
-        '_translateLiveSnapshot(): starting early translation on active speech '
-        '(${snapshotChunk.length} samples / ~${durationSec}s)...',
+        '[SNAPSHOT START] _translateLiveSnapshot(): translating incremental audio '
+        '(${snapshotChunk.length} samples / ~${durationSec}s, rms=$snapRms, '
+        'pair=${settings.baseLanguage}<->${settings.targetLanguage}, '
+        'context=${turnContext.contextSummary ?? "none"}, rollingTurns=${turnContext.rollingTurnsUsed})...',
       );
 
       final result = await _translationEngine.translateAudioChunk(
@@ -565,6 +582,10 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
             result: partial,
             baseLanguageCode: settings.baseLanguage,
             targetLanguageCode: settings.targetLanguage,
+          );
+          _log.info(
+            '[SNAPSHOT STREAMING TOKEN] direction=${partialIsBase ? "Host/LEFT (${settings.baseLanguage})" : "Guest/RIGHT (${settings.targetLanguage})"}, '
+            'partialTranslated="${partial.translatedText}"',
           );
           emit(
             stateValue.copyWith(
@@ -586,7 +607,10 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
             originalText: result.originalText,
             translatedText: result.translatedText,
           )) {
-        _audioService.reportNonSpeechAudio(snapshotChunk);
+        _log.info(
+          '[SNAPSHOT EMPTY/NON-SPEECH] _translateLiveSnapshot() (${snapshotChunk.length} samples / ~${durationSec}s): '
+          'original="${result.originalText}", translated="${result.translatedText}" -> clearing live preview.',
+        );
         if (!_isFinalChunkTranslating && _latestPendingSnapshotChunk == null) {
           emit(
             stateValue.copyWith(
@@ -611,6 +635,13 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         baseCurrency: settings.baseCurrency,
         targetCurrency: settings.targetCurrency,
         isBaseLanguage: isBaseLanguage,
+      );
+
+      _log.info(
+        '[SNAPSHOT DONE] _translateLiveSnapshot() (${snapshotChunk.length} samples / ~${durationSec}s): '
+        'taggedSource="${result.sourceLanguage}" -> ${isBaseLanguage ? "Host/LEFT" : "Guest/RIGHT"}, '
+        'original="${result.originalText}", annotatedPreview="$annotatedText" '
+        '(stt=${result.speechToTextMs}ms, trans=${result.translationMs}ms)',
       );
 
       if (!_isFinalChunkTranslating) {
@@ -650,15 +681,28 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       return true;
     }
     final tail = Float32List.sublistView(finalChunk, snapshotChunk.length);
-    final threshold = _audioService.vadBuffer.effectiveSilenceThreshold;
-    if (VadBuffer.computeRms(tail) >= threshold) {
+    final threshold = _audioService.vadBuffer.silenceThreshold;
+    final tailRms = VadBuffer.computeRms(tail);
+    if (tailRms >= threshold) {
+      _log.info(
+        '[SNAPSHOT VS FINAL] _hasSameActiveSpeech=false: finalChunk (${finalChunk.length}) '
+        'has ${tail.length} trailing samples after snapshot (${snapshotChunk.length}) '
+        'with tailRms=${tailRms.toStringAsFixed(4)} >= threshold=${threshold.toStringAsFixed(4)} '
+        '-> running full final chunk translation.',
+      );
       return false;
     }
-    return !VadBuffer.hasMeaningfulSpeech(
+    final tailHasSpeech = VadBuffer.hasMeaningfulSpeech(
       tail,
       silenceThreshold: threshold,
       sampleRate: _audioService.vadBuffer.sampleRate,
     );
+    _log.info(
+      '[SNAPSHOT VS FINAL] _hasSameActiveSpeech=${!tailHasSpeech}: '
+      'snapshot=${snapshotChunk.length} samples, final=${finalChunk.length} samples, '
+      'tail=${tail.length} samples (tailRms=${tailRms.toStringAsFixed(4)}, tailHasSpeech=$tailHasSpeech).',
+    );
+    return !tailHasSpeech;
   }
 
   /// Processes a complete VAD-segmented 16kHz mono PCM audio chunk through
@@ -681,13 +725,11 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     if (audioChunk.length >= 4000 &&
         !VadBuffer.hasMeaningfulSpeech(
           audioChunk,
-          silenceThreshold: _audioService.vadBuffer.effectiveSilenceThreshold,
           sampleRate: _audioService.vadBuffer.sampleRate,
         )) {
       _log.info(
         'onAudioChunkReceived(): chunk contains only pause/silence or transient noise -> ignoring gracefully.',
       );
-      _audioService.reportNonSpeechAudio(audioChunk);
       return;
     }
 
@@ -804,7 +846,6 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           '(original="${result.originalText}", translated="${result.translatedText}") '
           '-> returning to listening state without adding a message.',
         );
-        _audioService.reportNonSpeechAudio(audioChunk);
         emit(
           stateValue.copyWith(
             isLoading: false,

@@ -36,20 +36,17 @@ class VadBuffer {
   /// Minimum active speech duration required in live interactive mode so brief
   /// clicks, taps, or breaths during a pause do not trigger hallucinated turns.
   static const Duration interactiveMinSpeechDuration = Duration(
-    milliseconds: 350,
+    milliseconds: 200,
   );
 
-  /// Slightly higher RMS threshold for live microphone capture to reject room hum.
-  static const double interactiveSilenceThreshold = 0.022;
+  /// RMS threshold for live microphone capture to reject quiet room hum while
+  /// remaining sensitive to normal conversational speech.
+  static const double interactiveSilenceThreshold = 0.015;
 
   /// Coefficient of variation (`stdDev / mean`) below which a sustained AC
   /// signal is classified as stationary mechanical/background noise (e.g., a
   /// saw, grinder, fan, or engine drone) rather than syllable-modulated speech.
-  static const double stationaryEnvelopeCvThreshold = 0.16;
-
-  /// Zero-crossing rate threshold above which a sustained unmodulated signal is
-  /// treated as high-frequency broadband/grinding noise rather than voiced speech.
-  static const double highFrequencyNoiseZcrThreshold = 0.38;
+  static const double stationaryEnvelopeCvThreshold = 0.10;
 
   static final _log = AppLogger.of('VadBuffer');
 
@@ -91,7 +88,6 @@ class VadBuffer {
   int _lastActiveSampleEndIndex = 0;
   int _lastSnapshotActiveSpeechSamples = 0;
   int _lastSnapshotEndIndex = 0;
-  int _consecutiveHighZcrSamples = 0;
   double _noiseFloorRms = 0.0;
   double _peakActiveWindowRms = 0.0;
   bool _hasDetectedSpeech = false;
@@ -194,8 +190,7 @@ class VadBuffer {
   }
 
   /// Returns `true` if [samples] contains enough above-threshold energy to
-  /// represent human speech rather than silence, a brief click, or unmodulated
-  /// stationary background noise.
+  /// represent human speech rather than silence or a brief click.
   static bool hasMeaningfulSpeech(
     Float32List samples, {
     double silenceThreshold = 0.015,
@@ -216,63 +211,17 @@ class VadBuffer {
     );
 
     var activeSamples = 0;
-    var highZcrActiveWindows = 0;
-    var totalActiveWindows = 0;
-    final activeWindowRmsList = <double>[];
-    var hasAcZeroCrossings = false;
-
     for (var start = 0; start < samples.length; start += windowSize) {
       final end = math.min(start + windowSize, samples.length);
       final view = Float32List.sublistView(samples, start, end);
-      final rms = computeRms(view);
-      if (rms >= silenceThreshold) {
+      if (computeRms(view) >= silenceThreshold) {
         activeSamples += (end - start);
-        totalActiveWindows++;
-        activeWindowRmsList.add(rms);
-        final zcr = computeZeroCrossingRate(view);
-        if (zcr > 0.01) {
-          hasAcZeroCrossings = true;
-        }
-        if (zcr >= highFrequencyNoiseZcrThreshold) {
-          highZcrActiveWindows++;
+        if (activeSamples >= requiredActiveSamples) {
+          return true;
         }
       }
     }
-
-    if (activeSamples < requiredActiveSamples) {
-      return false;
-    }
-
-    // Reject sustained high-frequency grinding/hissing noise where >85% of active
-    // windows are above the high-frequency ZCR threshold.
-    if (totalActiveWindows >= 12 &&
-        highZcrActiveWindows / totalActiveWindows >= 0.85) {
-      return false;
-    }
-
-    // Reject >= 1.0s AC buffers whose active envelope has virtually zero
-    // syllable modulation (steady mechanical drone below maxAdaptiveSilenceThreshold).
-    if (hasAcZeroCrossings &&
-        samples.length >= sampleRate &&
-        activeWindowRmsList.length >= 25) {
-      final mean =
-          activeWindowRmsList.reduce((a, b) => a + b) /
-          activeWindowRmsList.length;
-      if (mean > 0.0 && mean < 0.12) {
-        var varianceSum = 0.0;
-        for (final v in activeWindowRmsList) {
-          final diff = v - mean;
-          varianceSum += diff * diff;
-        }
-        final stdDev = math.sqrt(varianceSum / activeWindowRmsList.length);
-        final cv = stdDev / mean;
-        if (cv < 0.12) {
-          return false;
-        }
-      }
-    }
-
-    return true;
+    return false;
   }
 
   /// Feeds 16kHz mono [samples] into the VAD buffer and returns any chunks
@@ -296,7 +245,6 @@ class VadBuffer {
       windowStart += windowSize
     ) {
       final windowEnd = math.min(windowStart + windowSize, samples.length);
-      final windowLength = windowEnd - windowStart;
       final windowView = Float32List.sublistView(
         samples,
         windowStart,
@@ -309,19 +257,13 @@ class VadBuffer {
         _updateAdaptiveNoiseState(
           windowRms: windowRms,
           windowZcr: windowZcr,
-          windowLength: windowLength,
           windowSize: windowSize,
           stationaryTargetWindows: stationaryTargetWindows,
         );
       }
 
       final currentThreshold = effectiveSilenceThreshold;
-      final isSustainedHighZcrNoise =
-          enableAdaptiveNoiseFloor &&
-          _consecutiveHighZcrSamples >= (sampleRate ~/ 4) &&
-          windowRms < maxAdaptiveSilenceThreshold;
-      final isWindowSilent =
-          windowRms < currentThreshold || isSustainedHighZcrNoise;
+      final isWindowSilent = windowRms < currentThreshold;
 
       if (!isWindowSilent && windowRms > _peakActiveWindowRms) {
         _peakActiveWindowRms = windowRms;
@@ -336,9 +278,10 @@ class VadBuffer {
         if (!isSampleSilent) {
           if (!_hasDetectedSpeech) {
             _log.info(
-              'Speech onset detected! windowRms=${windowRms.toStringAsFixed(4)}, '
-              'sample=${sample.toStringAsFixed(4)}, threshold=${currentThreshold.toStringAsFixed(4)} '
-              '(noiseFloor=${_noiseFloorRms.toStringAsFixed(4)})',
+              '[VAD SPEECH ONSET] windowRms=${windowRms.toStringAsFixed(4)} >= '
+              'threshold=${currentThreshold.toStringAsFixed(4)} '
+              '(noiseFloor=${_noiseFloorRms.toStringAsFixed(4)}, zcr=${windowZcr.toStringAsFixed(3)}) '
+              '-> started accumulating utterance buffer.',
             );
           }
           _hasDetectedSpeech = true;
@@ -358,8 +301,8 @@ class VadBuffer {
         if (_buffer.length >= maxSamples) {
           final durationSec = (_buffer.length / sampleRate).toStringAsFixed(2);
           _log.info(
-            'VAD hard ceiling reached (${_buffer.length} samples / ${durationSec}s, '
-            'activeSpeechSamples=$_activeSpeechSamples) -> flushing chunk.',
+            '[VAD HARD CEILING] Reached ${_buffer.length} samples (${durationSec}s, '
+            'activeSpeech=$_activeSpeechSamples samples, peakRms=${_peakActiveWindowRms.toStringAsFixed(4)}) -> flushing chunk.',
           );
           final chunk = _drainBufferIfValid();
           if (chunk != null) {
@@ -368,14 +311,14 @@ class VadBuffer {
           continue;
         }
 
-        // 2. Check silence cutoff (~3.0 seconds of trailing silence after speech).
+        // 2. Check silence cutoff (~1.6s / 3.0s of trailing silence after speech).
         if (_hasDetectedSpeech &&
             _trailingSilenceSamples >= silenceCutoffSamples) {
           final durationSec = (_buffer.length / sampleRate).toStringAsFixed(2);
           _log.info(
-            'VAD silence cutoff reached (trailingSilence=$_trailingSilenceSamples samples, '
-            'activeSpeechSamples=$_activeSpeechSamples, '
-            'totalChunk=${_buffer.length} samples / ${durationSec}s) -> evaluating chunk.',
+            '[VAD SILENCE CUTOFF] Reached trailingSilence=$_trailingSilenceSamples/$silenceCutoffSamples samples '
+            '(activeSpeech=$_activeSpeechSamples/$minSpeechSamples required, '
+            'totalChunk=${_buffer.length} samples / ${durationSec}s, peakRms=${_peakActiveWindowRms.toStringAsFixed(4)}) -> evaluating chunk.',
           );
           final chunk = _drainBufferIfValid();
           if (chunk != null) {
@@ -393,41 +336,14 @@ class VadBuffer {
   void _updateAdaptiveNoiseState({
     required double windowRms,
     required double windowZcr,
-    required int windowLength,
     required int windowSize,
     required int stationaryTargetWindows,
   }) {
-    // 1. Track sustained high-frequency grinding / hissing noise (high ZCR).
-    if (windowRms >= silenceThreshold &&
-        windowZcr >= highFrequencyNoiseZcrThreshold &&
-        windowRms < maxAdaptiveSilenceThreshold) {
-      _consecutiveHighZcrSamples += windowLength;
-      if (_consecutiveHighZcrSamples >= (sampleRate ~/ 4)) {
-        final maxAllowedFloor =
-            maxAdaptiveSilenceThreshold / noiseFloorMarginMultiplier;
-        _noiseFloorRms = math.max(
-          _noiseFloorRms,
-          math.min(windowRms, maxAllowedFloor),
-        );
-        if (_hasDetectedSpeech &&
-            _peakActiveWindowRms < effectiveSilenceThreshold) {
-          _log.info(
-            'Sustained high-ZCR background noise detected '
-            '(zcr=${windowZcr.toStringAsFixed(2)}, rms=${windowRms.toStringAsFixed(4)}) '
-            '-> adapting noiseFloor=${_noiseFloorRms.toStringAsFixed(4)} and clearing false speech onset.',
-          );
-          _clearUtteranceBuffer();
-        }
-      }
-    } else {
-      _consecutiveHighZcrSamples = 0;
-    }
-
-    // 2. Track stationary AC mechanical drone (saw, sand grinder, fan, AC hum).
+    // Track stationary AC mechanical drone (saw, sand grinder, fan, AC hum).
     // Synthetic DC test signals have windowZcr == 0.0 and are intentionally excluded.
     if (windowZcr > 0.01 &&
         windowRms >= silenceThreshold &&
-        windowRms < maxAdaptiveSilenceThreshold) {
+        windowRms < 0.085) {
       _recentAcWindowRms.add(windowRms);
       while (_recentAcWindowRms.length > stationaryTargetWindows) {
         _recentAcWindowRms.removeAt(0);
@@ -497,11 +413,11 @@ class VadBuffer {
           }
         }
       }
-    } else if (windowRms < silenceThreshold) {
+    } else {
       _recentAcWindowRms.clear();
-      if (_noiseFloorRms > 0.0) {
-        _noiseFloorRms = _noiseFloorRms * 0.94 + windowRms * 0.06;
-        if (_noiseFloorRms < silenceThreshold * 0.5) {
+      if (_noiseFloorRms > 0.0 && windowRms < effectiveSilenceThreshold) {
+        _noiseFloorRms = _noiseFloorRms * 0.90 + windowRms * 0.10;
+        if (_noiseFloorRms < silenceThreshold * 0.6) {
           _noiseFloorRms = 0.0;
         }
       }
@@ -556,6 +472,13 @@ class VadBuffer {
         : fallbackMinSpeech;
 
     if (_activeSpeechSamples < requiredSpeech) {
+      if (pauseSamples > 0 && _trailingSilenceSamples >= pauseSamples && _lastSnapshotEndIndex == 0) {
+        _log.info(
+          '[VAD SNAPSHOT HELD] Pause detected (trailingSilence=$_trailingSilenceSamples >= $pauseSamples), '
+          'but activeSpeechSamples=$_activeSpeechSamples < requiredSpeech=$requiredSpeech '
+          '(${(requiredSpeech * 1000) ~/ sampleRate}ms) -> waiting for more speech.',
+        );
+      }
       return;
     }
 
@@ -579,8 +502,10 @@ class VadBuffer {
 
     final durationSec = (snapshot.length / sampleRate).toStringAsFixed(2);
     _log.info(
-      'Emitting live active-speech snapshot (${snapshot.length} samples / ${durationSec}s, '
+      '[VAD SNAPSHOT EMIT] Emitting live active-speech snapshot '
+      '(${snapshot.length} samples / ${durationSec}s, '
       'activeSpeech=$_activeSpeechSamples, trailingSilence=$_trailingSilenceSamples, '
+      'peakRms=${_peakActiveWindowRms.toStringAsFixed(4)}, '
       'trigger=${hasIntervalTrigger ? "interval" : "pause"}).',
     );
     _snapshotController.add(snapshot);
@@ -589,7 +514,7 @@ class VadBuffer {
   /// Flushes any currently buffered speech samples (e.g. when stopping a session).
   Float32List? flush() {
     _log.info(
-      'flush() called: hasDetectedSpeech=$_hasDetectedSpeech, '
+      '[VAD FLUSH] flush() called: hasDetectedSpeech=$_hasDetectedSpeech, '
       'activeSpeechSamples=$_activeSpeechSamples, '
       'bufferedSamples=${_buffer.length} '
       '(${(_buffer.length / sampleRate).toStringAsFixed(2)}s)',
@@ -620,7 +545,6 @@ class VadBuffer {
     _clearUtteranceBuffer();
     if (!preserveNoiseFloor) {
       _recentAcWindowRms.clear();
-      _consecutiveHighZcrSamples = 0;
       _noiseFloorRms = 0.0;
     }
   }
@@ -633,13 +557,19 @@ class VadBuffer {
     final requiredSpeech = minSpeechSamples;
     if (requiredSpeech > 0 && _activeSpeechSamples < requiredSpeech) {
       _log.info(
-        'Discarding transient noise during pause: activeSpeechSamples=$_activeSpeechSamples '
-        '< minSpeechSamples=$requiredSpeech (${minSpeechDuration.inMilliseconds}ms).',
+        '[VAD CHUNK DISCARDED] Transient noise/short sound during pause: '
+        'activeSpeechSamples=$_activeSpeechSamples < minSpeechSamples=$requiredSpeech '
+        '(${minSpeechDuration.inMilliseconds}ms, peakRms=${_peakActiveWindowRms.toStringAsFixed(4)}).',
       );
       _clearUtteranceBuffer();
       return null;
     }
     final chunk = Float32List.fromList(_buffer);
+    final durationSec = (chunk.length / sampleRate).toStringAsFixed(2);
+    _log.info(
+      '[VAD CHUNK EMIT] Emitting final utterance chunk: ${chunk.length} samples (~${durationSec}s, '
+      'activeSpeech=$_activeSpeechSamples samples, peakRms=${_peakActiveWindowRms.toStringAsFixed(4)}).',
+    );
     _clearUtteranceBuffer();
     if (!_chunkController.isClosed) {
       _chunkController.add(chunk);

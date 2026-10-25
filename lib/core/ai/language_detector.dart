@@ -1,5 +1,6 @@
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
+import 'package:translation_app/core/logging/app_logger.dart';
 
 /// Deterministic analysis of a [TranslationResult]'s source/target direction
 /// and whether the LLM output requires a text-to-text translation fallback.
@@ -44,6 +45,8 @@ class TranslationDirectionAnalysis {
 /// translation direction and preventing untranslated source echoes.
 class LanguageDetector {
   const LanguageDetector._();
+
+  static final _log = AppLogger.of('LanguageDetector');
 
   static final RegExp _hangulRegex = RegExp(
     r'[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]',
@@ -1446,6 +1449,9 @@ class LanguageDetector {
 
     final cleaned = _cleanTextForDetection(transcript);
     if (cleaned.isEmpty) {
+      _log.info(
+        '[TAG] resolveSpokenLanguage: empty cleaned transcript -> falling back to model reported="$reportedLanguage" ($fallbackReported).',
+      );
       return fallbackReported;
     }
 
@@ -1455,6 +1461,10 @@ class LanguageDetector {
       candidateB: targetCode,
     );
     if (detected == null) {
+      _log.info(
+        '[TAG] resolveSpokenLanguage: text detector inconclusive for "$transcript" '
+        '(pair=$baseCode<->$targetCode) -> trusting model reported="$reportedLanguage" ($fallbackReported).',
+      );
       return fallbackReported;
     }
 
@@ -1463,19 +1473,15 @@ class LanguageDetector {
     final baseIsNonLatin = _nonLatinLanguageCodes.contains(baseCode);
     final targetIsNonLatin = _nonLatinLanguageCodes.contains(targetCode);
     if (baseIsNonLatin != targetIsNonLatin) {
+      _log.info(
+        '[TAG] resolveSpokenLanguage: deterministic script match for "$transcript" '
+        '-> resolved="$detected" (modelReported="$reportedLanguage"/$fallbackReported, pair=$baseCode<->$targetCode).',
+      );
       return detected;
     }
 
     // If both the audio model and text detector agree, return immediately.
     if (detected == fallbackReported) {
-      return detected;
-    }
-
-    // When both candidates are Latin-script languages and the audio model
-    // reported `targetCode`, only allow overriding back to `baseCode` if
-    // `baseCode` has strong multi-word evidence (score >= targetScore + 4)
-    // and `targetCode` has zero diacritic or vocabulary hits.
-    if (fallbackReported == targetCode && detected == baseCode) {
       final baseScore = _scoreLatinLanguage(
         cleaned,
         baseCode,
@@ -1486,11 +1492,42 @@ class LanguageDetector {
         targetCode,
         peerLangCode: baseCode,
       );
+      _log.info(
+        '[TAG] resolveSpokenLanguage: model and text detector AGREE on "$detected" '
+        'for "$transcript" (scores: $baseCode=$baseScore, $targetCode=$targetScore).',
+      );
+      return detected;
+    }
+
+    final baseScore = _scoreLatinLanguage(
+      cleaned,
+      baseCode,
+      peerLangCode: targetCode,
+    );
+    final targetScore = _scoreLatinLanguage(
+      cleaned,
+      targetCode,
+      peerLangCode: baseCode,
+    );
+
+    // When both candidates are Latin-script languages and the audio model
+    // reported `targetCode`, only allow overriding back to `baseCode` if
+    // `baseCode` has strong multi-word evidence (score >= targetScore + 4)
+    // and `targetCode` has zero diacritic or vocabulary hits.
+    if (fallbackReported == targetCode && detected == baseCode) {
       if (targetScore > 0 || baseScore < 4) {
+        _log.info(
+          '[TAG] resolveSpokenLanguage: keeping model-reported "$targetCode" over text-detected "$baseCode" '
+          'for "$transcript" (scores: $baseCode=$baseScore, $targetCode=$targetScore -> insufficient $baseCode evidence to override audio model).',
+        );
         return targetCode;
       }
     }
 
+    _log.info(
+      '[TAG] resolveSpokenLanguage: text detector OVERRODE model-reported "$fallbackReported" -> "$detected" '
+      'for "$transcript" (scores: $baseCode=$baseScore, $targetCode=$targetScore).',
+    );
     return detected;
   }
 
@@ -1666,6 +1703,10 @@ class LanguageDetector {
         firstWordScore > 0 &&
         bodyWordScore == 0 &&
         diacriticScore == 0) {
+      _log.fine(
+        '[TAG] _scoreLatinLanguage($langCode): discounting lone first-word match '
+        '"${words.first}" in ${words.length}-word utterance "$text" (bodyScore=0, diacritics=0).',
+      );
       return 0;
     }
 

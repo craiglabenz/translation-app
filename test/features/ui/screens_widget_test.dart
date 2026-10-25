@@ -1786,6 +1786,23 @@ void main() {
           find.byKey(const ValueKey('cloud_stt_model_dropdown')),
           findsNothing,
         );
+
+        // Verify the app version tile at the bottom of SettingsScreen
+        final versionTile = find.byKey(
+          const ValueKey('settings_app_version_tile'),
+        );
+        await tester.scrollUntilVisible(
+          versionTile,
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.pumpAndSettle();
+        expect(versionTile, findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('settings_app_version_label')),
+          findsOneWidget,
+        );
+        expect(find.text(AppSettings.appVersion), findsOneWidget);
       },
     );
 

@@ -601,6 +601,10 @@ class NetworkTranslationEngine implements TranslationEngine {
 
     if (audioWavChunk.length >= 4000 &&
         !VadBuffer.hasMeaningfulSpeech(audioWavChunk)) {
+      _log.info(
+        '[STEP 1 STT SKIP] transcribeAudioChunk() [Cloud:$effectiveSttModel]: '
+        'chunk (${audioWavChunk.length} samples) has no meaningful speech energy -> returning empty transcript.',
+      );
       return SpeechToTextResult(
         transcript: '',
         detectedLanguageCode: baseCode,
@@ -722,6 +726,12 @@ class NetworkTranslationEngine implements TranslationEngine {
     final sourceLangName = AppSettings.languageNameFor(resolvedSourceCode);
     final targetLangName = AppSettings.languageNameFor(targetOutputCode);
 
+    _log.info(
+      '[STEP 2 TRANSLATE START] translateText() [Cloud:$transModelDisplay]: '
+      'direction=$sourceLangName ($resolvedSourceCode, reported="$sourceLanguage") -> '
+      '$targetLangName ($targetOutputCode), transcript="$trimmedTranscript"',
+    );
+
     final translatedRaw = await _runTextFallbackRequest(
       sourceTranscript: trimmedTranscript,
       sourceLanguage: sourceLangName,
@@ -739,6 +749,10 @@ class NetworkTranslationEngine implements TranslationEngine {
     final cleaned = LocalTranslationEngine.cleanTextFallbackOutput(
       translatedRaw ?? '',
       fallbackSourceLanguage: resolvedSourceCode,
+    );
+    _log.info(
+      '[STEP 2 TRANSLATE RESULT] [Cloud:$transModelDisplay]: [$resolvedSourceCode -> $targetOutputCode] '
+      '"$trimmedTranscript" => "$cleaned" (stt=${speechToTextMs ?? 0}ms, trans=${transMs}ms, total=${totalMs}ms)',
     );
 
     if (cleaned.isEmpty ||

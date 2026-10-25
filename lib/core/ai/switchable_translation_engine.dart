@@ -5,8 +5,10 @@ import 'package:translation_app/core/ai/local_translation_engine.dart';
 import 'package:translation_app/core/ai/network_translation_engine.dart';
 import 'package:translation_app/core/ai/speech_to_text_engine.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
+import 'package:translation_app/core/audio/vad_buffer.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
 import 'package:translation_app/core/data/models/message.dart';
+import 'package:translation_app/core/logging/app_logger.dart';
 
 /// A two-stage [TranslationEngine] coordinator that separates Step 1
 /// (Speech-to-Text & Language Detection) from Step 2 (Text Translation),
@@ -26,6 +28,8 @@ class SwitchableTranslationEngine implements TranslationEngine {
   final LocalTranslationEngine localEngine;
   final NetworkTranslationEngine networkEngine;
 
+  static final _log = AppLogger.of('SwitchableTranslationEngine');
+
   TranslationEngineMode _mode;
   TranslationEngineMode _sttMode;
   String _cloudSttModelId;
@@ -41,11 +45,17 @@ class SwitchableTranslationEngine implements TranslationEngine {
 
   /// Updates the active [TranslationEngineMode] for Step 2 (Translation).
   void setMode(TranslationEngineMode mode) {
+    if (_mode != mode) {
+      _log.info('Step 2 (Translation) engine mode changed: $_mode -> $mode');
+    }
     _mode = mode;
   }
 
   /// Updates the active [TranslationEngineMode] for Step 1 (Speech-to-Text).
   void setSttMode(TranslationEngineMode mode) {
+    if (_sttMode != mode) {
+      _log.info('Step 1 (Speech-to-Text) engine mode changed: $_sttMode -> $mode');
+    }
     _sttMode = mode;
   }
 
@@ -53,12 +63,21 @@ class SwitchableTranslationEngine implements TranslationEngine {
   void setCloudSttModelId(String modelId) {
     final trimmed = modelId.trim();
     if (trimmed.isNotEmpty) {
+      if (_cloudSttModelId != trimmed) {
+        _log.info('Cloud STT model ID changed: $_cloudSttModelId -> $trimmed');
+      }
       _cloudSttModelId = trimmed;
     }
   }
 
   /// Synchronizes all STT and Translation settings from [settings].
   void syncWithSettings(AppSettings settings) {
+    _log.info(
+      'syncWithSettings(): sttMode=${settings.sttEngineMode.name} '
+      '(cloudSttModel=${settings.cloudSttModelId}), '
+      'translationMode=${settings.translationEngineMode.name} '
+      '(cloudModel=${settings.cloudModelId})',
+    );
     _mode = settings.translationEngineMode;
     _sttMode = settings.sttEngineMode;
     _cloudSttModelId = settings.cloudSttModelId;
@@ -166,6 +185,21 @@ class SwitchableTranslationEngine implements TranslationEngine {
     final fallbackSourceCode = LanguageDetector.normalizeLanguageCode(
       baseLanguage,
     );
+    final durationSec = (audioWavChunk.length / 16000.0).toStringAsFixed(2);
+    final chunkRms = VadBuffer.computeRms(audioWavChunk).toStringAsFixed(4);
+    final sttLabel = _sttMode == TranslationEngineMode.cloud
+        ? 'Cloud($_cloudSttModelId)'
+        : 'OnDevice(Gemma 4)';
+    final transLabel = _mode == TranslationEngineMode.cloud
+        ? 'Cloud(${networkEngine.modelId})'
+        : 'OnDevice(Gemma 4)';
+
+    _log.info(
+      '[PIPELINE START] translateAudioChunk: samples=${audioWavChunk.length} '
+      '(~${durationSec}s @ 16kHz, rms=$chunkRms), pair=$baseLanguage <-> $targetLanguage, '
+      'Step1=$sttLabel, Step2=$transLabel, '
+      'hasContext=${contextPromptBlock != null && contextPromptBlock.trim().isNotEmpty}',
+    );
 
     // Step 1: Speech-to-Text (ASR) & Language Detection
     final sttResult = await transcribeAudioChunk(
@@ -180,6 +214,10 @@ class SwitchableTranslationEngine implements TranslationEngine {
         : 'Gemma 4';
 
     if (sttResult.transcript.trim().isEmpty) {
+      _log.info(
+        '[PIPELINE STEP 1 -> EMPTY] STT returned empty transcript in ${sttResult.durationMs}ms '
+        '(model=${sttResult.modelName}) -> skipping Step 2 translation.',
+      );
       return TranslationResult(
         sourceLanguage: fallbackSourceCode,
         translatedText: '',
@@ -192,8 +230,14 @@ class SwitchableTranslationEngine implements TranslationEngine {
       );
     }
 
+    _log.info(
+      '[PIPELINE STEP 1 -> DONE] STT (${sttResult.modelName}, ${sttResult.durationMs}ms) '
+      'tagged language="${sttResult.detectedLanguageCode}" | transcript="${sttResult.transcript}" '
+      '-> Proceeding to Step 2 ($transLabel)...',
+    );
+
     // Step 2: Text Translation
-    return translateText(
+    final translationResult = await translateText(
       transcript: sttResult.transcript,
       sourceLanguage: sttResult.detectedLanguageCode,
       baseLanguage: baseLanguage,
@@ -206,6 +250,16 @@ class SwitchableTranslationEngine implements TranslationEngine {
       contextPromptBlock: contextPromptBlock,
       onPartialResult: onPartialResult,
     );
+
+    _log.info(
+      '[PIPELINE COMPLETE] source="${translationResult.sourceLanguage}", '
+      'original="${translationResult.originalText}", '
+      'translated="${translationResult.translatedText}" '
+      '(stt=${translationResult.speechToTextMs}ms [${translationResult.speechToTextModel}], '
+      'trans=${translationResult.translationMs}ms [${translationResult.translationModel}], '
+      'total=${translationResult.totalDurationMs}ms)',
+    );
+    return translationResult;
   }
 
   @override

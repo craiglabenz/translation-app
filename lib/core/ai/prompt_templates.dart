@@ -127,7 +127,7 @@ Listen to the full audio clip and translate between $baseLanguage ($baseCode) an
 2. "detected_language": "$baseCode" if the majority of the utterance was spoken in $baseLanguage, or "$targetCode" if the majority was spoken in $targetLanguage.
 3. "translated_text": translate "original_transcript" into the OTHER language (if "$baseCode" was spoken, "translated_text" MUST be written in $targetLanguage ($targetCode); if "$targetCode" was spoken, "translated_text" MUST be written in $baseLanguage ($baseCode)), or "" if "original_transcript" is empty. NEVER output the same language in "translated_text", NEVER hallucinate example sentences on silence, and NEVER complain about missing audio.
 Output ONLY valid JSON:
-{"original_transcript": "...", "detected_language": "$baseCode|$targetCode", "translated_text": "..."}''';
+{"original_transcript": "...", "detected_language": "$baseCode", "translated_text": "..."}''';
   }
 
   /// Builds a dedicated system prompt for the Speech-to-Text (STT) and
@@ -149,7 +149,7 @@ Rules (CRITICAL):
 - Classify "detected_language" based on the MAJORITY language of the full utterance ("$baseCode" or "$targetCode"). Do NOT let a single leading loanword, interjection (e.g., "Okay", "OK", "No", "Yes", "Oh", "Ah", "Hey", "Wait", "Um"), cognate, or ambiguous first word trick you into classifying or transcribing the rest of the sentence as $baseLanguage.
 - If the audio contains only silence, a pause, breathing, or background noise with no clear human speech, return empty strings: {"original_transcript": "", "detected_language": "$baseCode"}.
 - NEVER invent, guess, or hallucinate example phrases when nothing was said, and NEVER output meta-commentary about missing or silent audio files.
-- Return ONLY a valid JSON object: {"original_transcript": "...", "detected_language": "$baseCode|$targetCode"}.$contextSuffix''';
+- Return ONLY a valid JSON object: {"original_transcript": "...", "detected_language": "$baseCode"}.$contextSuffix''';
   }
 
   /// Builds the user-turn prompt for the Speech-to-Text (STT) step.
@@ -164,7 +164,7 @@ Transcribe the spoken audio verbatim in its original language ($baseLanguage ($b
 1. "original_transcript": exact spoken words in their original language (evaluate the whole utterance; do not let an ambiguous or English-sounding first word cause you to translate the sentence), or "" if no clear speech was spoken.
 2. "detected_language": "$baseCode" or "$targetCode" based on the MAJORITY of the full utterance (ignore any single leading interjection, loanword, or cognate).
 Output ONLY valid JSON:
-{"original_transcript": "...", "detected_language": "$baseCode|$targetCode"}''';
+{"original_transcript": "...", "detected_language": "$baseCode"}''';
   }
 
   /// Builds a text-only system instruction for the automatic self-correction

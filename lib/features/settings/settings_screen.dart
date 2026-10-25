@@ -535,6 +535,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                               ],
                             ),
+
+                            // 9. App Version
+                            SettingsSection(
+                              key: const ValueKey('settings_app_version_card'),
+                              title: const Text('About'),
+                              tiles: [
+                                SettingsTile(
+                                  key: const ValueKey(
+                                    'settings_app_version_tile',
+                                  ),
+                                  leading: const Icon(
+                                    Icons.info_outline_rounded,
+                                  ),
+                                  title: const Text('Version'),
+                                  value: const Text(
+                                    AppSettings.appVersion,
+                                    key: ValueKey('settings_app_version_label'),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ],
                         );
                       },

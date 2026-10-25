@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -241,21 +240,22 @@ class NativeAudioService {
       _rawFrameController.add(samples);
     }
 
-    final emitted = _vadBuffer.addSamples(samples);
-
     final rms = VadBuffer.computeRms(samples);
-    final effectiveRms = math.max(0.0, rms - _vadBuffer.noiseFloorRms);
-    final normalized = (effectiveRms * 5.0).clamp(0.0, 1.0);
+    final normalized = (rms * 5.0).clamp(0.0, 1.0);
     if (!_amplitudeController.isClosed) {
       _amplitudeController.add(normalized);
     }
 
+    final emitted = _vadBuffer.addSamples(samples);
+
     if (_frameCount == 1 || _frameCount % 25 == 0 || emitted.isNotEmpty) {
       _log.info(
-        'Audio frame #$_frameCount: len=${samples.length}, '
-        'rms=${rms.toStringAsFixed(4)}, noiseFloor=${_vadBuffer.noiseFloorRms.toStringAsFixed(4)}, '
+        '[AUDIO FRAME #$_frameCount] len=${samples.length}, '
+        'rms=${rms.toStringAsFixed(4)} vs threshold=${_vadBuffer.effectiveSilenceThreshold.toStringAsFixed(4)} '
+        '(noiseFloor=${_vadBuffer.noiseFloorRms.toStringAsFixed(4)}), '
         'amp=${normalized.toStringAsFixed(2)}, '
         'speechDetected=${_vadBuffer.hasDetectedSpeech}, '
+        'activeSpeech=${_vadBuffer.activeSpeechSamples}/${_vadBuffer.minSpeechSamples}, '
         'buffered=${_vadBuffer.bufferedSampleCount} samples '
         '(${(_vadBuffer.bufferedSampleCount / _vadBuffer.sampleRate).toStringAsFixed(2)}s), '
         'trailingSilence=${_vadBuffer.trailingSilenceSamples}/${_vadBuffer.silenceCutoffSamples}, '

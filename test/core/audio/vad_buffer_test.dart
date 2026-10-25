@@ -650,9 +650,9 @@ void main() {
         silenceThreshold: VadBuffer.interactiveSilenceThreshold,
       );
 
-      // Alternating +/- 0.055 signal has ZCR = 1.0 (>= 0.38 highFrequencyNoiseZcrThreshold)
+      // Alternating +/- 0.055 signal over 1.2s has stationary envelope (CV = 0.0 < 0.10)
       final grinderNoise = Float32List.fromList(
-        List<double>.generate(8000, (i) => i.isEven ? 0.055 : -0.055),
+        List<double>.generate(19200, (i) => i.isEven ? 0.055 : -0.055),
       );
 
       final emitted = vad.addSamples(grinderNoise);

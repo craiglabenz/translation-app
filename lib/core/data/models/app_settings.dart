@@ -117,6 +117,15 @@ abstract class AppSettings with _$AppSettings {
       _$AppSettingsFromJson(json);
 
   static const String defaultId = 'app_settings';
+  static const String appVersionName = String.fromEnvironment(
+    'FLUTTER_BUILD_NAME',
+    defaultValue: '1.0.0',
+  );
+  static const String appBuildNumber = String.fromEnvironment(
+    'FLUTTER_BUILD_NUMBER',
+    defaultValue: '5',
+  );
+  static const String appVersion = '$appVersionName+$appBuildNumber';
   static const double defaultTextScaleFactor = 1.0;
   static const double minTextScaleFactor = 0.5;
   static const double maxTextScaleFactor = 3.0;

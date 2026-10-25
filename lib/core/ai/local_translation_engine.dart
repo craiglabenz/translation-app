@@ -168,6 +168,7 @@ class LocalTranslationEngine implements TranslationEngine {
         preferredBackend: PreferredBackend.gpu,
         enableSpeculativeDecoding: true,
       );
+      AppLogger.restoreConsoleStdio();
       stopwatch.stop();
       _initialized = true;
       _log.info(
@@ -175,6 +176,7 @@ class LocalTranslationEngine implements TranslationEngine {
         '(activeBackend=${_model?.activeBackend}, activeAudioBackend=${_model?.activeAudioBackend}).',
       );
     } on Object catch (e, st) {
+      AppLogger.restoreConsoleStdio();
       _log.severe(
         'initialize(): Failed to load Gemma 4 LiteRT-LM model',
         e,
@@ -479,9 +481,16 @@ class LocalTranslationEngine implements TranslationEngine {
 
     final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
     final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
+    final chunkRms = VadBuffer.computeRms(audioWavChunk);
+    final rawDurationSec = (audioWavChunk.length / 16000.0).toStringAsFixed(2);
 
     if (audioWavChunk.length >= 4000 &&
         !VadBuffer.hasMeaningfulSpeech(audioWavChunk)) {
+      _log.info(
+        '[STEP 1 STT SKIP] transcribeAudioChunk() [Gemma4Audio]: '
+        'chunk (${audioWavChunk.length} samples / ~${rawDurationSec}s, rms=${chunkRms.toStringAsFixed(4)}) '
+        'has no meaningful speech energy -> returning empty transcript.',
+      );
       return SpeechToTextResult(
         transcript: '',
         detectedLanguageCode: baseCode,
@@ -509,9 +518,12 @@ class LocalTranslationEngine implements TranslationEngine {
     final (wavBytes, trimmedLength) = await encodeAudioChunkInIsolate(
       audioWavChunk,
     );
+    final trimmedDurationSec = (trimmedLength / 16000.0).toStringAsFixed(2);
     _log.info(
-      'transcribeAudioChunk() [Gemma4Audio] started: samples=$trimmedLength '
-      '(wavBytes=${wavBytes.length}), pair=$baseCode <-> $targetCode',
+      '[STEP 1 STT START] transcribeAudioChunk() [Gemma4Audio]: '
+      'rawSamples=${audioWavChunk.length} (~${rawDurationSec}s) -> '
+      'trimmedSamples=$trimmedLength (~${trimmedDurationSec}s, wavBytes=${wavBytes.length}, rms=${chunkRms.toStringAsFixed(4)}), '
+      'pair=$baseLanguage ($baseCode) <-> $targetLanguage ($targetCode)',
     );
 
     final String rawResponse;
@@ -540,6 +552,9 @@ class LocalTranslationEngine implements TranslationEngine {
 
     stopwatch.stop();
     final elapsedMs = stopwatch.elapsedMilliseconds;
+    _log.info(
+      '[STEP 1 STT RAW OUTPUT] [Gemma4Audio] (${elapsedMs}ms): $rawResponse',
+    );
 
     final parsed = parseSpeechToTextResponse(
       rawResponse,
@@ -549,8 +564,8 @@ class LocalTranslationEngine implements TranslationEngine {
       modelName: 'Gemma 4',
     );
     _log.info(
-      'transcribeAudioChunk() [Gemma4Audio] finished in ${elapsedMs}ms: '
-      'detected="${parsed.detectedLanguageCode}", transcript="${parsed.transcript}"',
+      '[STEP 1 STT RESULT] [Gemma4Audio] (${elapsedMs}ms): '
+      'taggedLanguage="${parsed.detectedLanguageCode}", transcript="${parsed.transcript}"',
     );
     return parsed;
   }
@@ -577,6 +592,10 @@ class LocalTranslationEngine implements TranslationEngine {
 
     if (trimmedTranscript.isEmpty ||
         isNonSpeechOrHallucination(translatedText: trimmedTranscript)) {
+      _log.info(
+        '[STEP 2 TRANSLATE SKIP] translateText() [Gemma4]: transcript="$trimmedTranscript" '
+        'is empty or non-speech marker -> returning empty translation.',
+      );
       return TranslationResult(
         sourceLanguage: baseCode,
         translatedText: '',
@@ -607,6 +626,12 @@ class LocalTranslationEngine implements TranslationEngine {
 
     final sourceLangName = AppSettings.languageNameFor(resolvedSourceCode);
     final targetLangName = AppSettings.languageNameFor(targetOutputCode);
+
+    _log.info(
+      '[STEP 2 TRANSLATE START] translateText() [Gemma4]: '
+      'direction=$sourceLangName ($resolvedSourceCode, reported="$sourceLanguage") -> '
+      '$targetLangName ($targetOutputCode), transcript="$trimmedTranscript"',
+    );
 
     final prompt = PromptTemplates.buildTextFallbackPrompt(
       textToTranslate: trimmedTranscript,
@@ -639,12 +664,19 @@ class LocalTranslationEngine implements TranslationEngine {
       rawOutput,
       fallbackSourceLanguage: resolvedSourceCode,
     );
+    _log.info(
+      '[STEP 2 TRANSLATE RAW OUTPUT] [Gemma4] (${transMs}ms): raw="$rawOutput" -> cleaned="$cleaned"',
+    );
 
     if (cleaned.isEmpty ||
         isNonSpeechOrHallucination(
           originalText: trimmedTranscript,
           translatedText: cleaned,
         )) {
+      _log.info(
+        '[STEP 2 TRANSLATE SUPPRESSED] [Gemma4]: cleaned output "$cleaned" '
+        'was empty or non-speech hallucination.',
+      );
       return TranslationResult(
         sourceLanguage: resolvedSourceCode,
         translatedText: '',
@@ -657,6 +689,10 @@ class LocalTranslationEngine implements TranslationEngine {
       );
     }
 
+    _log.info(
+      '[STEP 2 TRANSLATE RESULT] [Gemma4]: [$resolvedSourceCode -> $targetOutputCode] '
+      '"$trimmedTranscript" => "$cleaned" (stt=${speechToTextMs ?? 0}ms, trans=${transMs}ms, total=${totalMs}ms)',
+    );
     return TranslationResult(
       sourceLanguage: resolvedSourceCode,
       originalText: trimmedTranscript,
@@ -722,6 +758,10 @@ class LocalTranslationEngine implements TranslationEngine {
 
     if (transcript.isEmpty ||
         isNonSpeechOrHallucination(translatedText: transcript)) {
+      _log.info(
+        '[STT PARSE] parseSpeechToTextResponse: transcript="$transcript" '
+        '(reportedLang="$reportedLang") is empty or non-speech/hallucination -> returning empty.',
+      );
       return SpeechToTextResult(
         transcript: '',
         detectedLanguageCode: baseCode,
@@ -735,6 +775,10 @@ class LocalTranslationEngine implements TranslationEngine {
       reportedLanguage: reportedLang,
       baseLanguage: baseCode,
       targetLanguage: targetCode,
+    );
+    _log.info(
+      '[STT PARSE] parseSpeechToTextResponse: modelReported="$reportedLang" -> '
+      'resolvedLang="$resolvedLang" (pair=$baseCode<->$targetCode), transcript="$transcript"',
     );
 
     return SpeechToTextResult(
@@ -1009,6 +1053,7 @@ class LocalTranslationEngine implements TranslationEngine {
         preferredBackend: PreferredBackend.gpu,
         enableSpeculativeDecoding: true,
       );
+      AppLogger.restoreConsoleStdio();
       _model = model;
     }
 
@@ -1072,6 +1117,7 @@ class LocalTranslationEngine implements TranslationEngine {
         preferredBackend: PreferredBackend.gpu,
         enableSpeculativeDecoding: true,
       );
+      AppLogger.restoreConsoleStdio();
       _model = model;
     }
 
@@ -1121,9 +1167,21 @@ class LocalTranslationEngine implements TranslationEngine {
       return (encodeFloat32PcmToWav(trimmed), trimmed.length);
     }
     final transferableSamples = Float32List.fromList(samples);
+    final logPort = AppLogger.mainLogSendPort;
     return Isolate.run(() {
+      AppLogger.initIsolateLogging(
+        mainSendPort: logPort,
+        isolateLabel: 'AudioEncoder',
+      );
+      final sw = Stopwatch()..start();
       final trimmed = trimTrailingSilence(transferableSamples);
       final wav = encodeFloat32PcmToWav(trimmed);
+      sw.stop();
+      AppLogger.of('LocalTranslationEngine').info(
+        '[ISOLATE ENCODE] Trimmed ${transferableSamples.length} -> '
+        '${trimmed.length} samples (${(trimmed.length / 16000).toStringAsFixed(2)}s) '
+        'and encoded ${wav.length} WAV bytes in ${sw.elapsedMilliseconds}ms.',
+      );
       return (wav, trimmed.length);
     });
   }
@@ -1139,31 +1197,9 @@ class LocalTranslationEngine implements TranslationEngine {
     if (samples.length <= maxTrailingSilentSamples) {
       return samples;
     }
-
-    var effectiveThreshold = silenceThreshold;
-    final tailStart = samples.length - maxTrailingSilentSamples;
-    var tailPeak = 0.0;
-    for (var i = tailStart; i < samples.length; i++) {
-      final a = samples[i].abs();
-      if (a > tailPeak) tailPeak = a;
-    }
-    if (tailPeak >= silenceThreshold && tailPeak < 0.14) {
-      var overallPeak = tailPeak;
-      for (var i = 0; i < tailStart; i++) {
-        final a = samples[i].abs();
-        if (a > overallPeak) overallPeak = a;
-      }
-      if (overallPeak >= tailPeak * 2.2) {
-        effectiveThreshold = math.max(
-          silenceThreshold,
-          math.min(0.16, tailPeak * 1.25),
-        );
-      }
-    }
-
     var lastActiveIndex = -1;
     for (var i = samples.length - 1; i >= 0; i--) {
-      if (samples[i].abs() >= effectiveThreshold) {
+      if (samples[i].abs() >= silenceThreshold) {
         lastActiveIndex = i;
         break;
       }
