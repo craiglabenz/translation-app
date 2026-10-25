@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
@@ -609,6 +610,112 @@ void main() {
 
       const customPerm = MicrophonePermissionException('Blocked in OS settings');
       expect(customPerm.message, 'Blocked in OS settings');
+    });
+  });
+
+  group('VadBuffer background noise resilience', () {
+    test('adapts noise floor to steady AC mechanical drone (saw / fan) and clears false speech onset', () async {
+      final vad = VadBuffer(
+        sampleRate: 16000,
+        silenceCutoff: VadBuffer.interactiveSilenceCutoff,
+        minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
+        silenceThreshold: VadBuffer.interactiveSilenceThreshold, // 0.022
+      );
+
+      // Simulate 1.2 seconds of steady 250Hz AC saw/motor drone at ~0.05 RMS (> 0.022 threshold).
+      final sawDrone = Float32List.fromList(
+        List<double>.generate(
+          19200,
+          (i) => 0.05 * math.sqrt2 * math.sin(2 * math.pi * 250 * i / 16000),
+        ),
+      );
+
+      final emitted = vad.addSamples(sawDrone);
+      expect(emitted, isEmpty);
+      // Noise floor adapted to ~0.05, raising effectiveSilenceThreshold to ~0.0875
+      expect(vad.noiseFloorRms, closeTo(0.05, 0.005));
+      expect(vad.effectiveSilenceThreshold, greaterThan(0.08));
+      // False speech onset was cleared automatically so the mic does not stay stuck listening!
+      expect(vad.hasDetectedSpeech, isFalse);
+      expect(vad.bufferedSampleCount, 0);
+
+      await vad.dispose();
+    });
+
+    test('rejects sustained high-ZCR sand grinder / hiss noise and clears false speech onset', () async {
+      final vad = VadBuffer(
+        sampleRate: 16000,
+        silenceCutoff: VadBuffer.interactiveSilenceCutoff,
+        minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
+        silenceThreshold: VadBuffer.interactiveSilenceThreshold,
+      );
+
+      // Alternating +/- 0.055 signal has ZCR = 1.0 (>= 0.38 highFrequencyNoiseZcrThreshold)
+      final grinderNoise = Float32List.fromList(
+        List<double>.generate(8000, (i) => i.isEven ? 0.055 : -0.055),
+      );
+
+      final emitted = vad.addSamples(grinderNoise);
+      expect(emitted, isEmpty);
+      expect(vad.hasDetectedSpeech, isFalse);
+      expect(vad.bufferedSampleCount, 0);
+      expect(vad.effectiveSilenceThreshold, greaterThan(0.08));
+
+      await vad.dispose();
+    });
+
+    test('flushes speech chunk on schedule even when continuous saw noise persists after the speaker stops talking', () async {
+      final vad = VadBuffer(
+        sampleRate: 16000,
+        silenceCutoff: const Duration(milliseconds: 1600),
+        minSpeechDuration: const Duration(milliseconds: 350),
+        silenceThreshold: 0.022,
+      );
+
+      // 1. 0.8s of loud active speech (~0.25 amplitude)
+      final speech = Float32List.fromList(List<double>.filled(12800, 0.25));
+      expect(vad.addSamples(speech), isEmpty);
+      expect(vad.hasDetectedSpeech, isTrue);
+
+      // 2. Speaker stops talking, but neighbor's saw runs continuously at ~0.05 RMS (> 0.022 static threshold)
+      // for 1.8 seconds (28,800 samples).
+      // After 1.0s of stationary saw noise, VadBuffer adapts the noise floor, credits the 1.0s
+      // stationary tail as trailing silence, and flushes after the remaining 0.6s of saw noise!
+      final trailingSawNoise = Float32List.fromList(
+        List<double>.generate(
+          28800,
+          (i) => 0.05 * math.sqrt2 * math.sin(2 * math.pi * 250 * i / 16000),
+        ),
+      );
+
+      final emitted = vad.addSamples(trailingSawNoise);
+      expect(emitted, hasLength(1));
+      expect(vad.hasDetectedSpeech, isFalse);
+      expect(vad.bufferedSampleCount, 0);
+
+      await vad.dispose();
+    });
+
+    test('reportNonSpeechAudio raises noiseFloorRms and clears stuck noise buffer when STT reports non-speech', () async {
+      final vad = VadBuffer(
+        sampleRate: 16000,
+        silenceCutoff: const Duration(milliseconds: 1600),
+        silenceThreshold: 0.022,
+      );
+
+      // Irregular clatter at ~0.06 RMS triggers speech onset
+      final clatter = Float32List.fromList(List<double>.filled(9600, 0.06));
+      vad.addSamples(clatter);
+      expect(vad.hasDetectedSpeech, isTrue);
+
+      // STT evaluates the 600ms snapshot and reports no speech -> reportNonSpeechAudio
+      vad.reportNonSpeechAudio(clatter);
+      expect(vad.noiseFloorRms, closeTo(0.06, 0.005));
+      expect(vad.effectiveSilenceThreshold, closeTo(0.06 * 1.75, 0.005));
+      expect(vad.hasDetectedSpeech, isFalse);
+      expect(vad.bufferedSampleCount, 0);
+
+      await vad.dispose();
     });
   });
 }

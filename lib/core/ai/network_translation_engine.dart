@@ -709,17 +709,12 @@ class NetworkTranslationEngine implements TranslationEngine {
 
     final stopwatch = Stopwatch()..start();
 
-    final detectedFromText = LanguageDetector.detectLanguage(
-      trimmedTranscript,
-      candidateA: baseCode,
-      candidateB: targetCode,
+    final resolvedSourceCode = LanguageDetector.resolveSpokenLanguage(
+      transcript: trimmedTranscript,
+      reportedLanguage: sourceLanguage,
+      baseLanguage: baseCode,
+      targetLanguage: targetCode,
     );
-    final normalizedReported = LanguageDetector.normalizeLanguageCode(
-      sourceLanguage,
-    );
-    final resolvedSourceCode =
-        detectedFromText ??
-        (normalizedReported == targetCode ? targetCode : baseCode);
     final targetOutputCode = resolvedSourceCode == baseCode
         ? targetCode
         : baseCode;

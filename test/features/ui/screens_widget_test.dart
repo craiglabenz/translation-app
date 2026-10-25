@@ -5,6 +5,7 @@ import 'package:flow_ui/flow_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:settings_ui/settings_ui.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/audio/native_audio_service.dart';
@@ -791,8 +792,20 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Scroll ListView down so the On-Device AI Model section card is built
-      await tester.drag(find.byType(ListView), const Offset(0, -550));
+      expect(find.byType(SettingsList), findsOneWidget);
+      expect(find.byType(SettingsSection), findsWidgets);
+      expect(find.byType(SettingsTile), findsWidgets);
+
+      // Scroll down and open the On-Device Model nested SettingsDestination page
+      final modelTile = find.byKey(const ValueKey('on_device_model_tile'));
+      await tester.scrollUntilVisible(
+        modelTile,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(modelTile);
+      await tester.pumpAndSettle();
+      await tester.tap(modelTile);
       await tester.pumpAndSettle();
 
       expect(
@@ -802,8 +815,6 @@ void main() {
       expect(find.text('Re-download'), findsOneWidget);
 
       // Tap "Re-download" to mark uninstalled
-      await tester.ensureVisible(find.text('Re-download'));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Re-download'));
       await tester.pumpAndSettle();
 
@@ -841,8 +852,18 @@ void main() {
         findsOneWidget,
       );
 
-      // Tap Refresh Rate button
+      // Pop back to root SettingsScreen and tap Refresh Rate button
+      Navigator.of(
+        tester.element(find.byKey(const ValueKey('model_url_text_field'))),
+      ).pop();
+      await tester.pumpAndSettle();
+
       final refreshButton = find.byKey(const ValueKey('refresh_rates_button'));
+      await tester.scrollUntilVisible(
+        refreshButton,
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.ensureVisible(refreshButton);
       await tester.pumpAndSettle();
       await tester.tap(refreshButton);
@@ -870,7 +891,17 @@ void main() {
       await tester.pumpAndSettle();
 
       // Change Primary (Base) Language to French -> also updates baseCurrency to EUR
-      await tester.tap(find.byKey(const ValueKey('base_language_dropdown')));
+      final baseLangDropdown = find.byKey(
+        const ValueKey('base_language_dropdown'),
+      );
+      await tester.scrollUntilVisible(
+        baseLangDropdown,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(baseLangDropdown);
+      await tester.pumpAndSettle();
+      await tester.tap(baseLangDropdown);
       await tester.pumpAndSettle();
       await tester.tap(find.text('French (Français)').last);
       await tester.pumpAndSettle();
@@ -878,7 +909,12 @@ void main() {
       expect(settingsBloc.stateValue.settings.baseCurrency, 'EUR');
 
       // Change Target Language to Japanese -> also updates targetCurrency to JPY
-      await tester.tap(find.byKey(const ValueKey('target_language_dropdown')));
+      final targetLangDropdown = find.byKey(
+        const ValueKey('target_language_dropdown'),
+      );
+      await tester.ensureVisible(targetLangDropdown);
+      await tester.pumpAndSettle();
+      await tester.tap(targetLangDropdown);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Japanese (日本語)').last);
       await tester.pumpAndSettle();
@@ -886,11 +922,17 @@ void main() {
       expect(settingsBloc.stateValue.settings.targetCurrency, 'JPY');
 
       // Change Primary Currency to GBP -> does NOT alter baseLanguage ('fr')
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('base_currency_dropdown')),
+      final baseCurrencyDropdown = find.byKey(
+        const ValueKey('base_currency_dropdown'),
       );
+      await tester.scrollUntilVisible(
+        baseCurrencyDropdown,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(baseCurrencyDropdown);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('base_currency_dropdown')));
+      await tester.tap(baseCurrencyDropdown);
       await tester.pumpAndSettle();
       await tester.tap(find.text('GBP — British Pound (£)').last);
       await tester.pumpAndSettle();
@@ -898,11 +940,17 @@ void main() {
       expect(settingsBloc.stateValue.settings.baseLanguage, 'fr');
 
       // Change Target Currency to CHF -> does NOT alter targetLanguage ('ja')
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('target_currency_dropdown')),
+      final targetCurrencyDropdown = find.byKey(
+        const ValueKey('target_currency_dropdown'),
       );
+      await tester.scrollUntilVisible(
+        targetCurrencyDropdown,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(targetCurrencyDropdown);
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('target_currency_dropdown')));
+      await tester.tap(targetCurrencyDropdown);
       await tester.pumpAndSettle();
       await tester.tap(find.text('CHF — Swiss Franc (CHF)').last);
       await tester.pumpAndSettle();
@@ -1575,8 +1623,14 @@ void main() {
           findsNothing,
         );
 
-        // Switch to Cloud (Gemini)
-        await tester.tap(find.text('Cloud (Gemini)'));
+        // Open Translation Engine nested page and switch to Cloud (Gemini)
+        await tester.tap(
+          find.byKey(const ValueKey('translation_engine_mode_selector')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('translation_mode_cloud_tile')),
+        );
         await tester.pumpAndSettle();
 
         expect(
@@ -1588,19 +1642,11 @@ void main() {
           findsOneWidget,
         );
         expect(
-          find.byKey(const ValueKey('gemini_api_key_text_field')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const ValueKey('gemini_api_key_help_box')),
-          findsOneWidget,
-        );
-        expect(
-          find.textContaining('aistudio.google.com/apikey'),
+          find.byKey(const ValueKey('gemini_api_key_tile')),
           findsOneWidget,
         );
 
-        // Select Gemini 3.1 Pro in cloud model dropdown
+        // Open Cloud Translation Model nested page and select Gemini 3.1 Pro
         await tester.tap(find.byKey(const ValueKey('cloud_model_dropdown')));
         await tester.pumpAndSettle();
         await tester.tap(find.textContaining('Gemini 3.1 Pro —').last);
@@ -1624,7 +1670,19 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Enter API key and toggle visibility
+        // Open Gemini API Key nested page, verify help instructions, and enter API key
+        await tester.tap(find.byKey(const ValueKey('gemini_api_key_tile')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('gemini_api_key_help_box')),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('aistudio.google.com/apikey'),
+          findsWidgets,
+        );
+
         await tester.enterText(
           find.byKey(const ValueKey('gemini_api_key_text_field')),
           'AIzaSyTestCloudKey',
@@ -1638,7 +1696,13 @@ void main() {
           'AIzaSyTestCloudKey',
         );
 
-        // Return to HomeScreen -> Cloud API key banner is now hidden
+        // Pop nested Gemini API Key page, then return to HomeScreen -> Cloud API key banner is now hidden
+        Navigator.of(
+          tester.element(
+            find.byKey(const ValueKey('gemini_api_key_text_field')),
+          ),
+        ).pop();
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey('settings_back_button')));
         await tester.pumpAndSettle();
         expect(
@@ -1663,23 +1727,17 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Verify Step 1 (STT) and Step 2 (Translation) cards and selectors are both present
+        // Verify Step 1 (STT) and Step 2 (Translation) sections and navigation tiles are present
         expect(
           find.byKey(const ValueKey('settings_step1_stt_card')),
           findsOneWidget,
         );
-        expect(
-          find.text('Step 1: Speech-to-Text (Audio → Text)'),
-          findsOneWidget,
-        );
+        expect(find.text('Speech-to-Text'), findsOneWidget);
         expect(
           find.byKey(const ValueKey('settings_step2_translation_card')),
           findsOneWidget,
         );
-        expect(
-          find.text('Step 2: Text Translation (Source → Target)'),
-          findsOneWidget,
-        );
+        expect(find.text('Translation'), findsOneWidget);
         expect(
           find.byKey(const ValueKey('stt_engine_mode_selector')),
           findsOneWidget,
@@ -1689,8 +1747,12 @@ void main() {
           findsNothing,
         );
 
-        // Switch Step 1 to Cloud STT (Gemini) while Step 2 stays On-Device (Gemma 4)
-        await tester.tap(find.text('Cloud STT (Gemini)'));
+        // Open Speech-to-Text Engine nested page and switch Step 1 to Cloud STT (Gemini)
+        await tester.tap(
+          find.byKey(const ValueKey('stt_engine_mode_selector')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('stt_mode_cloud_tile')));
         await tester.pumpAndSettle();
         expect(
           settingsBloc.stateValue.settings.sttEngineMode,
@@ -1705,12 +1767,16 @@ void main() {
           findsOneWidget,
         );
         expect(
-          find.byKey(const ValueKey('gemini_api_key_text_field')),
+          find.byKey(const ValueKey('gemini_api_key_tile')),
           findsOneWidget,
         );
 
-        // Switch Step 1 back to On-Device STT (Gemma 4)
-        await tester.tap(find.text('On-Device STT (Gemma 4)'));
+        // Open Speech-to-Text Engine nested page and switch Step 1 back to On-Device STT (Gemma 4)
+        await tester.tap(
+          find.byKey(const ValueKey('stt_engine_mode_selector')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('stt_mode_on_device_tile')));
         await tester.pumpAndSettle();
         expect(
           settingsBloc.stateValue.settings.sttEngineMode,

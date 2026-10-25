@@ -97,8 +97,9 @@ class PromptTemplates {
 You are a real-time translator. The user's base language is "$baseLanguage" and the target is "$targetLanguage".
 Listen to the provided audio. Identify which of these two languages is being spoken. Translate the speech into the other language.
 Direction Rules (CRITICAL):
-- If the audio is spoken in $baseLanguage ($baseCode), set "detected_language" to "$baseCode" and translate the speech into $targetLanguage ($targetCode) in "translated_text".
-- If the audio is spoken in $targetLanguage ($targetCode), set "detected_language" to "$targetCode" and translate the speech into $baseLanguage ($baseCode) in "translated_text".
+- Evaluate the ENTIRE audio clip and determine the spoken language from the MAJORITY of the full utterance. Do NOT let a single leading loanword, interjection (e.g., "Okay", "No", "Yes", "Oh", "Wait", "Um"), proper noun, or ambiguous first word override the language of the rest of the sentence.
+- If the audio is spoken primarily in $baseLanguage ($baseCode), set "detected_language" to "$baseCode" and translate the speech into $targetLanguage ($targetCode) in "translated_text".
+- If the audio is spoken primarily in $targetLanguage ($targetCode), set "detected_language" to "$targetCode" and translate the speech into $baseLanguage ($baseCode) in "translated_text".
 - "translated_text" MUST ALWAYS be in the opposite language from "original_transcript". NEVER repeat or transcribe $baseLanguage as $baseLanguage or $targetLanguage as $targetLanguage in "translated_text".
 Silence & Pause Rules (CRITICAL):
 - If the audio contains only silence, a conversational pause, breathing, or background noise with no clear human speech, return empty strings: {"detected_language": "$baseCode", "translated_text": "", "original_transcript": ""}.
@@ -121,12 +122,12 @@ Formatting Rules:
     final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
     final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
     return '''
-Listen to the audio and translate between $baseLanguage ($baseCode) and $targetLanguage ($targetCode):
-1. "original_transcript": transcribe the exact spoken words in their original language, or "" if no clear speech was spoken.
-2. "detected_language": "$baseCode" if $baseLanguage was spoken, or "$targetCode" if $targetLanguage was spoken.
+Listen to the full audio clip and translate between $baseLanguage ($baseCode) and $targetLanguage ($targetCode):
+1. "original_transcript": transcribe the exact spoken words in their original language (determine the language from the MAJORITY of the full sentence; do not let an English-sounding first word or interjection make you translate the rest into $baseLanguage), or "" if no clear speech was spoken.
+2. "detected_language": "$baseCode" if the majority of the utterance was spoken in $baseLanguage, or "$targetCode" if the majority was spoken in $targetLanguage.
 3. "translated_text": translate "original_transcript" into the OTHER language (if "$baseCode" was spoken, "translated_text" MUST be written in $targetLanguage ($targetCode); if "$targetCode" was spoken, "translated_text" MUST be written in $baseLanguage ($baseCode)), or "" if "original_transcript" is empty. NEVER output the same language in "translated_text", NEVER hallucinate example sentences on silence, and NEVER complain about missing audio.
 Output ONLY valid JSON:
-{"original_transcript": "...", "detected_language": "$baseCode", "translated_text": "..."}''';
+{"original_transcript": "...", "detected_language": "$baseCode|$targetCode", "translated_text": "..."}''';
   }
 
   /// Builds a dedicated system prompt for the Speech-to-Text (STT) and
@@ -142,13 +143,13 @@ Output ONLY valid JSON:
     final contextSuffix = trimmedContext.isEmpty ? '' : '\n$trimmedContext';
     return '''
 You are an accurate speech-to-text transcriber and language detector for conversations between "$baseLanguage" ($baseCode) and "$targetLanguage" ($targetCode).
-Listen to the provided audio, transcribe the exact words spoken in their original language, and identify whether "$baseCode" or "$targetCode" was spoken.
+Listen to the entire provided audio clip, transcribe the exact words spoken in their original language, and identify whether "$baseCode" or "$targetCode" was spoken.
 Rules (CRITICAL):
 - Do NOT translate the speech. "original_transcript" MUST be written in the exact language spoken in the audio.
-- Set "detected_language" to "$baseCode" if $baseLanguage was spoken, or "$targetCode" if $targetLanguage was spoken.
+- Classify "detected_language" based on the MAJORITY language of the full utterance ("$baseCode" or "$targetCode"). Do NOT let a single leading loanword, interjection (e.g., "Okay", "OK", "No", "Yes", "Oh", "Ah", "Hey", "Wait", "Um"), cognate, or ambiguous first word trick you into classifying or transcribing the rest of the sentence as $baseLanguage.
 - If the audio contains only silence, a pause, breathing, or background noise with no clear human speech, return empty strings: {"original_transcript": "", "detected_language": "$baseCode"}.
 - NEVER invent, guess, or hallucinate example phrases when nothing was said, and NEVER output meta-commentary about missing or silent audio files.
-- Return ONLY a valid JSON object: {"original_transcript": "...", "detected_language": "$baseCode"}.$contextSuffix''';
+- Return ONLY a valid JSON object: {"original_transcript": "...", "detected_language": "$baseCode|$targetCode"}.$contextSuffix''';
   }
 
   /// Builds the user-turn prompt for the Speech-to-Text (STT) step.
@@ -160,10 +161,10 @@ Rules (CRITICAL):
     final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
     return '''
 Transcribe the spoken audio verbatim in its original language ($baseLanguage ($baseCode) or $targetLanguage ($targetCode)) without translating:
-1. "original_transcript": exact spoken words in their original language, or "" if no clear speech was spoken.
-2. "detected_language": "$baseCode" if $baseLanguage was spoken, or "$targetCode" if $targetLanguage was spoken.
+1. "original_transcript": exact spoken words in their original language (evaluate the whole utterance; do not let an ambiguous or English-sounding first word cause you to translate the sentence), or "" if no clear speech was spoken.
+2. "detected_language": "$baseCode" or "$targetCode" based on the MAJORITY of the full utterance (ignore any single leading interjection, loanword, or cognate).
 Output ONLY valid JSON:
-{"original_transcript": "...", "detected_language": "$baseCode"}''';
+{"original_transcript": "...", "detected_language": "$baseCode|$targetCode"}''';
   }
 
   /// Builds a text-only system instruction for the automatic self-correction

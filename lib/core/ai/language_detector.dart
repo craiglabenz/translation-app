@@ -351,6 +351,35 @@ class LanguageDetector {
           'traducido',
           'solamente',
           'diez',
+          'me',
+          'te',
+          'se',
+          'nos',
+          'lo',
+          'le',
+          'les',
+          'quiero',
+          'necesito',
+          'puedo',
+          'puede',
+          'tengo',
+          'tiene',
+          'hay',
+          'gusta',
+          'vamos',
+          'voy',
+          'ir',
+          'hacer',
+          'comer',
+          'beber',
+          'pagar',
+          'comprar',
+          'boleto',
+          'billete',
+          'mesa',
+          'habitación',
+          'farmacia',
+          'médico',
         },
         'fr': <String>{
           'le',
@@ -438,6 +467,21 @@ class LanguageDetector {
           'plus',
           'moins',
           'aussi',
+          'me',
+          'te',
+          'se',
+          'ne',
+          'pas',
+          'voudrais',
+          'veux',
+          'peux',
+          'peut',
+          'besoin',
+          'aller',
+          'payer',
+          'billet',
+          'chambre',
+          'table',
         },
         'de': <String>{
           'der',
@@ -525,6 +569,16 @@ class LanguageDetector {
           'sehr',
           'mehr',
           'auch',
+          'möchte',
+          'will',
+          'kann',
+          'muss',
+          'brauche',
+          'gehen',
+          'zahlen',
+          'bezahlen',
+          'zimmer',
+          'tisch',
         },
         'it': <String>{
           'il',
@@ -599,6 +653,20 @@ class LanguageDetector {
           'molto',
           'più',
           'anche',
+          'mi',
+          'ti',
+          'si',
+          'ci',
+          'vorrei',
+          'voglio',
+          'posso',
+          'può',
+          'devo',
+          'andare',
+          'pagare',
+          'biglietto',
+          'camera',
+          'tavolo',
         },
         'pt': <String>{
           'os',
@@ -679,8 +747,507 @@ class LanguageDetector {
           'muito',
           'mais',
           'também',
+          'me',
+          'te',
+          'se',
+          'quero',
+          'preciso',
+          'posso',
+          'pode',
+          'tenho',
+          'tem',
+          'ir',
+          'pagar',
+          'passagem',
+          'quarto',
+          'mesa',
+        },
+        'nl': <String>{
+          'de',
+          'het',
+          'een',
+          'en',
+          'van',
+          'ik',
+          'je',
+          'jij',
+          'u',
+          'wij',
+          'we',
+          'zij',
+          'ze',
+          'niet',
+          'geen',
+          'waar',
+          'wat',
+          'hoe',
+          'hoeveel',
+          'wanneer',
+          'waarom',
+          'met',
+          'voor',
+          'naar',
+          'op',
+          'aan',
+          'uit',
+          'dank',
+          'bedankt',
+          'alsjeblieft',
+          'alstublieft',
+          'goedemorgen',
+          'goedenavond',
+          'trein',
+          'station',
+          'rekening',
+          'water',
+          'hulp',
+        },
+        'sv': <String>{
+          'och',
+          'att',
+          'det',
+          'som',
+          'en',
+          'ett',
+          'är',
+          'jag',
+          'du',
+          'vi',
+          'de',
+          'inte',
+          'för',
+          'med',
+          'på',
+          'till',
+          'från',
+          'var',
+          'vad',
+          'hur',
+          'när',
+          'tack',
+          'hej',
+          'snälla',
+          'ursäkta',
+          'station',
+          'tåg',
+          'vatten',
+          'nota',
+        },
+        'da': <String>{
+          'og',
+          'det',
+          'som',
+          'en',
+          'et',
+          'er',
+          'jeg',
+          'du',
+          'vi',
+          'de',
+          'ikke',
+          'for',
+          'med',
+          'på',
+          'til',
+          'fra',
+          'hvor',
+          'hvad',
+          'hvordan',
+          'hvornår',
+          'tak',
+          'hej',
+          'undskyld',
+          'tog',
+          'vand',
+        },
+        'no': <String>{
+          'og',
+          'det',
+          'som',
+          'en',
+          'et',
+          'er',
+          'jeg',
+          'du',
+          'vi',
+          'de',
+          'ikke',
+          'for',
+          'med',
+          'på',
+          'til',
+          'fra',
+          'hvor',
+          'hva',
+          'hvordan',
+          'når',
+          'takk',
+          'hei',
+          'unnskyld',
+          'tog',
+          'vann',
+        },
+        'fi': <String>{
+          'ja',
+          'on',
+          'ei',
+          'se',
+          'minä',
+          'sinä',
+          'hän',
+          'me',
+          'te',
+          'he',
+          'missä',
+          'mitä',
+          'kuinka',
+          'milloin',
+          'paljonko',
+          'kiitos',
+          'anteeksi',
+          'hei',
+          'huomenta',
+          'asema',
+          'juna',
+          'vesi',
+          'lasku',
+        },
+        'pl': <String>{
+          'i',
+          'w',
+          'na',
+          'z',
+          'do',
+          'nie',
+          'to',
+          'jest',
+          'są',
+          'ja',
+          'ty',
+          'my',
+          'wy',
+          'oni',
+          'gdzie',
+          'co',
+          'jak',
+          'kiedy',
+          'ile',
+          'dziękuję',
+          'proszę',
+          'przepraszam',
+          'dzień',
+          'dobry',
+          'cześć',
+          'dworzec',
+          'pociąg',
+          'woda',
+          'rachunek',
+        },
+        'cs': <String>{
+          'a',
+          'v',
+          'na',
+          'se',
+          'je',
+          'jsou',
+          'jsem',
+          'ne',
+          'kde',
+          'co',
+          'jak',
+          'kdy',
+          'kolik',
+          'děkuji',
+          'prosím',
+          'promiňte',
+          'dobrý',
+          'den',
+          'ahoj',
+          'nádraží',
+          'vlak',
+          'voda',
+          'účet',
+        },
+        'tr': <String>{
+          've',
+          'bir',
+          'bu',
+          'şu',
+          'o',
+          'ben',
+          'sen',
+          'biz',
+          'siz',
+          'onlar',
+          'için',
+          'ile',
+          'değil',
+          'mi',
+          'mı',
+          'mu',
+          'mü',
+          'nerede',
+          'ne',
+          'nasıl',
+          'kaç',
+          'neزمان',
+          'merhaba',
+          'teşekkür',
+          'teşekkürler',
+          'lütfen',
+          'pardon',
+          'evet',
+          'hayır',
+          'istasyon',
+          'tren',
+          'su',
+          'hesap',
+        },
+        'vi': <String>{
+          'và',
+          'là',
+          'của',
+          'có',
+          'không',
+          'tôi',
+          'bạn',
+          'chúng',
+          'ở',
+          'đâu',
+          'gì',
+          'như',
+          'thế',
+          'nào',
+          'bao',
+          'nhiêu',
+          'xin',
+          'chào',
+          'cảm',
+          'ơn',
+          'làm',
+          'nhà',
+          'ga',
+          'tàu',
+          'nước',
+          'hóa',
+          'đơn',
+        },
+        'id': <String>{
+          'dan',
+          'yang',
+          'di',
+          'ke',
+          'dari',
+          'ini',
+          'itu',
+          'saya',
+          'aku',
+          'kamu',
+          'anda',
+          'kami',
+          'mereka',
+          'tidak',
+          'bukan',
+          'apa',
+          'dimana',
+          'mana',
+          'kapan',
+          'bagaimana',
+          'berapa',
+          'untuk',
+          'dengan',
+          'terima',
+          'kasih',
+          'tolong',
+          'permisi',
+          'selamat',
+          'pagi',
+          'siang',
+          'malam',
+          'stasiun',
+          'kereta',
+          'air',
+        },
+        'ms': <String>{
+          'dan',
+          'yang',
+          'di',
+          'ke',
+          'dari',
+          'ini',
+          'itu',
+          'saya',
+          'awak',
+          'anda',
+          'kami',
+          'mereka',
+          'tidak',
+          'bukan',
+          'apa',
+          'mana',
+          'bila',
+          'bagaimana',
+          'berapa',
+          'untuk',
+          'dengan',
+          'terima',
+          'kasih',
+          'tolong',
+          'selamat',
+          'pagi',
+          'stesen',
+          'air',
+        },
+        'ro': <String>{
+          'și',
+          'în',
+          'la',
+          'de',
+          'cu',
+          'pe',
+          'este',
+          'sunt',
+          'eu',
+          'tu',
+          'noi',
+          'voi',
+          'nu',
+          'unde',
+          'ce',
+          'cum',
+          'când',
+          'cât',
+          'mulțumesc',
+          'vă',
+          'rog',
+          'scuzați',
+          'bună',
+          'ziua',
+          'gară',
+          'tren',
+          'apă',
+          'notă',
+        },
+        'hu': <String>{
+          'és',
+          'a',
+          'az',
+          'egy',
+          'van',
+          'nem',
+          'én',
+          'te',
+          'mi',
+          'ti',
+          'ők',
+          'hol',
+          'hogyan',
+          'mikor',
+          'mennyi',
+          'köszönöm',
+          'kérem',
+          'elnézést',
+          'jó',
+          'napot',
+          'szia',
+          'állomás',
+          'vonat',
+          'víz',
+          'számla',
+        },
+        'sw': <String>{
+          'na',
+          'ya',
+          'wa',
+          'kwa',
+          'ni',
+          'si',
+          'mimi',
+          'wewe',
+          'sisi',
+          'wao',
+          'wapi',
+          'nini',
+          'vipi',
+          'lini',
+          'ngapi',
+          'asante',
+          'tafadhali',
+          'habari',
+          'jambo',
+          'kituo',
+          'maji',
+          'chakula',
+        },
+        'tl': <String>{
+          'ang',
+          'ng',
+          'sa',
+          'mga',
+          'at',
+          'ay',
+          'ako',
+          'ikaw',
+          'ka',
+          'kami',
+          'tayo',
+          'sila',
+          'hindi',
+          'saan',
+          'ano',
+          'paano',
+          'kailan',
+          'magkano',
+          'salamat',
+          'pakiusap',
+          'paumanhin',
+          'magandang',
+          'umaga',
+          'tubig',
+          'pagkain',
         },
       };
+
+  /// Words that are frequently used as leading conversational interjections or
+  /// international travel loanwords across languages. When one of these appears
+  /// as the first word of a multi-word sentence whose remaining words belong to
+  /// another language, it is discounted so it does not hijack language detection.
+  static const Set<String> _leadingInterjectionsAndLoanwords = <String>{
+    'ok',
+    'okay',
+    'oh',
+    'ah',
+    'uh',
+    'um',
+    'hmm',
+    'hm',
+    'mm',
+    'no',
+    'hey',
+    'hi',
+    'hello',
+    'yes',
+    'yeah',
+    'wait',
+    'well',
+    'so',
+    'sorry',
+    'please',
+    'taxi',
+    'hotel',
+    'bus',
+    'train',
+    'station',
+    'metro',
+    'wifi',
+    'menu',
+    'cafe',
+    'bar',
+    'euro',
+    'euros',
+    'dollar',
+    'dollars',
+  };
 
   /// Normalizes a language code (`"en"`, `"en-US"`), English name (`"Korean"`),
   /// or native name (`"한국어"`) into its canonical lowercase 2-letter ISO code.
@@ -817,7 +1384,8 @@ class LanguageDetector {
       }
 
       // 3. Both candidates are Latin-script languages (or no candidates given):
-      // score diacritics, punctuation, and high-frequency words.
+      // score diacritics, punctuation, and high-frequency words, while
+      // discounting any lone first-word match on multi-word utterances.
       final candidates = <String>{
         if (normA != null && !_nonLatinLanguageCodes.contains(normA)) normA,
         if (normB != null && !_nonLatinLanguageCodes.contains(normB)) normB,
@@ -825,13 +1393,23 @@ class LanguageDetector {
       final searchPool = candidates.length >= 2
           ? candidates
           : _commonWordsByLanguage.keys.toSet();
+      final peerMap = <String, String?>{};
+      if (candidates.length == 2) {
+        final list = candidates.toList(growable: false);
+        peerMap[list[0]] = list[1];
+        peerMap[list[1]] = list[0];
+      }
 
       var bestLang = '';
       var bestScore = 0;
       var secondBestScore = 0;
 
       for (final lang in searchPool) {
-        final score = _scoreLatinLanguage(cleaned, lang);
+        final score = _scoreLatinLanguage(
+          cleaned,
+          lang,
+          peerLangCode: peerMap[lang],
+        );
         if (score > bestScore) {
           secondBestScore = bestScore;
           bestScore = score;
@@ -847,6 +1425,73 @@ class LanguageDetector {
     }
 
     return null;
+  }
+
+  /// Resolves the spoken source language (`baseCode` or `targetCode`) from
+  /// [transcript] and the model's [reportedLanguage], preventing a single
+  /// leading loanword or English-sounding first word from overriding the
+  /// true language of the utterance.
+  static String resolveSpokenLanguage({
+    required String transcript,
+    required String reportedLanguage,
+    required String baseLanguage,
+    required String targetLanguage,
+  }) {
+    final baseCode = normalizeLanguageCode(baseLanguage);
+    final targetCode = normalizeLanguageCode(targetLanguage);
+    final normalizedReported = normalizeLanguageCode(reportedLanguage);
+    final fallbackReported = normalizedReported == targetCode
+        ? targetCode
+        : baseCode;
+
+    final cleaned = _cleanTextForDetection(transcript);
+    if (cleaned.isEmpty) {
+      return fallbackReported;
+    }
+
+    final detected = detectLanguage(
+      cleaned,
+      candidateA: baseCode,
+      candidateB: targetCode,
+    );
+    if (detected == null) {
+      return fallbackReported;
+    }
+
+    // If one candidate uses a non-Latin script and the other uses Latin script,
+    // script detection is deterministic.
+    final baseIsNonLatin = _nonLatinLanguageCodes.contains(baseCode);
+    final targetIsNonLatin = _nonLatinLanguageCodes.contains(targetCode);
+    if (baseIsNonLatin != targetIsNonLatin) {
+      return detected;
+    }
+
+    // If both the audio model and text detector agree, return immediately.
+    if (detected == fallbackReported) {
+      return detected;
+    }
+
+    // When both candidates are Latin-script languages and the audio model
+    // reported `targetCode`, only allow overriding back to `baseCode` if
+    // `baseCode` has strong multi-word evidence (score >= targetScore + 4)
+    // and `targetCode` has zero diacritic or vocabulary hits.
+    if (fallbackReported == targetCode && detected == baseCode) {
+      final baseScore = _scoreLatinLanguage(
+        cleaned,
+        baseCode,
+        peerLangCode: targetCode,
+      );
+      final targetScore = _scoreLatinLanguage(
+        cleaned,
+        targetCode,
+        peerLangCode: baseCode,
+      );
+      if (targetScore > 0 || baseScore < 4) {
+        return targetCode;
+      }
+    }
+
+    return detected;
   }
 
   /// Analyzes a [TranslationResult] against [baseLanguage] and [targetLanguage]
@@ -962,14 +1607,77 @@ class LanguageDetector {
         .trim();
   }
 
-  static int _scoreLatinLanguage(String text, String langCode) {
-    var score = 0;
+  static int _scoreLatinLanguage(
+    String text,
+    String langCode, {
+    String? peerLangCode,
+  }) {
     final lower = text.toLowerCase();
+    final diacriticScore = _scoreLatinDiacritics(lower, langCode);
 
+    final lexicon = _commonWordsByLanguage[langCode];
+    if (lexicon == null) {
+      return diacriticScore;
+    }
+
+    final peerLexicon = peerLangCode != null
+        ? _commonWordsByLanguage[peerLangCode]
+        : null;
+    final words = _wordTokenRegex
+        .allMatches(lower)
+        .map((m) => m.group(0))
+        .whereType<String>()
+        .toList(growable: false);
+
+    if (words.isEmpty) {
+      return diacriticScore;
+    }
+
+    var firstWordScore = 0;
+    var bodyWordScore = 0;
+
+    for (var i = 0; i < words.length; i++) {
+      final word = words[i];
+      if (!lexicon.contains(word)) {
+        continue;
+      }
+      // Shared homographs present in both candidate lexicons (e.g. "me", "in",
+      // "de", "la", "con") are neutral between the two languages.
+      if (peerLexicon != null && peerLexicon.contains(word)) {
+        continue;
+      }
+      if (i == 0) {
+        if (words.length >= 3 &&
+            _leadingInterjectionsAndLoanwords.contains(word)) {
+          continue;
+        }
+        firstWordScore += 2;
+      } else {
+        bodyWordScore += 2;
+      }
+    }
+
+    // If the utterance has 3+ words and the ONLY lexical match for `langCode`
+    // was the very first word (`words[0]`) with zero matches in the rest of the
+    // sentence (`words.sublist(1)`) and zero language-specific diacritics,
+    // discount the lone first-word match so an English-sounding first word
+    // never hijacks a multi-word sentence in another language.
+    if (words.length >= 3 &&
+        firstWordScore > 0 &&
+        bodyWordScore == 0 &&
+        diacriticScore == 0) {
+      return 0;
+    }
+
+    return diacriticScore + firstWordScore + bodyWordScore;
+  }
+
+  static int _scoreLatinDiacritics(String lower, String langCode) {
+    var score = 0;
     switch (langCode) {
       case 'es':
         score += RegExp(r'[¿¡ñ]').allMatches(lower).length * 4;
-        score += RegExp(r'[áéíóú]').allMatches(lower).length;
+        score += RegExp(r'[áéíóúü]').allMatches(lower).length;
       case 'fr':
         score += RegExp(r'[œæçëï]').allMatches(lower).length * 4;
         score += RegExp(r'[àâéèêîôùû]').allMatches(lower).length;
@@ -982,18 +1690,37 @@ class LanguageDetector {
       case 'it':
         score += RegExp(r'[ìòù]').allMatches(lower).length * 2;
         score += RegExp(r'[àèé]').allMatches(lower).length;
+      case 'pl':
+        score += RegExp(r'[ąćęłńśźż]').allMatches(lower).length * 4;
+      case 'cs':
+      case 'sk':
+        score += RegExp(r'[čďěňřšťůžĺľŕ]').allMatches(lower).length * 4;
+      case 'tr':
+        score += RegExp(r'[ğışçöü]').allMatches(lower).length * 3;
+      case 'vi':
+        score +=
+            RegExp(
+              r'[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]',
+            ).allMatches(lower).length *
+            4;
+      case 'ro':
+        score += RegExp(r'[ăâîșțşţ]').allMatches(lower).length * 4;
+      case 'hu':
+        score += RegExp(r'[őű]').allMatches(lower).length * 5;
+        score += RegExp(r'[áéíóöúü]').allMatches(lower).length;
+      case 'sv':
+      case 'fi':
+        score += RegExp(r'[åäö]').allMatches(lower).length * 3;
+      case 'da':
+      case 'no':
+        score += RegExp(r'[æøå]').allMatches(lower).length * 4;
+      case 'hr':
+      case 'sl':
+        score += RegExp(r'[čćđšž]').allMatches(lower).length * 4;
+      case 'lv':
+      case 'lt':
+        score += RegExp(r'[āčēģīķļņšūžąęėįų]').allMatches(lower).length * 4;
     }
-
-    final lexicon = _commonWordsByLanguage[langCode];
-    if (lexicon != null) {
-      for (final match in _wordTokenRegex.allMatches(lower)) {
-        final word = match.group(0);
-        if (word != null && lexicon.contains(word)) {
-          score += 2;
-        }
-      }
-    }
-
     return score;
   }
 }

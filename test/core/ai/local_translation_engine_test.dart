@@ -751,6 +751,82 @@ Let me know if you need anything else!
       );
     });
 
+    test('detectLanguage and resolveSpokenLanguage do not let an English-sounding first word hijack a foreign utterance', () {
+      // 1. Spanish sentence starting with an English interjection ("Okay" / "Wait") or shared homographs ("Me", "hotel")
+      expect(
+        LanguageDetector.detectLanguage(
+          'Okay, necesito ir al hospital',
+          candidateA: 'en',
+          candidateB: 'es',
+        ),
+        'es',
+      );
+      expect(
+        LanguageDetector.detectLanguage(
+          'Me gusta el hotel',
+          candidateA: 'en',
+          candidateB: 'es',
+        ),
+        'es',
+      );
+      expect(
+        LanguageDetector.detectLanguage(
+          'The quiero pagar la cuenta',
+          candidateA: 'en',
+          candidateB: 'es',
+        ),
+        'es',
+      );
+
+      // 2. Dutch, Polish, and Indonesian sentences starting with an English-sounding word
+      expect(
+        LanguageDetector.detectLanguage(
+          'Wait, waar is het treinstation?',
+          candidateA: 'en',
+          candidateB: 'nl',
+        ),
+        'nl',
+      );
+      expect(
+        LanguageDetector.detectLanguage(
+          'Hello, gdzie jest dworzec kolejowy?',
+          candidateA: 'en',
+          candidateB: 'pl',
+        ),
+        'pl',
+      );
+      expect(
+        LanguageDetector.detectLanguage(
+          'Yes, terima kasih banyak untuk makanan ini',
+          candidateA: 'en',
+          candidateB: 'id',
+        ),
+        'id',
+      );
+
+      // 3. Even when the audio model mislabels detected_language as "en" because of the first word,
+      // resolveSpokenLanguage & parseSpeechToTextResponse classify by the majority of the sentence.
+      final sttResult = LocalTranslationEngine.parseSpeechToTextResponse(
+        '{"original_transcript": "Wait, necesito pagar la cuenta por favor", "detected_language": "en"}',
+        baseLanguage: 'en',
+        targetLanguage: 'es',
+        durationMs: 250,
+      );
+      expect(sttResult.detectedLanguageCode, 'es');
+
+      // 4. When the audio model accurately reports the target language (e.g. "es" or "id"),
+      // a single English word at the start of an utterance with unlisted foreign nouns never overrides back to "en".
+      expect(
+        LanguageDetector.resolveSpokenLanguage(
+          transcript: 'The makan nasi goreng',
+          reportedLanguage: 'id',
+          baseLanguage: 'en',
+          targetLanguage: 'id',
+        ),
+        'id',
+      );
+    });
+
     test('analyzeTranslation resolves direction accurately even when LLM mislabels detected_language', () {
       // 1. Host spoke English -> translated into Korean, but LLM mislabeled detected_language as "ko"
       final hostAnalysis = LanguageDetector.analyzeTranslation(

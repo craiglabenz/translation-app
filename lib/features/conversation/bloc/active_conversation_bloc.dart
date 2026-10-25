@@ -468,8 +468,10 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     if (snapshotChunk.length >= 4000 &&
         !VadBuffer.hasMeaningfulSpeech(
           snapshotChunk,
+          silenceThreshold: _audioService.vadBuffer.effectiveSilenceThreshold,
           sampleRate: _audioService.vadBuffer.sampleRate,
         )) {
+      _audioService.reportNonSpeechAudio(snapshotChunk);
       return;
     }
 
@@ -584,6 +586,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
             originalText: result.originalText,
             translatedText: result.translatedText,
           )) {
+        _audioService.reportNonSpeechAudio(snapshotChunk);
         if (!_isFinalChunkTranslating && _latestPendingSnapshotChunk == null) {
           emit(
             stateValue.copyWith(
@@ -647,7 +650,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       return true;
     }
     final tail = Float32List.sublistView(finalChunk, snapshotChunk.length);
-    final threshold = _audioService.vadBuffer.silenceThreshold;
+    final threshold = _audioService.vadBuffer.effectiveSilenceThreshold;
     if (VadBuffer.computeRms(tail) >= threshold) {
       return false;
     }
@@ -678,11 +681,13 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     if (audioChunk.length >= 4000 &&
         !VadBuffer.hasMeaningfulSpeech(
           audioChunk,
+          silenceThreshold: _audioService.vadBuffer.effectiveSilenceThreshold,
           sampleRate: _audioService.vadBuffer.sampleRate,
         )) {
       _log.info(
         'onAudioChunkReceived(): chunk contains only pause/silence or transient noise -> ignoring gracefully.',
       );
+      _audioService.reportNonSpeechAudio(audioChunk);
       return;
     }
 
@@ -799,6 +804,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           '(original="${result.originalText}", translated="${result.translatedText}") '
           '-> returning to listening state without adding a message.',
         );
+        _audioService.reportNonSpeechAudio(audioChunk);
         emit(
           stateValue.copyWith(
             isLoading: false,

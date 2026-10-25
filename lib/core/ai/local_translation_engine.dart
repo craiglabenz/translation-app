@@ -595,17 +595,12 @@ class LocalTranslationEngine implements TranslationEngine {
       await initialize();
     }
 
-    final detectedFromText = LanguageDetector.detectLanguage(
-      trimmedTranscript,
-      candidateA: baseCode,
-      candidateB: targetCode,
+    final resolvedSourceCode = LanguageDetector.resolveSpokenLanguage(
+      transcript: trimmedTranscript,
+      reportedLanguage: sourceLanguage,
+      baseLanguage: baseCode,
+      targetLanguage: targetCode,
     );
-    final normalizedReported = LanguageDetector.normalizeLanguageCode(
-      sourceLanguage,
-    );
-    final resolvedSourceCode =
-        detectedFromText ??
-        (normalizedReported == targetCode ? targetCode : baseCode);
     final targetOutputCode = resolvedSourceCode == baseCode
         ? targetCode
         : baseCode;
@@ -735,16 +730,12 @@ class LocalTranslationEngine implements TranslationEngine {
       );
     }
 
-    final detected = LanguageDetector.detectLanguage(
-      transcript,
-      candidateA: baseCode,
-      candidateB: targetCode,
+    final resolvedLang = LanguageDetector.resolveSpokenLanguage(
+      transcript: transcript,
+      reportedLanguage: reportedLang,
+      baseLanguage: baseCode,
+      targetLanguage: targetCode,
     );
-    final normalizedReported = LanguageDetector.normalizeLanguageCode(
-      reportedLang,
-    );
-    final resolvedLang =
-        detected ?? (normalizedReported == targetCode ? targetCode : baseCode);
 
     return SpeechToTextResult(
       transcript: transcript,
@@ -1148,9 +1139,31 @@ class LocalTranslationEngine implements TranslationEngine {
     if (samples.length <= maxTrailingSilentSamples) {
       return samples;
     }
+
+    var effectiveThreshold = silenceThreshold;
+    final tailStart = samples.length - maxTrailingSilentSamples;
+    var tailPeak = 0.0;
+    for (var i = tailStart; i < samples.length; i++) {
+      final a = samples[i].abs();
+      if (a > tailPeak) tailPeak = a;
+    }
+    if (tailPeak >= silenceThreshold && tailPeak < 0.14) {
+      var overallPeak = tailPeak;
+      for (var i = 0; i < tailStart; i++) {
+        final a = samples[i].abs();
+        if (a > overallPeak) overallPeak = a;
+      }
+      if (overallPeak >= tailPeak * 2.2) {
+        effectiveThreshold = math.max(
+          silenceThreshold,
+          math.min(0.16, tailPeak * 1.25),
+        );
+      }
+    }
+
     var lastActiveIndex = -1;
     for (var i = samples.length - 1; i >= 0; i--) {
-      if (samples[i].abs() >= silenceThreshold) {
+      if (samples[i].abs() >= effectiveThreshold) {
         lastActiveIndex = i;
         break;
       }

@@ -141,6 +141,20 @@ final class NativeAudioCaptureController: NSObject, FlutterStreamHandler {
     )] = [
       (
         .playAndRecord,
+        .voiceChat,
+        [.defaultToSpeaker, .allowBluetooth],
+        true,
+        "playAndRecord/voiceChat/defaultToSpeaker+bluetooth"
+      ),
+      (
+        .playAndRecord,
+        .voiceChat,
+        [.defaultToSpeaker],
+        false,
+        "playAndRecord/voiceChat/defaultToSpeaker"
+      ),
+      (
+        .playAndRecord,
         .default,
         [.defaultToSpeaker, .allowBluetooth],
         true,

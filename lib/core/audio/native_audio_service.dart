@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -240,18 +241,20 @@ class NativeAudioService {
       _rawFrameController.add(samples);
     }
 
+    final emitted = _vadBuffer.addSamples(samples);
+
     final rms = VadBuffer.computeRms(samples);
-    final normalized = (rms * 5.0).clamp(0.0, 1.0);
+    final effectiveRms = math.max(0.0, rms - _vadBuffer.noiseFloorRms);
+    final normalized = (effectiveRms * 5.0).clamp(0.0, 1.0);
     if (!_amplitudeController.isClosed) {
       _amplitudeController.add(normalized);
     }
 
-    final emitted = _vadBuffer.addSamples(samples);
-
     if (_frameCount == 1 || _frameCount % 25 == 0 || emitted.isNotEmpty) {
       _log.info(
         'Audio frame #$_frameCount: len=${samples.length}, '
-        'rms=${rms.toStringAsFixed(4)}, amp=${normalized.toStringAsFixed(2)}, '
+        'rms=${rms.toStringAsFixed(4)}, noiseFloor=${_vadBuffer.noiseFloorRms.toStringAsFixed(4)}, '
+        'amp=${normalized.toStringAsFixed(2)}, '
         'speechDetected=${_vadBuffer.hasDetectedSpeech}, '
         'buffered=${_vadBuffer.bufferedSampleCount} samples '
         '(${(_vadBuffer.bufferedSampleCount / _vadBuffer.sampleRate).toStringAsFixed(2)}s), '
@@ -261,6 +264,15 @@ class NativeAudioService {
     }
 
     return emitted;
+  }
+
+  /// Notifies the underlying [VadBuffer] that [nonSpeechSamples] was evaluated
+  /// by the STT model and found to contain only background noise / no speech.
+  void reportNonSpeechAudio(Float32List nonSpeechSamples) {
+    _vadBuffer.reportNonSpeechAudio(nonSpeechSamples);
+    if (!_vadBuffer.hasDetectedSpeech && !_amplitudeController.isClosed) {
+      _amplitudeController.add(0.0);
+    }
   }
 
   void _handleNativePayload(Object? event) {
