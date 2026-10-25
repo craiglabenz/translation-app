@@ -7,7 +7,7 @@
 #
 # Options:
 #   --export-method <method>        Export method: ad-hoc (default for Firebase),
-#                                   release-testing, development, enterprise, app-store
+#                                   development, enterprise, app-store
 #   --export-options-plist <path>   Custom ExportOptions.plist path (overrides auto-generation)
 #   --team-id <team_id>             Apple Developer Team ID (default: KNK9SM7SLS)
 #   --bundle-id <bundle_id>         iOS Bundle ID (default: com.craiglabenz.babble)
@@ -286,6 +286,9 @@ IPA_ARGS=("${FLUTTER_COMMON_ARGS[@]}")
 if [[ -n "${EXPORT_OPTIONS_PLIST}" ]]; then
   IPA_ARGS+=("--export-options-plist=${EXPORT_OPTIONS_PLIST}")
 else
+  if [[ "${IOS_EXPORT_METHOD}" == "release-testing" ]]; then
+    IOS_EXPORT_METHOD="ad-hoc"
+  fi
   IPA_ARGS+=("--export-method=${IOS_EXPORT_METHOD}")
 fi
 

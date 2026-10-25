@@ -10,6 +10,8 @@ This folder contains CI-friendly scripts for building release artifacts of `tran
 | `./scripts/build_web.sh` | Builds a release Flutter Web bundle (`build/web`), optionally embedding `GEMINI_API_KEY` via `--dart-define` and deploying directly to Firebase Hosting. |
 | `./scripts/build_android.sh` | Builds a release `.apk` (and optionally `.aab`) for Android, with optional keystore signing and direct upload to Firebase App Distribution. |
 | `./scripts/build_ios.sh` | Builds a signed release `.ipa` (`ad-hoc` by default for Firebase App Distribution) or unsigned `.app` (`--no-codesign`), with optional temporary CI keychain/provisioning profile installation. |
+| `./scripts/install_android.sh` | Builds an AOT **Release APK** (`--release`) and installs it directly onto a connected Android phone via `adb install -r` so it runs untethered **indefinitely** (never expires). |
+| `./scripts/install_ios.sh` | Builds an AOT **Release** / **Ad-Hoc** iOS app (`--release`), inspects the embedded provisioning profile expiration date, and installs it onto a connected iPhone via `xcrun devicectl` so it launches untethered for **up to 12 months**. |
 | `./scripts/distribute_firebase.sh` | Deploys the Flutter Web build (`--platform web`) to **Firebase Hosting** or uploads a built Android (`.apk` / `.aab`) or iOS (`.ipa`) artifact (`--platform android|ios`) to **Firebase App Distribution** via the `firebase` CLI. |
 
 ## GitHub Actions Workflows
@@ -61,6 +63,34 @@ For Firebase App Distribution on physical iOS devices, register your testers' de
 FIREBASE_IOS_APP_ID="1:1234567890:ios:abcdef123456" \
 FIREBASE_GROUPS="qa-team" \
 ./scripts/build_ios.sh --export-method ad-hoc --distribute
+```
+
+### 4. Install Long-Lived Standalone Builds Directly on Your Phone
+
+Standard `flutter run` installs a **Debug (JIT)** build. On iOS 14+, Apple's kernel blocks JIT execution whenever the Xcode debugger is not attached—meaning a Debug app immediately crashes if tapped on the iPhone home screen after unplugging. Use these scripts to install Ahead-Of-Time (AOT) **Release** builds that launch untethered for months/years:
+
+| Platform | Expiration Duration | Notes |
+| :--- | :--- | :--- |
+| **iOS (Paid Apple Developer Account)** | **Up to 12 months (365 days)** | Valid until the provisioning profile or signing certificate expires. Works for both default automatic Release signing and `--ad-hoc` distribution builds. |
+| **iOS (Free Apple ID / "Personal Team")** | **7 days** | Apple enforces a strict 7-day provisioning profile limit on free personal accounts. |
+| **Android (Release APK)** | **Never expires (Forever)** | Android has no provisioning profiles; a signed Release APK runs indefinitely until uninstalled. |
+
+```bash
+# View step-by-step phone & Xcode preparation instructions at any time:
+./scripts/install_ios.sh --setup-guide
+./scripts/install_android.sh --setup-guide
+
+# Open Xcode directly to configure signing or register your iPhone:
+./scripts/install_ios.sh --open-xcode
+
+# iOS: Build AOT Release (or --ad-hoc IPA), verify provisioning profile expiration,
+# and install onto your connected iPhone (valid up to 12 months with a paid Apple Developer Team):
+./scripts/install_ios.sh
+./scripts/install_ios.sh --ad-hoc
+
+# Android: Build AOT Release APK and install in-place onto your connected Android phone
+# (Android Release APKs never expire and preserve downloaded on-device models):
+./scripts/install_android.sh
 ```
 
 ---
