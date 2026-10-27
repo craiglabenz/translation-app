@@ -15,7 +15,7 @@ import 'package:translation_app/core/logging/app_logger.dart';
 
 /// Cloud-based translation engine powered by Google Gemini
 /// (`gemini-3.8-flash` and `gemini-3.1-pro`) over low-latency SSE streaming.
-class NetworkTranslationEngine implements TranslationEngine {
+class NetworkTranslationEngine implements SegmentedTranslationEngine {
   NetworkTranslationEngine({
     this._apiKeyProvider,
     this._modelIdProvider,
@@ -578,6 +578,7 @@ class NetworkTranslationEngine implements TranslationEngine {
 
   /// Step 1 (Cloud Gemini STT): Transcribes [audioWavChunk] and detects whether
   /// [baseLanguage] or [targetLanguage] was spoken without translating.
+  @override
   Future<SpeechToTextResult> transcribeAudioChunk({
     required Float32List audioWavChunk,
     required String baseLanguage,
@@ -669,6 +670,7 @@ class NetworkTranslationEngine implements TranslationEngine {
   /// Step 2 (Cloud Gemini Text Translation): Translates [transcript] from
   /// [sourceLanguage] into the opposite language between [baseLanguage] and
   /// [targetLanguage].
+  @override
   Future<TranslationResult> translateText({
     required String transcript,
     required String sourceLanguage,
@@ -784,6 +786,122 @@ class NetworkTranslationEngine implements TranslationEngine {
     );
     onPartialResult?.call(result);
     return result;
+  }
+
+  @override
+  Future<ContinuationDecision> resolveContinuationAndTranslate({
+    required String part1Transcript,
+    required String part2Transcript,
+    required List<Message> interveningTurns,
+    required String sourceLanguage,
+    required String baseLanguage,
+    required String targetLanguage,
+    required double exchangeRate,
+    required String baseCurrency,
+    required String targetCurrency,
+    int? speechToTextMs,
+    String? speechToTextModel,
+    String? contextPromptBlock,
+  }) async {
+    final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
+    final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
+    final resolvedSourceCode =
+        LanguageDetector.normalizeLanguageCode(sourceLanguage) == targetCode
+        ? targetCode
+        : baseCode;
+    final targetOutputCode = resolvedSourceCode == baseCode
+        ? targetCode
+        : baseCode;
+
+    final sourceLangName = AppSettings.languageNameFor(resolvedSourceCode);
+    final targetLangName = AppSettings.languageNameFor(targetOutputCode);
+    final transModelDisplay = AppSettings.cloudModelDisplayNameFor(modelId);
+    final combinedTranscript = LanguageDetector.joinTranscriptParts(
+      part1Transcript,
+      part2Transcript,
+    );
+
+    if (!_initialized) {
+      await initialize();
+    } else if (apiKey.isEmpty) {
+      throw StateError(
+        'Gemini API key is not configured. Please enter your Gemini API key in Settings.',
+      );
+    }
+
+    final stopwatch = Stopwatch()..start();
+    final systemPrompt =
+        PromptTemplates.buildContinuationResolutionSystemPrompt(
+          sourceLanguage: sourceLangName,
+          targetLanguage: targetLangName,
+          contextPromptBlock: contextPromptBlock,
+        );
+    final prompt = PromptTemplates.buildContinuationResolutionPrompt(
+      part1Transcript: part1Transcript,
+      part2Transcript: part2Transcript,
+      combinedTranscript: combinedTranscript,
+      interveningTurns: interveningTurns,
+      sourceLanguage: sourceLangName,
+      targetLanguage: targetLangName,
+      exchangeRate: exchangeRate,
+      baseCurrency: baseCurrency,
+      targetCurrency: targetCurrency,
+      contextPromptBlock: contextPromptBlock,
+    );
+
+    String rawResponse = '';
+    try {
+      final activeModel = modelId;
+      final uri = Uri.parse(
+        '$_baseApiUrl/$activeModel:generateContent?key=$apiKey',
+      );
+      final response = await _client.post(
+        uri,
+        headers: const <String, String>{'Content-Type': 'application/json'},
+        body: jsonEncode(<String, Object?>{
+          'systemInstruction': <String, Object?>{
+            'parts': <Object?>[
+              <String, Object?>{'text': systemPrompt},
+            ],
+          },
+          'contents': <Object?>[
+            <String, Object?>{
+              'role': 'user',
+              'parts': <Object?>[
+                <String, Object?>{'text': prompt},
+              ],
+            },
+          ],
+          'generationConfig': _buildGenerationConfig(
+            effectiveModelId: activeModel,
+            temperature: 0.1,
+            responseMimeType: 'application/json',
+          ),
+        }),
+      );
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        rawResponse = _extractCandidateTextFromGenerateResponse(response.body);
+      }
+    } on Object catch (e, st) {
+      _log.warning('Cloud continuation resolution failed: $e', e, st);
+    }
+
+    stopwatch.stop();
+    final transMs = stopwatch.elapsedMilliseconds;
+    final totalMs = (speechToTextMs ?? 0) + transMs;
+
+    return LocalTranslationEngine.parseContinuationResponse(
+      rawResponse,
+      part1Transcript: part1Transcript,
+      part2Transcript: part2Transcript,
+      interveningTurns: interveningTurns,
+      resolvedSourceCode: resolvedSourceCode,
+      speechToTextMs: speechToTextMs,
+      translationMs: transMs,
+      totalDurationMs: totalMs,
+      speechToTextModel: speechToTextModel,
+      translationModel: transModelDisplay,
+    );
   }
 
   Future<String> _streamAudioTranslationRequest({

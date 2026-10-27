@@ -12,6 +12,11 @@ _SpeechToTextResult _$SpeechToTextResultFromJson(Map<String, dynamic> json) =>
       detectedLanguageCode: json['detectedLanguageCode'] as String,
       durationMs: (json['durationMs'] as num).toInt(),
       modelName: json['modelName'] as String?,
+      segments:
+          (json['segments'] as List<dynamic>?)
+              ?.map((e) => SpeechSegment.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const <SpeechSegment>[],
     );
 
 Map<String, dynamic> _$SpeechToTextResultToJson(
@@ -21,4 +26,5 @@ Map<String, dynamic> _$SpeechToTextResultToJson(
   'detectedLanguageCode': instance.detectedLanguageCode,
   'durationMs': instance.durationMs,
   'modelName': instance.modelName,
+  'segments': instance.segments.map((e) => e.toJson()).toList(),
 };

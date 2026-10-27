@@ -52,6 +52,11 @@ class NativeAudioService {
   /// multimodal translation.
   Stream<Float32List> get audioChunkStream => _vadBuffer.onChunkReady;
 
+  /// Emits VAD-segmented [VadSpeechChunk] instances paired with acoustic
+  /// `speechStartTime` and `speechEndTime` timestamps.
+  Stream<VadSpeechChunk> get timedAudioChunkStream =>
+      _vadBuffer.onTimedChunkReady;
+
   /// Emits cumulative 16kHz mono [Float32List] audio snapshots as soon as
   /// active speech is detected and progressing, allowing live translation
   /// before the utterance ends.

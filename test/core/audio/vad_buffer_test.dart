@@ -717,5 +717,61 @@ void main() {
 
       await vad.dispose();
     });
+
+    test('interactive micro-chunking constants and VadSpeechChunk acoustic timestamps track speechStartTime and speechEndTime', () async {
+      expect(
+        VadBuffer.interactiveSilenceCutoff,
+        const Duration(milliseconds: 500),
+      );
+      expect(
+        VadBuffer.interactiveMaxChunkDuration,
+        const Duration(seconds: 6),
+      );
+      expect(
+        VadBuffer.interactiveLiveSnapshotInterval,
+        const Duration(milliseconds: 1800),
+      );
+      expect(
+        VadBuffer.interactiveLivePauseSnapshotDelay,
+        Duration.zero,
+      );
+
+      var currentNow = DateTime.utc(2026, 10, 25, 18, 0, 0);
+      final vad = VadBuffer(
+        sampleRate: 1000,
+        silenceCutoff: VadBuffer.interactiveSilenceCutoff,
+        maxChunkDuration: VadBuffer.interactiveMaxChunkDuration,
+        minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
+        liveSnapshotInterval: VadBuffer.interactiveLiveSnapshotInterval,
+        livePauseSnapshotDelay: VadBuffer.interactiveLivePauseSnapshotDelay,
+        silenceThreshold: 0.02,
+        clock: () => currentNow,
+      );
+
+      final timedChunks = <VadSpeechChunk>[];
+      final sub = vad.onTimedChunkReady.listen(timedChunks.add);
+
+      // 1. 800ms of active speech at t=0.0s .. t=0.8s
+      vad.addSamples(Float32List.fromList(List<double>.filled(800, 0.25)));
+      currentNow = currentNow.add(const Duration(milliseconds: 800));
+
+      // 2. 500ms of trailing silence -> reaches 500ms interactiveSilenceCutoff and flushes!
+      vad.addSamples(Float32List(500));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(timedChunks, hasLength(1));
+      final chunk = timedChunks.single;
+      expect(chunk.samples.length, 1300);
+      expect(chunk.speechStartTime, DateTime.utc(2026, 10, 25, 18, 0, 0));
+      expect(
+        chunk.speechEndTime,
+        DateTime.utc(2026, 10, 25, 18, 0, 0, 800),
+      );
+      expect(chunk.speechDuration, const Duration(milliseconds: 800));
+      expect(vad.lastEmittedTimedChunk, same(chunk));
+
+      await sub.cancel();
+      await vad.dispose();
+    });
   });
 }

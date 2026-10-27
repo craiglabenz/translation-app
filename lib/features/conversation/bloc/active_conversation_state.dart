@@ -18,6 +18,8 @@ abstract class ActiveConversationState with _$ActiveConversationState {
     String? streamingTranslatedText,
     bool? streamingIsBaseLanguage,
     String? error,
+    String? lastClumpedMessageId,
+    @Default(0) int clumpedUpdateCount,
   }) = _ActiveConversationState;
 
   /// True when viewing a past conversation in read-only mode (not listening).

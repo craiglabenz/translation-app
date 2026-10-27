@@ -40,7 +40,7 @@ typedef TextInferenceRunner =
     });
 
 /// On-device translation engine powered by Gemma 4 (E2B) on `LiteRtLmEngine`.
-class LocalTranslationEngine implements TranslationEngine {
+class LocalTranslationEngine implements SegmentedTranslationEngine {
   LocalTranslationEngine({
     required this._modelManager,
     this._inferenceRunner,
@@ -469,6 +469,7 @@ class LocalTranslationEngine implements TranslationEngine {
   /// Step 1 (On-Device Gemma 4 Audio STT): Transcribes [audioWavChunk] and
   /// detects whether [baseLanguage] or [targetLanguage] was spoken without
   /// translating.
+  @override
   Future<SpeechToTextResult> transcribeAudioChunk({
     required Float32List audioWavChunk,
     required String baseLanguage,
@@ -573,6 +574,7 @@ class LocalTranslationEngine implements TranslationEngine {
   /// Step 2 (On-Device Gemma 4 Text Translation): Translates [transcript] from
   /// [sourceLanguage] into the opposite language between [baseLanguage] and
   /// [targetLanguage].
+  @override
   Future<TranslationResult> translateText({
     required String transcript,
     required String sourceLanguage,
@@ -730,6 +732,7 @@ class LocalTranslationEngine implements TranslationEngine {
 
     var transcript = '';
     var reportedLang = baseCode;
+    final rawSegments = <SpeechSegment>[];
 
     try {
       final decoded = jsonDecode(jsonCandidate);
@@ -747,6 +750,36 @@ class LocalTranslationEngine implements TranslationEngine {
                     map['source_language'] as String? ??
                     baseCode)
                 .trim();
+
+        final segmentsField = map['segments'];
+        if (segmentsField is List) {
+          for (final item in segmentsField) {
+            if (item is Map) {
+              final segMap = item.cast<String, Object?>();
+              final segText =
+                  (segMap['text'] as String? ??
+                          segMap['transcript'] as String? ??
+                          segMap['original_transcript'] as String? ??
+                          '')
+                      .trim();
+              final segLang =
+                  (segMap['lang'] as String? ??
+                          segMap['languageCode'] as String? ??
+                          segMap['detected_language'] as String? ??
+                          reportedLang)
+                      .trim();
+              if (segText.isNotEmpty &&
+                  !isNonSpeechOrHallucination(translatedText: segText)) {
+                rawSegments.add(
+                  SpeechSegment(
+                    text: segText,
+                    languageCode: segLang.isEmpty ? reportedLang : segLang,
+                  ),
+                );
+              }
+            }
+          }
+        }
       } else {
         transcript = stripped;
       }
@@ -756,8 +789,18 @@ class LocalTranslationEngine implements TranslationEngine {
       }
     }
 
-    if (transcript.isEmpty ||
-        isNonSpeechOrHallucination(translatedText: transcript)) {
+    if (rawSegments.isEmpty &&
+        transcript.isNotEmpty &&
+        !isNonSpeechOrHallucination(translatedText: transcript)) {
+      rawSegments.add(
+        SpeechSegment(
+          text: transcript,
+          languageCode: reportedLang,
+        ),
+      );
+    }
+
+    if (rawSegments.isEmpty) {
       _log.info(
         '[STT PARSE] parseSpeechToTextResponse: transcript="$transcript" '
         '(reportedLang="$reportedLang") is empty or non-speech/hallucination -> returning empty.',
@@ -770,22 +813,227 @@ class LocalTranslationEngine implements TranslationEngine {
       );
     }
 
-    final resolvedLang = LanguageDetector.resolveSpokenLanguage(
-      transcript: transcript,
-      reportedLanguage: reportedLang,
+    final resolvedSegments = LanguageDetector.segmentAndResolveTranscript(
+      rawSegments: rawSegments,
       baseLanguage: baseCode,
       targetLanguage: targetCode,
     );
+
+    if (resolvedSegments.isEmpty) {
+      return SpeechToTextResult(
+        transcript: '',
+        detectedLanguageCode: baseCode,
+        durationMs: durationMs,
+        modelName: modelName,
+      );
+    }
+
+    final fullTranscript = resolvedSegments.map((s) => s.text).join(' ');
+    final primaryLang = resolvedSegments.first.languageCode;
     _log.info(
       '[STT PARSE] parseSpeechToTextResponse: modelReported="$reportedLang" -> '
-      'resolvedLang="$resolvedLang" (pair=$baseCode<->$targetCode), transcript="$transcript"',
+      'resolvedLang="$primaryLang" (segments=${resolvedSegments.length}, pair=$baseCode<->$targetCode), '
+      'transcript="$fullTranscript"',
     );
 
     return SpeechToTextResult(
-      transcript: transcript,
-      detectedLanguageCode: resolvedLang,
+      transcript: fullTranscript,
+      detectedLanguageCode: primaryLang,
       durationMs: durationMs,
       modelName: modelName,
+      segments: resolvedSegments,
+    );
+  }
+
+  /// Evaluates a "movie script" continuation where a speaker in [sourceLanguage]
+  /// said [part1Transcript], the other party spoke [interveningTurns], and the
+  /// first speaker followed up with [part2Transcript] within the running clock.
+  @override
+  Future<ContinuationDecision> resolveContinuationAndTranslate({
+    required String part1Transcript,
+    required String part2Transcript,
+    required List<domain.Message> interveningTurns,
+    required String sourceLanguage,
+    required String baseLanguage,
+    required String targetLanguage,
+    required double exchangeRate,
+    required String baseCurrency,
+    required String targetCurrency,
+    int? speechToTextMs,
+    String? speechToTextModel,
+    String? contextPromptBlock,
+  }) async {
+    final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
+    final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
+    final resolvedSourceCode =
+        LanguageDetector.normalizeLanguageCode(sourceLanguage) == targetCode
+        ? targetCode
+        : baseCode;
+    final targetOutputCode = resolvedSourceCode == baseCode
+        ? targetCode
+        : baseCode;
+
+    final sourceLangName = AppSettings.languageNameFor(resolvedSourceCode);
+    final targetLangName = AppSettings.languageNameFor(targetOutputCode);
+    final combinedTranscript = LanguageDetector.joinTranscriptParts(
+      part1Transcript,
+      part2Transcript,
+    );
+
+    final stopwatch = Stopwatch()..start();
+    if (!_initialized || (_model != null && _model!.isClosed)) {
+      await initialize();
+    }
+
+    final systemPrompt =
+        PromptTemplates.buildContinuationResolutionSystemPrompt(
+          sourceLanguage: sourceLangName,
+          targetLanguage: targetLangName,
+          contextPromptBlock: contextPromptBlock,
+        );
+    final prompt = PromptTemplates.buildContinuationResolutionPrompt(
+      part1Transcript: part1Transcript,
+      part2Transcript: part2Transcript,
+      combinedTranscript: combinedTranscript,
+      interveningTurns: interveningTurns,
+      sourceLanguage: sourceLangName,
+      targetLanguage: targetLangName,
+      exchangeRate: exchangeRate,
+      baseCurrency: baseCurrency,
+      targetCurrency: targetCurrency,
+      contextPromptBlock: contextPromptBlock,
+    );
+
+    _log.info(
+      '[STEP 2 CONTINUATION START] resolveContinuationAndTranslate() [Gemma4]: '
+      'part1="$part1Transcript" | intervening=${interveningTurns.length} | part2="$part2Transcript" '
+      '($sourceLangName -> $targetLangName)',
+    );
+
+    final rawOutput = await _executeTextFallback(
+      prompt: prompt,
+      systemPrompt: systemPrompt,
+      resolvedSourceCode: resolvedSourceCode,
+      originalText: combinedTranscript,
+    );
+
+    stopwatch.stop();
+    final transMs = stopwatch.elapsedMilliseconds;
+    final totalMs = (speechToTextMs ?? 0) + transMs;
+
+    final parsedDecision = parseContinuationResponse(
+      rawOutput,
+      part1Transcript: part1Transcript,
+      part2Transcript: part2Transcript,
+      interveningTurns: interveningTurns,
+      resolvedSourceCode: resolvedSourceCode,
+      speechToTextMs: speechToTextMs,
+      translationMs: transMs,
+      totalDurationMs: totalMs,
+      speechToTextModel: speechToTextModel,
+      translationModel: 'Gemma 4',
+    );
+
+    _log.info(
+      '[STEP 2 CONTINUATION RESULT] [Gemma4] (${transMs}ms): '
+      'sameSentence=${parsedDecision.isSameSentence}, '
+      'original="${parsedDecision.combinedOriginalText}" => '
+      'translated="${parsedDecision.result.translatedText}"',
+    );
+    return parsedDecision;
+  }
+
+  /// Parses raw output from a continuation resolution prompt into a
+  /// [ContinuationDecision].
+  static ContinuationDecision parseContinuationResponse(
+    String rawOutput, {
+    required String part1Transcript,
+    required String part2Transcript,
+    required List<domain.Message> interveningTurns,
+    required String resolvedSourceCode,
+    int? speechToTextMs,
+    int? translationMs,
+    int? totalDurationMs,
+    String? speechToTextModel,
+    String? translationModel,
+  }) {
+    final combinedTranscript = LanguageDetector.joinTranscriptParts(
+      part1Transcript,
+      part2Transcript,
+    );
+    final stripped = stripMarkdownFences(rawOutput.trim());
+    final jsonCandidate = _extractJsonObject(stripped) ?? stripped;
+
+    bool? sameSentence;
+    var translatedText = '';
+
+    try {
+      final decoded = jsonDecode(jsonCandidate);
+      if (decoded is Map) {
+        final map = decoded.cast<String, Object?>();
+        final rawFlag =
+            map['same_sentence'] ??
+            map['merge_with_previous'] ??
+            map['is_same_sentence'];
+        if (rawFlag is bool) {
+          sameSentence = rawFlag;
+        } else if (rawFlag is String) {
+          sameSentence = rawFlag.trim().toLowerCase() == 'true';
+        }
+        translatedText =
+            (map['translated_text'] as String? ??
+                    map['translation'] as String? ??
+                    '')
+                .trim();
+      }
+    } on Object {
+      // Fallback to heuristic if plain text was returned
+    }
+
+    if (sameSentence == null) {
+      // Heuristic fallback when a mock or text model outputs plain text instead of JSON:
+      // If all intervening turns are brief (<= 3 words) or Part 1 did not end with
+      // terminal sentence punctuation, treat Part 1 + Part 2 as the same sentence.
+      final part1EndsOpen = !RegExp(r'[.!?؟。！？]$').hasMatch(
+        part1Transcript.trim(),
+      );
+      final interveningAreBrief = interveningTurns.every((m) {
+        final text = m.originalText.trim().isNotEmpty
+            ? m.originalText.trim()
+            : m.translatedText.trim();
+        final wordCount = text
+            .split(RegExp(r'\s+'))
+            .where((w) => w.isNotEmpty)
+            .length;
+        return wordCount <= 3;
+      });
+      sameSentence = part1EndsOpen || interveningAreBrief;
+    }
+
+    if (translatedText.isEmpty) {
+      translatedText = cleanTextFallbackOutput(
+        rawOutput,
+        fallbackSourceLanguage: resolvedSourceCode,
+      );
+    }
+
+    final effectiveOriginal = sameSentence
+        ? combinedTranscript
+        : part2Transcript.trim();
+
+    return ContinuationDecision(
+      isSameSentence: sameSentence,
+      combinedOriginalText: effectiveOriginal,
+      result: TranslationResult(
+        sourceLanguage: resolvedSourceCode,
+        originalText: effectiveOriginal,
+        translatedText: translatedText,
+        speechToTextMs: speechToTextMs,
+        translationMs: translationMs,
+        totalDurationMs: totalDurationMs,
+        speechToTextModel: speechToTextModel,
+        translationModel: translationModel,
+      ),
     );
   }
 

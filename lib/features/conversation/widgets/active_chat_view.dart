@@ -1248,6 +1248,18 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                                 if (domainMessage == null) {
                                   return bubble;
                                 }
+                                final isLastClumped =
+                                    state.lastClumpedMessageId ==
+                                        domainMessage.id &&
+                                    state.clumpedUpdateCount > 0;
+                                final wrappedBubble = isLastClumped
+                                    ? _ClumpedBubbleHighlightWrapper(
+                                        key: ValueKey(
+                                          'chat_message_clump_highlight_${domainMessage.id}_${state.clumpedUpdateCount}',
+                                        ),
+                                        child: bubble,
+                                      )
+                                    : bubble;
                                 return GestureDetector(
                                   key: ValueKey(
                                     'chat_message_bubble_${domainMessage.id}',
@@ -1261,7 +1273,7 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                                     baseLanguageFlag: baseFlag,
                                     targetLanguageFlag: targetFlag,
                                   ),
-                                  child: bubble,
+                                  child: wrappedBubble,
                                 );
                               },
                             ),
@@ -1363,6 +1375,44 @@ class _InProgressTranslationBadge extends StatelessWidget {
           color: AppTokens.listeningAccent,
         ),
       ),
+    );
+  }
+}
+
+/// Briefly pulses a subtle accent border around a message bubble when a new
+/// same-language clause is clumped or merged in-place into that bubble.
+class _ClumpedBubbleHighlightWrapper extends StatelessWidget {
+  const _ClumpedBubbleHighlightWrapper({required this.child, super.key});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 1.0, end: 0.0),
+      duration: const Duration(milliseconds: 900),
+      curve: Curves.easeOutCubic,
+      builder: (context, intensity, innerChild) {
+        if (intensity <= 0.01) {
+          return innerChild!;
+        }
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: AppTokens.listeningAccent.withValues(
+                alpha: 0.55 * intensity,
+              ),
+              width: 1.5,
+            ),
+            color: AppTokens.listeningAccent.withValues(
+              alpha: 0.06 * intensity,
+            ),
+          ),
+          child: innerChild,
+        );
+      },
+      child: child,
     );
   }
 }

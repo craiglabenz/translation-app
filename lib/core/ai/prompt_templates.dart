@@ -142,14 +142,15 @@ Output ONLY valid JSON:
     final trimmedContext = contextPromptBlock?.trim() ?? '';
     final contextSuffix = trimmedContext.isEmpty ? '' : '\n$trimmedContext';
     return '''
-You are an accurate speech-to-text transcriber and language detector for conversations between "$baseLanguage" ($baseCode) and "$targetLanguage" ($targetCode).
-Listen to the entire provided audio clip, transcribe the exact words spoken in their original language, and identify whether "$baseCode" or "$targetCode" was spoken.
+You are an accurate speech-to-text transcriber and language segmenter for conversations between "$baseLanguage" ($baseCode) and "$targetLanguage" ($targetCode).
+Listen to the entire provided audio clip, transcribe the exact words spoken in their original language, and segment the speech by language whenever a speaker switches between "$baseCode" and "$targetCode".
 Rules (CRITICAL):
-- Do NOT translate the speech. "original_transcript" MUST be written in the exact language spoken in the audio.
-- Classify "detected_language" based on the MAJORITY language of the full utterance ("$baseCode" or "$targetCode"). Do NOT let a single leading loanword, interjection (e.g., "Okay", "OK", "No", "Yes", "Oh", "Ah", "Hey", "Wait", "Um"), cognate, or ambiguous first word trick you into classifying or transcribing the rest of the sentence as $baseLanguage.
-- If the audio contains only silence, a pause, breathing, or background noise with no clear human speech, return empty strings: {"original_transcript": "", "detected_language": "$baseCode"}.
+- Do NOT translate the speech. Every segment's "text" MUST be written in the exact language spoken in the audio.
+- If the audio contains rapid back-and-forth turns or switches between $baseLanguage ($baseCode) and $targetLanguage ($targetCode), split the transcript chronologically into "segments": [{"lang": "$baseCode", "text": "..."}, {"lang": "$targetCode", "text": "..."}].
+- Absorb lone 1–2 word interjections, discourse markers, or shared loanwords (e.g., "Okay", "OK", "No", "Oh", "Ah", "Wait", "Um", "Bueno", "Hotel") into the adjacent clause's language unless they form a standalone utterance.
+- If the audio contains only silence, a pause, breathing, or background noise with no clear human speech, return empty segments: {"segments": [], "original_transcript": "", "detected_language": "$baseCode"}.
 - NEVER invent, guess, or hallucinate example phrases when nothing was said, and NEVER output meta-commentary about missing or silent audio files.
-- Return ONLY a valid JSON object: {"original_transcript": "...", "detected_language": "$baseCode"}.$contextSuffix''';
+- Return ONLY a valid JSON object: {"segments": [{"lang": "$baseCode", "text": "..."}], "original_transcript": "...", "detected_language": "$baseCode"}.$contextSuffix''';
   }
 
   /// Builds the user-turn prompt for the Speech-to-Text (STT) step.
@@ -161,10 +162,74 @@ Rules (CRITICAL):
     final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
     return '''
 Transcribe the spoken audio verbatim in its original language ($baseLanguage ($baseCode) or $targetLanguage ($targetCode)) without translating:
-1. "original_transcript": exact spoken words in their original language (evaluate the whole utterance; do not let an ambiguous or English-sounding first word cause you to translate the sentence), or "" if no clear speech was spoken.
-2. "detected_language": "$baseCode" or "$targetCode" based on the MAJORITY of the full utterance (ignore any single leading interjection, loanword, or cognate).
+1. "segments": ordered list of {"lang": "$baseCode" or "$targetCode", "text": "..."} spans. Split into separate segments whenever a clause switches between $baseLanguage ($baseCode) and $targetLanguage ($targetCode), but absorb lone 1-2 word interjections or loanwords ("Okay", "No", "Ah", "Hotel") into the adjacent clause's language. Return [] if no clear speech was spoken.
+2. "original_transcript": full verbatim transcript (or "" if no speech).
+3. "detected_language": "$baseCode" or "$targetCode" for the primary segment.
 Output ONLY valid JSON:
-{"original_transcript": "...", "detected_language": "$baseCode"}''';
+{"segments": [{"lang": "$baseCode", "text": "..."}], "original_transcript": "...", "detected_language": "$baseCode"}''';
+  }
+
+  /// Builds the system prompt for deciding whether two same-language speech
+  /// chunks separated by an opposite-language interjection belong to the same
+  /// sentence or represent a forked conversation, and translating the result.
+  static String buildContinuationResolutionSystemPrompt({
+    required String sourceLanguage,
+    required String targetLanguage,
+    String? contextPromptBlock,
+  }) {
+    final trimmedContext = contextPromptBlock?.trim() ?? '';
+    final contextSuffix = trimmedContext.isEmpty ? '' : '\n$trimmedContext';
+    return '''
+You are a dialogue continuity analyzer and translator between $sourceLanguage and $targetLanguage.
+You will be shown a brief dialogue script where Speaker A ($sourceLanguage) spoke Part 1, Speaker B ($targetLanguage) said an intervening line, and Speaker A ($sourceLanguage) immediately spoke Part 2 within a few seconds.
+Decide whether Part 1 and Part 2 from Speaker A were actually a single continuous sentence/thought (interrupted by Speaker B's brief interjection), OR whether Speaker B's line forked the conversation so Part 2 is a new, separate message responding to Speaker B.
+Return ONLY valid JSON: {"same_sentence": true, "translated_text": "..."}.$contextSuffix''';
+  }
+
+  /// Builds the user prompt for the "movie script" continuation and translation
+  /// decision.
+  static String buildContinuationResolutionPrompt({
+    required String part1Transcript,
+    required String part2Transcript,
+    required String combinedTranscript,
+    required List<Message> interveningTurns,
+    required String sourceLanguage,
+    required String targetLanguage,
+    required double exchangeRate,
+    required String baseCurrency,
+    required String targetCurrency,
+    String? contextPromptBlock,
+  }) {
+    final formattedRate = exchangeRate.toStringAsFixed(4);
+    final trimmedContext = contextPromptBlock?.trim() ?? '';
+    final contextSection = trimmedContext.isEmpty ? '' : '\n$trimmedContext\n';
+    final scriptBuffer = StringBuffer()
+      ..writeln('[Speaker A - $sourceLanguage (Part 1)]: "$part1Transcript"');
+    for (final turn in interveningTurns) {
+      final orig = turn.originalText.trim().isNotEmpty
+          ? turn.originalText.trim()
+          : turn.translatedText.trim();
+      scriptBuffer.writeln('[Speaker B - $targetLanguage (Intervening)]: "$orig"');
+    }
+    scriptBuffer.writeln(
+      '[Speaker A - $sourceLanguage (Part 2)]: "$part2Transcript"',
+    );
+
+    return '''
+Analyze this live conversation script between Speaker A ($sourceLanguage) and Speaker B ($targetLanguage):
+${scriptBuffer.toString().trimRight()}
+
+Instructions:
+1. Determine "same_sentence":
+   - Set "same_sentence": true if Part 1 ("$part1Transcript") and Part 2 ("$part2Transcript") form a single continuous sentence or thought by Speaker A (e.g., Speaker B only interjected a greeting like "¡Hola!" or brief acknowledgment while Speaker A was finishing their sentence "$combinedTranscript").
+   - Set "same_sentence": false if Speaker B's intervening turn answered or forked the conversation and Part 2 ("$part2Transcript") is a new, separate reply from Speaker A.
+2. Determine "translated_text" (MUST be written strictly in $targetLanguage):
+   - If "same_sentence" is true: translate the full combined sentence "$combinedTranscript" into $targetLanguage.
+   - If "same_sentence" is false: translate ONLY Part 2 ("$part2Transcript") into $targetLanguage.
+3. Formatting: convert any times as '24-hour (12-hour)' (e.g., '18:00 (6PM)') and any prices using 1 $targetCurrency = $formattedRate $baseCurrency as 'original price (converted price)'.
+$contextSection
+Output ONLY valid JSON:
+{"same_sentence": true, "translated_text": "..."}''';
   }
 
   /// Builds a text-only system instruction for the automatic self-correction

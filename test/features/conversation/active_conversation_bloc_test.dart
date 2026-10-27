@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:data_layer/data_layer.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:translation_app/core/ai/speech_to_text_engine.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/audio/audio_exceptions.dart';
 import 'package:translation_app/core/audio/native_audio_service.dart';
@@ -852,5 +853,387 @@ void main() {
         equals(const <String>['shellfish allergy']),
       );
     });
+
+    test('splits rapid multi-language speech in a single audio chunk into separate Left and Right chat bubbles', () async {
+      final segEngine = _ConfigurableSegmentedTranslationEngine();
+      final segBloc = ActiveConversationBloc(
+        conversationRepository: conversationRepo,
+        settingsRepository: settingsRepo,
+        translationEngine: segEngine,
+        audioService: audioService,
+      );
+      await segBloc.startNewSession();
+
+      segEngine.nextSttResult = const SpeechToTextResult(
+        transcript: 'Excuse me, how much is this? Cuesta diez euros.',
+        detectedLanguageCode: 'en',
+        durationMs: 240,
+        modelName: 'Gemma 4',
+        segments: <SpeechSegment>[
+          SpeechSegment(
+            languageCode: 'en',
+            text: 'Excuse me, how much is this?',
+          ),
+          SpeechSegment(
+            languageCode: 'es',
+            text: 'Cuesta diez euros.',
+          ),
+        ],
+      );
+      segEngine.translationsByTranscript['Excuse me, how much is this?'] =
+          'Disculpe, ¿cuánto cuesta esto?';
+      segEngine.translationsByTranscript['Cuesta diez euros.'] =
+          'It costs ten euros.';
+
+      await segBloc.onAudioChunkReceived(
+        Float32List.fromList(<double>[0.25, -0.25, 0.3]),
+        speechStartTime: DateTime.utc(2026, 10, 25, 12, 0, 0),
+        speechEndTime: DateTime.utc(2026, 10, 25, 12, 0, 2),
+      );
+
+      expect(segBloc.stateValue.messages, hasLength(2));
+      expect(segBloc.stateValue.messages[0].isBaseLanguage, isTrue);
+      expect(
+        segBloc.stateValue.messages[0].originalText,
+        'Excuse me, how much is this?',
+      );
+      expect(
+        segBloc.stateValue.messages[0].translatedText,
+        'Disculpe, ¿cuánto cuesta esto?',
+      );
+
+      expect(segBloc.stateValue.messages[1].isBaseLanguage, isFalse);
+      expect(
+        segBloc.stateValue.messages[1].originalText,
+        'Cuesta diez euros.',
+      );
+      expect(
+        segBloc.stateValue.messages[1].translatedText,
+        'It costs ten euros.',
+      );
+
+      await segBloc.close();
+    });
+
+    test('auto-clumps consecutive same-language chunks within 4.0s acoustic window and opens new bubble after >4.0s', () async {
+      final segEngine = _ConfigurableSegmentedTranslationEngine();
+      final segBloc = ActiveConversationBloc(
+        conversationRepository: conversationRepo,
+        settingsRepository: settingsRepo,
+        translationEngine: segEngine,
+        audioService: audioService,
+      );
+      await segBloc.startNewSession();
+
+      // Chunk 1 (t=0.0s .. t=1.2s): "We have a reservation"
+      segEngine.nextSttResult = const SpeechToTextResult(
+        transcript: 'We have a reservation',
+        detectedLanguageCode: 'en',
+        durationMs: 180,
+        segments: <SpeechSegment>[
+          SpeechSegment(languageCode: 'en', text: 'We have a reservation'),
+        ],
+      );
+      segEngine.translationsByTranscript['We have a reservation'] =
+          'Tenemos una reservación';
+
+      await segBloc.onAudioChunkReceived(
+        Float32List.fromList(<double>[0.25, -0.25]),
+        speechStartTime: DateTime.utc(2026, 10, 25, 12, 0, 0),
+        speechEndTime: DateTime.utc(2026, 10, 25, 12, 0, 1, 200),
+      );
+
+      expect(segBloc.stateValue.messages, hasLength(1));
+      final firstId = segBloc.stateValue.messages.single.id;
+      expect(
+        segBloc.stateValue.messages.single.originalText,
+        'We have a reservation',
+      );
+
+      // Chunk 2 (t=2.5s .. t=3.8s -> 1.3s acoustic gap <= 4.0s window): "under the name Smith."
+      segEngine.nextSttResult = const SpeechToTextResult(
+        transcript: 'under the name Smith.',
+        detectedLanguageCode: 'en',
+        durationMs: 160,
+        segments: <SpeechSegment>[
+          SpeechSegment(languageCode: 'en', text: 'under the name Smith.'),
+        ],
+      );
+      segEngine.translationsByTranscript['We have a reservation under the name Smith.'] =
+          'Tenemos una reservación a nombre de Smith.';
+
+      await segBloc.onAudioChunkReceived(
+        Float32List.fromList(<double>[0.25, -0.25]),
+        speechStartTime: DateTime.utc(2026, 10, 25, 12, 0, 2, 500),
+        speechEndTime: DateTime.utc(2026, 10, 25, 12, 0, 3, 800),
+      );
+
+      // Updated in-place in Bubble 1!
+      expect(segBloc.stateValue.messages, hasLength(1));
+      expect(segBloc.stateValue.messages.single.id, firstId);
+      expect(
+        segBloc.stateValue.messages.single.originalText,
+        'We have a reservation under the name Smith.',
+      );
+      expect(
+        segBloc.stateValue.messages.single.translatedText,
+        'Tenemos una reservación a nombre de Smith.',
+      );
+      expect(segBloc.stateValue.lastClumpedMessageId, firstId);
+      expect(segBloc.stateValue.clumpedUpdateCount, 1);
+
+      // Chunk 3 (t=9.0s .. t=10.0s -> 5.2s acoustic gap > 4.0s window): "Can we get two keys?"
+      segEngine.nextSttResult = const SpeechToTextResult(
+        transcript: 'Can we get two keys?',
+        detectedLanguageCode: 'en',
+        durationMs: 150,
+        segments: <SpeechSegment>[
+          SpeechSegment(languageCode: 'en', text: 'Can we get two keys?'),
+        ],
+      );
+      segEngine.translationsByTranscript['Can we get two keys?'] =
+          '¿Podemos obtener dos llaves?';
+
+      await segBloc.onAudioChunkReceived(
+        Float32List.fromList(<double>[0.25, -0.25]),
+        speechStartTime: DateTime.utc(2026, 10, 25, 12, 0, 9),
+        speechEndTime: DateTime.utc(2026, 10, 25, 12, 0, 10),
+      );
+
+      expect(segBloc.stateValue.messages, hasLength(2));
+      expect(
+        segBloc.stateValue.messages[1].originalText,
+        'Can we get two keys?',
+      );
+
+      await segBloc.close();
+    });
+
+    test('resolves movie-script continuation across opposite-language interjection: merges in-place when same_sentence is true and forks when false', () async {
+      final segEngine = _ConfigurableSegmentedTranslationEngine();
+      final segBloc = ActiveConversationBloc(
+        conversationRepository: conversationRepo,
+        settingsRepository: settingsRepo,
+        translationEngine: segEngine,
+        audioService: audioService,
+      );
+      await segBloc.startNewSession();
+
+      // 1. Host starts speaking in English (t=0.0s .. t=1.0s): "Are we too early"
+      segEngine.nextSttResult = const SpeechToTextResult(
+        transcript: 'Are we too early',
+        detectedLanguageCode: 'en',
+        durationMs: 150,
+        segments: <SpeechSegment>[
+          SpeechSegment(languageCode: 'en', text: 'Are we too early'),
+        ],
+      );
+      segEngine.translationsByTranscript['Are we too early'] =
+          '¿Llegamos demasiado temprano';
+
+      await segBloc.onAudioChunkReceived(
+        Float32List.fromList(<double>[0.25, -0.25]),
+        speechStartTime: DateTime.utc(2026, 10, 25, 12, 0, 0),
+        speechEndTime: DateTime.utc(2026, 10, 25, 12, 0, 1),
+      );
+
+      // 2. Clerk interjects in Spanish (t=1.2s .. t=1.8s): "¡Hola!"
+      segEngine.nextSttResult = const SpeechToTextResult(
+        transcript: '¡Hola!',
+        detectedLanguageCode: 'es',
+        durationMs: 120,
+        segments: <SpeechSegment>[
+          SpeechSegment(languageCode: 'es', text: '¡Hola!'),
+        ],
+      );
+      segEngine.translationsByTranscript['¡Hola!'] = 'Hello!';
+
+      await segBloc.onAudioChunkReceived(
+        Float32List.fromList(<double>[0.25, -0.25]),
+        speechStartTime: DateTime.utc(2026, 10, 25, 12, 0, 1, 200),
+        speechEndTime: DateTime.utc(2026, 10, 25, 12, 0, 1, 800),
+      );
+
+      expect(segBloc.stateValue.messages, hasLength(2));
+      final englishBubbleId = segBloc.stateValue.messages[0].id;
+      final spanishBubbleId = segBloc.stateValue.messages[1].id;
+
+      // 3. Host finishes sentence in English within 4.0s of Part 1 (t=2.0s .. t=3.0s): "to check in?"
+      // Movie-script continuation decides isSameSentence == true -> updates Bubble 1 in-place ABOVE "¡Hola!"
+      segEngine.nextSttResult = const SpeechToTextResult(
+        transcript: 'to check in?',
+        detectedLanguageCode: 'en',
+        durationMs: 140,
+        segments: <SpeechSegment>[
+          SpeechSegment(languageCode: 'en', text: 'to check in?'),
+        ],
+      );
+      segEngine.nextContinuationDecision = const ContinuationDecision(
+        isSameSentence: true,
+        combinedOriginalText: 'Are we too early to check in?',
+        result: TranslationResult(
+          sourceLanguage: 'en',
+          originalText: 'Are we too early to check in?',
+          translatedText: '¿Llegamos demasiado temprano para registrarnos?',
+          translationMs: 180,
+        ),
+      );
+
+      await segBloc.onAudioChunkReceived(
+        Float32List.fromList(<double>[0.25, -0.25]),
+        speechStartTime: DateTime.utc(2026, 10, 25, 12, 0, 2),
+        speechEndTime: DateTime.utc(2026, 10, 25, 12, 0, 3),
+      );
+
+      expect(segEngine.continuationCallCount, 1);
+      expect(segEngine.lastInterveningTurns, hasLength(1));
+      expect(segEngine.lastInterveningTurns.single.originalText, '¡Hola!');
+
+      // Still 2 bubbles! Bubble 0 (above "¡Hola!") was updated in-place!
+      expect(segBloc.stateValue.messages, hasLength(2));
+      expect(segBloc.stateValue.messages[0].id, englishBubbleId);
+      expect(
+        segBloc.stateValue.messages[0].originalText,
+        'Are we too early to check in?',
+      );
+      expect(
+        segBloc.stateValue.messages[0].translatedText,
+        '¿Llegamos demasiado temprano para registrarnos?',
+      );
+      expect(segBloc.stateValue.messages[1].id, spanishBubbleId);
+      expect(segBloc.stateValue.lastClumpedMessageId, englishBubbleId);
+
+      // 4. Clerk answers substantive question (t=3.5s .. t=4.8s): "No, su habitación está lista."
+      segEngine.nextSttResult = const SpeechToTextResult(
+        transcript: 'No, su habitación está lista.',
+        detectedLanguageCode: 'es',
+        durationMs: 160,
+        segments: <SpeechSegment>[
+          SpeechSegment(
+            languageCode: 'es',
+            text: 'No, su habitación está lista.',
+          ),
+        ],
+      );
+      segEngine.nextContinuationDecision = const ContinuationDecision(
+        isSameSentence: false,
+        combinedOriginalText: 'No, su habitación está lista.',
+        result: TranslationResult(
+          sourceLanguage: 'es',
+          originalText: 'No, su habitación está lista.',
+          translatedText: 'No, your room is ready.',
+          translationMs: 190,
+        ),
+      );
+
+      await segBloc.onAudioChunkReceived(
+        Float32List.fromList(<double>[0.25, -0.25]),
+        speechStartTime: DateTime.utc(2026, 10, 25, 12, 0, 3, 500),
+        speechEndTime: DateTime.utc(2026, 10, 25, 12, 0, 4, 800),
+      );
+
+      // Because isSameSentence == false, a 3rd bubble was appended at the bottom!
+      expect(segBloc.stateValue.messages, hasLength(3));
+      expect(
+        segBloc.stateValue.messages[2].originalText,
+        'No, su habitación está lista.',
+      );
+      expect(
+        segBloc.stateValue.messages[2].translatedText,
+        'No, your room is ready.',
+      );
+
+      await segBloc.close();
+    });
   });
+}
+
+class _ConfigurableSegmentedTranslationEngine extends _ConfigurableTranslationEngine
+    implements SegmentedTranslationEngine {
+  SpeechToTextResult nextSttResult = const SpeechToTextResult(
+    transcript: 'Hello',
+    detectedLanguageCode: 'en',
+    durationMs: 100,
+  );
+
+  final Map<String, String> translationsByTranscript = <String, String>{};
+  ContinuationDecision? nextContinuationDecision;
+  int continuationCallCount = 0;
+  List<Message> lastInterveningTurns = const <Message>[];
+
+  @override
+  Future<SpeechToTextResult> transcribeAudioChunk({
+    required Float32List audioWavChunk,
+    required String baseLanguage,
+    required String targetLanguage,
+    String? contextPromptBlock,
+  }) async {
+    if (translateError != null) {
+      throw translateError!;
+    }
+    return nextSttResult;
+  }
+
+  @override
+  Future<TranslationResult> translateText({
+    required String transcript,
+    required String sourceLanguage,
+    required String baseLanguage,
+    required String targetLanguage,
+    required double exchangeRate,
+    required String baseCurrency,
+    required String targetCurrency,
+    int? speechToTextMs,
+    String? speechToTextModel,
+    String? contextPromptBlock,
+    void Function(TranslationResult partialResult)? onPartialResult,
+  }) async {
+    translateCallCount++;
+    lastContextPromptBlock = contextPromptBlock;
+    final translated =
+        translationsByTranscript[transcript] ?? nextResult.translatedText;
+    return TranslationResult(
+      sourceLanguage: sourceLanguage,
+      originalText: transcript,
+      translatedText: translated,
+      speechToTextMs: speechToTextMs,
+      translationMs: 120,
+      totalDurationMs: (speechToTextMs ?? 0) + 120,
+      speechToTextModel: speechToTextModel ?? 'Gemma 4',
+      translationModel: 'Gemma 4',
+    );
+  }
+
+  @override
+  Future<ContinuationDecision> resolveContinuationAndTranslate({
+    required String part1Transcript,
+    required String part2Transcript,
+    required List<Message> interveningTurns,
+    required String sourceLanguage,
+    required String baseLanguage,
+    required String targetLanguage,
+    required double exchangeRate,
+    required String baseCurrency,
+    required String targetCurrency,
+    int? speechToTextMs,
+    String? speechToTextModel,
+    String? contextPromptBlock,
+  }) async {
+    continuationCallCount++;
+    lastInterveningTurns = interveningTurns;
+    if (nextContinuationDecision != null) {
+      return nextContinuationDecision!;
+    }
+    return ContinuationDecision(
+      isSameSentence: true,
+      combinedOriginalText: '$part1Transcript $part2Transcript',
+      result: TranslationResult(
+        sourceLanguage: sourceLanguage,
+        originalText: '$part1Transcript $part2Transcript',
+        translatedText: nextResult.translatedText,
+        speechToTextMs: speechToTextMs,
+        translationMs: 150,
+      ),
+    );
+  }
 }

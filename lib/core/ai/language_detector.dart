@@ -1,3 +1,4 @@
+import 'package:translation_app/core/ai/speech_to_text_engine.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
 import 'package:translation_app/core/logging/app_logger.dart';
@@ -1529,6 +1530,367 @@ class LanguageDetector {
       'for "$transcript" (scores: $baseCode=$baseScore, $targetCode=$targetScore).',
     );
     return detected;
+  }
+
+  /// Discourse markers, filler interjections, and international loanwords that
+  /// should be absorbed into the adjacent clause's language when they appear as
+  /// a brief 1–2 word prefix/suffix rather than splitting into a separate chat
+  /// bubble.
+  static const Set<String> _absorbableInterjectionWords = <String>{
+    'ok',
+    'okay',
+    'oh',
+    'ah',
+    'uh',
+    'um',
+    'hmm',
+    'hm',
+    'mm',
+    'no',
+    'eh',
+    'wait',
+    'well',
+    'so',
+    'bueno',
+    'pues',
+    'este',
+    'alors',
+    'bon',
+    'allora',
+    'also',
+    'hotel',
+    'taxi',
+    'wifi',
+    'menu',
+    'cafe',
+    'café',
+    'bar',
+    'euro',
+    'euros',
+    'dollar',
+    'dollars',
+  };
+
+  /// Returns `true` when [text] is a 1–2 word interjection, discourse marker,
+  /// or shared loanword (e.g. `"Okay,"`, `"No,"`, `"Ah"`, `"Bueno,"`, `"Hotel"`)
+  /// that should be absorbed into an adjacent substantive clause rather than
+  /// forming its own separate language bubble.
+  ///
+  /// Standalone sentence-ending answers like `"Yes."` or `"No."` are only
+  /// absorbed when they do not end with terminal punctuation (`.` / `!` / `?`),
+  /// or when they consist purely of filler/loanwords (`"Okay"`, `"Um"`, `"Ah"`,
+  /// `"Hotel"`).
+  static bool isAbsorbableInterjection(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return true;
+    // Any non-Latin script characters are specific to that script's language
+    // unless there are no letters at all.
+    if (_hangulRegex.hasMatch(trimmed) ||
+        _kanaRegex.hasMatch(trimmed) ||
+        _cjkRegex.hasMatch(trimmed) ||
+        _arabicRegex.hasMatch(trimmed) ||
+        _hebrewRegex.hasMatch(trimmed) ||
+        _devanagariRegex.hasMatch(trimmed) ||
+        _bengaliRegex.hasMatch(trimmed) ||
+        _thaiRegex.hasMatch(trimmed) ||
+        _greekRegex.hasMatch(trimmed) ||
+        _cyrillicRegex.hasMatch(trimmed)) {
+      return false;
+    }
+    // Spanish inverted punctuation marks a genuine Spanish clause/greeting.
+    if (trimmed.contains('¿') || trimmed.contains('¡')) {
+      return false;
+    }
+
+    final words = _wordTokenRegex
+        .allMatches(trimmed.toLowerCase())
+        .map((m) => m.group(0))
+        .whereType<String>()
+        .toList(growable: false);
+    if (words.isEmpty) return true;
+    if (words.length > 2) return false;
+
+    final allAbsorbable = words.every(_absorbableInterjectionWords.contains);
+    if (!allAbsorbable) return false;
+
+    // If the word is "no" and ends with terminal sentence punctuation ("No." or "No!"),
+    // allow it to stand on its own if it was emitted as a separate sentence, UNLESS
+    // it is followed by a comma or no punctuation ("No, ..." or "No ...").
+    if (words.contains('no') && RegExp(r'[.!?]$').hasMatch(trimmed)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /// Segments and resolves a spoken transcript (or raw model-emitted
+  /// [rawSegments]) into an ordered list of [SpeechSegment] items between
+  /// [baseLanguage] and [targetLanguage]:
+  /// - Splits single segments that contain clauses or script runs in both
+  ///   languages (e.g. `"Wait a second, ¿dónde está la estación?"` or
+  ///   `"Are we too early? ¡Hola!"`).
+  /// - Absorbs lone 1–2 word interjections, discourse markers, or shared
+  ///   loanwords (`"Okay, ¿dónde está el baño?"`) into the adjacent clause's
+  ///   language.
+  /// - Merges consecutive segments that resolve to the same language.
+  static List<SpeechSegment> segmentAndResolveTranscript({
+    required List<SpeechSegment> rawSegments,
+    required String baseLanguage,
+    required String targetLanguage,
+  }) {
+    final baseCode = normalizeLanguageCode(baseLanguage);
+    final targetCode = normalizeLanguageCode(targetLanguage);
+    if (rawSegments.isEmpty) return const <SpeechSegment>[];
+
+    // 1. Expand each raw segment by splitting any internal script or clause-level
+    //    language switches.
+    final expanded = <({String text, String reportedLang, bool absorbable})>[];
+    for (final seg in rawSegments) {
+      final trimmed = seg.text.trim();
+      if (trimmed.isEmpty) continue;
+      final subClauses = _splitMixedLanguageSegment(
+        trimmed,
+        reportedLanguage: seg.languageCode,
+        baseCode: baseCode,
+        targetCode: targetCode,
+      );
+      expanded.addAll(subClauses);
+    }
+
+    if (expanded.isEmpty) return const <SpeechSegment>[];
+
+    // 2. Resolve each sub-clause's language (leaving absorbable interjections
+    //    unassigned if there is at least one non-absorbable clause to absorb into).
+    final hasSubstantiveClause = expanded.any((c) => !c.absorbable);
+    final resolvedClauses = <({String text, String? lang})>[];
+    for (final item in expanded) {
+      if (hasSubstantiveClause && item.absorbable) {
+        resolvedClauses.add((text: item.text, lang: null));
+      } else {
+        final resolvedLang = resolveSpokenLanguage(
+          transcript: item.text,
+          reportedLanguage: item.reportedLang,
+          baseLanguage: baseCode,
+          targetLanguage: targetCode,
+        );
+        resolvedClauses.add((text: item.text, lang: resolvedLang));
+      }
+    }
+
+    // 3. Propagate language codes onto any `lang == null` (absorbable) clauses
+    //    from the nearest substantive neighbor (preferring the following clause
+    //    for leading interjections like "Okay, ¿dónde está...?").
+    final assigned = <SpeechSegment>[];
+    for (var i = 0; i < resolvedClauses.length; i++) {
+      final current = resolvedClauses[i];
+      var effectiveLang = current.lang;
+      if (effectiveLang == null) {
+        // Look ahead first (leading interjection before a clause)
+        for (var j = i + 1; j < resolvedClauses.length; j++) {
+          if (resolvedClauses[j].lang != null) {
+            effectiveLang = resolvedClauses[j].lang;
+            break;
+          }
+        }
+        // Fallback: look behind (trailing interjection after a clause)
+        if (effectiveLang == null) {
+          for (var j = i - 1; j >= 0; j--) {
+            if (resolvedClauses[j].lang != null) {
+              effectiveLang = resolvedClauses[j].lang;
+              break;
+            }
+          }
+        }
+        effectiveLang ??= baseCode;
+      }
+      assigned.add(
+        SpeechSegment(
+          text: current.text,
+          languageCode: effectiveLang,
+        ),
+      );
+    }
+
+    // 4. Merge consecutive segments that share the same resolved languageCode.
+    final merged = <SpeechSegment>[];
+    for (final seg in assigned) {
+      if (merged.isEmpty) {
+        merged.add(seg);
+      } else if (merged.last.languageCode == seg.languageCode) {
+        final prev = merged.removeLast();
+        merged.add(
+          SpeechSegment(
+            text: joinTranscriptParts(prev.text, seg.text),
+            languageCode: prev.languageCode,
+          ),
+        );
+      } else {
+        merged.add(seg);
+      }
+    }
+
+    if (merged.length > 1) {
+      _log.info(
+        '[TAG SEGMENTS] Split transcript into ${merged.length} language segments: '
+        '${merged.map((s) => '[${s.languageCode}: "${s.text}"]').join(' -> ')}',
+      );
+    }
+
+    return merged;
+  }
+
+  /// Joins two transcript fragments (`[part1]` and `[part2]`) with clean
+  /// spacing.
+  static String joinTranscriptParts(String part1, String part2) {
+    final a = part1.trim();
+    final b = part2.trim();
+    if (a.isEmpty) return b;
+    if (b.isEmpty) return a;
+    final cleanA = a.replaceAll(RegExp(r'(\s*--+\s*|\s*—+\s*|\s*\.\.\.\s*)$'), '').trimRight();
+    final cleanB = b.replaceAll(RegExp(r'^(\s*--+\s*|\s*—+\s*|\s*\.\.\.\s*)'), '').trimLeft();
+    if (cleanA.isEmpty) return cleanB;
+    if (cleanB.isEmpty) return cleanA;
+    return '$cleanA $cleanB';
+  }
+
+  static List<({String text, String reportedLang, bool absorbable})>
+  _splitMixedLanguageSegment(
+    String text, {
+    required String reportedLanguage,
+    required String baseCode,
+    required String targetCode,
+  }) {
+    // 1. First split by script transitions if one language is Latin and the
+    //    other is non-Latin (or two distinct non-Latin scripts).
+    final scriptRuns = _splitByScriptTransitions(
+      text,
+      baseCode: baseCode,
+      targetCode: targetCode,
+    );
+
+    final result = <({String text, String reportedLang, bool absorbable})>[];
+    for (final run in scriptRuns) {
+      final clauses = _splitIntoCandidateClauses(run);
+      if (clauses.length <= 1) {
+        final single = clauses.isEmpty ? run.trim() : clauses.first.trim();
+        if (single.isNotEmpty) {
+          result.add((
+            text: single,
+            reportedLang: reportedLanguage,
+            absorbable: isAbsorbableInterjection(single),
+          ));
+        }
+        continue;
+      }
+
+      for (final clause in clauses) {
+        final trimmed = clause.trim();
+        if (trimmed.isEmpty) continue;
+        final absorbable = isAbsorbableInterjection(trimmed);
+        final detected = absorbable
+            ? null
+            : detectLanguage(
+                trimmed,
+                candidateA: baseCode,
+                candidateB: targetCode,
+              );
+        result.add((
+          text: trimmed,
+          reportedLang: detected ?? reportedLanguage,
+          absorbable: absorbable,
+        ));
+      }
+    }
+    return result;
+  }
+
+  static List<String> _splitByScriptTransitions(
+    String text, {
+    required String baseCode,
+    required String targetCode,
+  }) {
+    final baseIsNonLatin = _nonLatinLanguageCodes.contains(baseCode);
+    final targetIsNonLatin = _nonLatinLanguageCodes.contains(targetCode);
+    if (!baseIsNonLatin && !targetIsNonLatin) {
+      return <String>[text];
+    }
+
+    String? charScriptBucket(String ch) {
+      if (_hangulRegex.hasMatch(ch)) return 'ko';
+      if (_kanaRegex.hasMatch(ch)) return 'ja';
+      if (_cjkRegex.hasMatch(ch)) return 'zh';
+      if (_arabicRegex.hasMatch(ch)) return 'ar';
+      if (_hebrewRegex.hasMatch(ch)) return 'he';
+      if (_devanagariRegex.hasMatch(ch)) return 'hi';
+      if (_bengaliRegex.hasMatch(ch)) return 'bn';
+      if (_thaiRegex.hasMatch(ch)) return 'th';
+      if (_greekRegex.hasMatch(ch)) return 'el';
+      if (_cyrillicRegex.hasMatch(ch)) return 'cyrillic';
+      if (_latinLetterRegex.hasMatch(ch)) return 'latin';
+      return null;
+    }
+
+    final runs = <String>[];
+    final currentBuffer = StringBuffer();
+    String? currentBucket;
+
+    for (var i = 0; i < text.length; i++) {
+      final ch = text[i];
+      final bucket = charScriptBucket(ch);
+      if (bucket == null) {
+        currentBuffer.write(ch);
+        continue;
+      }
+      if (currentBucket == null) {
+        currentBucket = bucket;
+        currentBuffer.write(ch);
+      } else if (currentBucket == bucket ||
+          (currentBucket == 'ja' && bucket == 'zh') ||
+          (currentBucket == 'zh' && bucket == 'ja')) {
+        currentBuffer.write(ch);
+      } else {
+        final flushed = currentBuffer.toString().trim();
+        if (flushed.isNotEmpty) {
+          runs.add(flushed);
+        }
+        currentBuffer.clear();
+        currentBuffer.write(ch);
+        currentBucket = bucket;
+      }
+    }
+    final remaining = currentBuffer.toString().trim();
+    if (remaining.isNotEmpty) {
+      runs.add(remaining);
+    }
+    return runs.isEmpty ? <String>[text] : runs;
+  }
+
+  static List<String> _splitIntoCandidateClauses(String text) {
+    // Split after terminal punctuation (., !, ?, ;), em-dashes, commas, or
+    // immediately before Spanish inverted punctuation (¿, ¡).
+    final pattern = RegExp(
+      r'[^.!?;,—]+(?:[.!?;,—]+|$)|(?=[¿¡])',
+    );
+    // First insert a split boundary before ¿ or ¡ when preceded by non-space/text
+    final normalized = text.replaceAllMapped(
+      RegExp(r'(\S)\s*([¿¡])'),
+      (m) => '${m.group(1)}\n${m.group(2)}',
+    );
+    final rawParts = <String>[];
+    for (final line in normalized.split('\n')) {
+      final matches = pattern.allMatches(line);
+      if (matches.isEmpty) {
+        if (line.trim().isNotEmpty) rawParts.add(line.trim());
+      } else {
+        for (final m in matches) {
+          final slice = (m.group(0) ?? '').trim();
+          if (slice.isNotEmpty) {
+            rawParts.add(slice);
+          }
+        }
+      }
+    }
+    return rawParts.isEmpty ? <String>[text] : rawParts;
   }
 
   /// Analyzes a [TranslationResult] against [baseLanguage] and [targetLanguage]

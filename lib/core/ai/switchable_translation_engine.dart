@@ -14,7 +14,7 @@ import 'package:translation_app/core/logging/app_logger.dart';
 /// (Speech-to-Text & Language Detection) from Step 2 (Text Translation),
 /// allowing each step to be independently configured as On-Device
 /// (Gemma 4 E2B) or Cloud (Google Gemini).
-class SwitchableTranslationEngine implements TranslationEngine {
+class SwitchableTranslationEngine implements SegmentedTranslationEngine {
   SwitchableTranslationEngine({
     required this.localEngine,
     required this.networkEngine,
@@ -102,6 +102,7 @@ class SwitchableTranslationEngine implements TranslationEngine {
 
   /// Executes Step 1 (Speech-to-Text & Language Detection) using the
   /// configured STT engine (`On-Device Gemma 4 Audio` or `Cloud Gemini STT`).
+  @override
   Future<SpeechToTextResult> transcribeAudioChunk({
     required Float32List audioWavChunk,
     required String baseLanguage,
@@ -128,6 +129,7 @@ class SwitchableTranslationEngine implements TranslationEngine {
 
   /// Executes Step 2 (Text Translation) using the configured Translation engine
   /// (`On-Device Gemma 4` or `Cloud Gemini`).
+  @override
   Future<TranslationResult> translateText({
     required String transcript,
     required String sourceLanguage,
@@ -168,6 +170,53 @@ class SwitchableTranslationEngine implements TranslationEngine {
       speechToTextModel: speechToTextModel,
       contextPromptBlock: contextPromptBlock,
       onPartialResult: onPartialResult,
+    );
+  }
+
+  @override
+  Future<ContinuationDecision> resolveContinuationAndTranslate({
+    required String part1Transcript,
+    required String part2Transcript,
+    required List<Message> interveningTurns,
+    required String sourceLanguage,
+    required String baseLanguage,
+    required String targetLanguage,
+    required double exchangeRate,
+    required String baseCurrency,
+    required String targetCurrency,
+    int? speechToTextMs,
+    String? speechToTextModel,
+    String? contextPromptBlock,
+  }) {
+    if (_mode == TranslationEngineMode.cloud) {
+      return networkEngine.resolveContinuationAndTranslate(
+        part1Transcript: part1Transcript,
+        part2Transcript: part2Transcript,
+        interveningTurns: interveningTurns,
+        sourceLanguage: sourceLanguage,
+        baseLanguage: baseLanguage,
+        targetLanguage: targetLanguage,
+        exchangeRate: exchangeRate,
+        baseCurrency: baseCurrency,
+        targetCurrency: targetCurrency,
+        speechToTextMs: speechToTextMs,
+        speechToTextModel: speechToTextModel,
+        contextPromptBlock: contextPromptBlock,
+      );
+    }
+    return localEngine.resolveContinuationAndTranslate(
+      part1Transcript: part1Transcript,
+      part2Transcript: part2Transcript,
+      interveningTurns: interveningTurns,
+      sourceLanguage: sourceLanguage,
+      baseLanguage: baseLanguage,
+      targetLanguage: targetLanguage,
+      exchangeRate: exchangeRate,
+      baseCurrency: baseCurrency,
+      targetCurrency: targetCurrency,
+      speechToTextMs: speechToTextMs,
+      speechToTextModel: speechToTextModel,
+      contextPromptBlock: contextPromptBlock,
     );
   }
 

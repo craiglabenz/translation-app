@@ -4,6 +4,28 @@ import 'dart:typed_data';
 
 import 'package:translation_app/core/logging/app_logger.dart';
 
+/// A segmented 16kHz mono PCM speech chunk paired with the acoustic timestamps
+/// of when active speech started and ended.
+class VadSpeechChunk {
+  const VadSpeechChunk({
+    required this.samples,
+    required this.speechStartTime,
+    required this.speechEndTime,
+  });
+
+  /// Segmented 16kHz mono PCM audio samples.
+  final Float32List samples;
+
+  /// Timestamp when active speech onset was first detected for this chunk.
+  final DateTime speechStartTime;
+
+  /// Timestamp when the last active speech sample in this chunk was recorded.
+  final DateTime speechEndTime;
+
+  /// Duration between [speechStartTime] and [speechEndTime].
+  Duration get speechDuration => speechEndTime.difference(speechStartTime);
+}
+
 /// Voice Activity Detector (VAD) and audio frame accumulator for 16kHz mono
 /// 32-bit floating-point PCM streams.
 ///
@@ -25,13 +47,20 @@ class VadBuffer {
     this.noiseFloorMarginMultiplier = 1.75,
     this.maxAdaptiveSilenceThreshold = 0.16,
     this.stationaryNoiseWindow = const Duration(milliseconds: 1000),
-  }) : assert(sampleRate > 0, 'sampleRate must be positive');
+    DateTime Function()? clock,
+  }) : _clock = clock ?? DateTime.now,
+       assert(sampleRate > 0, 'sampleRate must be positive');
 
   static const int defaultSampleRate = 16000;
 
-  /// Responsive 1.6-second silence cutoff for live interactive conversation,
-  /// allowing natural mid-sentence breathing pauses without premature flushes.
-  static const Duration interactiveSilenceCutoff = Duration(milliseconds: 1600);
+  /// Aggressive 500ms micro-pause cutoff for live interactive conversation,
+  /// flushing phrase-sized chunks quickly so rapid multi-language turns can be
+  /// segmented and re-clumped via per-language running clocks.
+  static const Duration interactiveSilenceCutoff = Duration(milliseconds: 500);
+
+  /// 6.0-second hard ceiling for continuous non-stop speech in live interactive
+  /// mode so long monologues flush periodically without waiting 15 seconds.
+  static const Duration interactiveMaxChunkDuration = Duration(seconds: 6);
 
   /// Minimum active speech duration required in live interactive mode so brief
   /// clicks, taps, or breaths during a pause do not trigger hallucinated turns.
@@ -42,6 +71,17 @@ class VadBuffer {
   /// RMS threshold for live microphone capture to reject quiet room hum while
   /// remaining sensitive to normal conversational speech.
   static const double interactiveSilenceThreshold = 0.015;
+
+  /// Live snapshot interval in interactive mode (1.8 seconds of continuous
+  /// speech), avoiding redundant in-progress inferences on short phrases that
+  /// will flush at the 500ms micro-pause cutoff.
+  static const Duration interactiveLiveSnapshotInterval = Duration(
+    milliseconds: 1800,
+  );
+
+  /// Pause snapshot delay disabled in interactive mode because the 500ms
+  /// [interactiveSilenceCutoff] already flushes the final micro-chunk.
+  static const Duration interactiveLivePauseSnapshotDelay = Duration.zero;
 
   /// Coefficient of variation (`stdDev / mean`) below which a sustained AC
   /// signal is classified as stationary mechanical/background noise (e.g., a
@@ -55,6 +95,7 @@ class VadBuffer {
   final Duration maxChunkDuration;
   final double silenceThreshold;
   final Duration minSpeechDuration;
+  final DateTime Function() _clock;
 
   /// Interval of active speech accumulation after which a live in-progress
   /// audio snapshot is emitted to [onActiveSpeechSnapshot] so translation can
@@ -91,9 +132,15 @@ class VadBuffer {
   double _noiseFloorRms = 0.0;
   double _peakActiveWindowRms = 0.0;
   bool _hasDetectedSpeech = false;
+  DateTime? _utteranceSpeechStartTime;
+  DateTime? _utteranceLastSpeechTime;
+  VadSpeechChunk? _lastEmittedTimedChunk;
 
   final StreamController<Float32List> _chunkController =
       StreamController<Float32List>.broadcast();
+
+  final StreamController<VadSpeechChunk> _timedChunkController =
+      StreamController<VadSpeechChunk>.broadcast();
 
   final StreamController<Float32List> _snapshotController =
       StreamController<Float32List>.broadcast();
@@ -101,6 +148,13 @@ class VadBuffer {
   /// Stream of segmented 16kHz mono [Float32List] audio chunks emitted when an
   /// utterance finishes.
   Stream<Float32List> get onChunkReady => _chunkController.stream;
+
+  /// Stream of segmented [VadSpeechChunk] instances including acoustic
+  /// `speechStartTime` and `speechEndTime` metadata.
+  Stream<VadSpeechChunk> get onTimedChunkReady => _timedChunkController.stream;
+
+  /// Most recently emitted [VadSpeechChunk], if any.
+  VadSpeechChunk? get lastEmittedTimedChunk => _lastEmittedTimedChunk;
 
   /// Stream of cumulative 16kHz mono [Float32List] audio snapshots emitted as
   /// soon as active speech is detected and progressing, allowing live
@@ -276,7 +330,9 @@ class VadBuffer {
             : (isWindowSilent && sample.abs() < currentThreshold);
 
         if (!isSampleSilent) {
+          final now = _clock();
           if (!_hasDetectedSpeech) {
+            _utteranceSpeechStartTime = now;
             _log.info(
               '[VAD SPEECH ONSET] windowRms=${windowRms.toStringAsFixed(4)} >= '
               'threshold=${currentThreshold.toStringAsFixed(4)} '
@@ -284,6 +340,7 @@ class VadBuffer {
               '-> started accumulating utterance buffer.',
             );
           }
+          _utteranceLastSpeechTime = now;
           _hasDetectedSpeech = true;
           _trailingSilenceSamples = 0;
           _activeSpeechSamples++;
@@ -535,6 +592,8 @@ class VadBuffer {
     _lastSnapshotEndIndex = 0;
     _peakActiveWindowRms = 0.0;
     _hasDetectedSpeech = false;
+    _utteranceSpeechStartTime = null;
+    _utteranceLastSpeechTime = null;
   }
 
   /// Resets the buffer without emitting a chunk.
@@ -566,13 +625,37 @@ class VadBuffer {
     }
     final chunk = Float32List.fromList(_buffer);
     final durationSec = (chunk.length / sampleRate).toStringAsFixed(2);
+    final startTime = _utteranceSpeechStartTime ?? _clock();
+    final activeSpanSamples = _lastActiveSampleEndIndex > 0
+        ? _lastActiveSampleEndIndex
+        : _activeSpeechSamples;
+    final activeSpanDuration = Duration(
+      microseconds:
+          (activeSpanSamples * Duration.microsecondsPerSecond) ~/ sampleRate,
+    );
+    final minEndTime = startTime.add(activeSpanDuration);
+    final recordedEndTime = _utteranceLastSpeechTime ?? minEndTime;
+    final endTime = recordedEndTime.isAfter(minEndTime)
+        ? recordedEndTime
+        : minEndTime;
+    final timedChunk = VadSpeechChunk(
+      samples: chunk,
+      speechStartTime: startTime,
+      speechEndTime: endTime,
+    );
+    _lastEmittedTimedChunk = timedChunk;
+
     _log.info(
       '[VAD CHUNK EMIT] Emitting final utterance chunk: ${chunk.length} samples (~${durationSec}s, '
-      'activeSpeech=$_activeSpeechSamples samples, peakRms=${_peakActiveWindowRms.toStringAsFixed(4)}).',
+      'activeSpeech=$_activeSpeechSamples samples, peakRms=${_peakActiveWindowRms.toStringAsFixed(4)}, '
+      'speechWindow=${startTime.toIso8601String()}..${endTime.toIso8601String()}).',
     );
     _clearUtteranceBuffer();
     if (!_chunkController.isClosed) {
       _chunkController.add(chunk);
+    }
+    if (!_timedChunkController.isClosed) {
+      _timedChunkController.add(timedChunk);
     }
     return chunk;
   }
@@ -580,6 +663,7 @@ class VadBuffer {
   Future<void> dispose() async {
     reset();
     unawaited(_chunkController.close());
+    unawaited(_timedChunkController.close());
     unawaited(_snapshotController.close());
   }
 }

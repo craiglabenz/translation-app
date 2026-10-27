@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -6,6 +7,7 @@ import 'package:bloc_signals/bloc_signals.dart';
 import 'package:translation_app/core/ai/language_detector.dart';
 import 'package:translation_app/core/ai/local_translation_engine.dart';
 import 'package:translation_app/core/ai/prompt_templates.dart';
+import 'package:translation_app/core/ai/speech_to_text_engine.dart';
 import 'package:translation_app/core/ai/translation_annotator.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/audio/audio_exceptions.dart';
@@ -27,14 +29,21 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     required this._settingsRepository,
     required this._translationEngine,
     required this._audioService,
+    this.languageClumpingWindow = defaultLanguageClumpingWindow,
   }) : super(initialState: const ActiveConversationState());
 
   static final _log = AppLogger.of('ActiveConversationBloc');
+
+  /// Maximum acoustic gap between the end of one speech chunk in Language A
+  /// and the start of the next speech chunk in Language A for the two chunks
+  /// to be considered candidates for same-sentence clumping or continuation.
+  static const Duration defaultLanguageClumpingWindow = Duration(seconds: 4);
 
   final ConversationRepository _conversationRepository;
   final SettingsRepository _settingsRepository;
   final TranslationEngine _translationEngine;
   final NativeAudioService _audioService;
+  final Duration languageClumpingWindow;
 
   StreamSubscription<Float32List>? _speechChunkSub;
   StreamSubscription<Float32List>? _activeSpeechSnapshotSub;
@@ -49,6 +58,19 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   bool _isFinalChunkTranslating = false;
   List<String> _pendingContextIds = const <String>[];
   List<String> _pendingCustomKeywords = const <String>[];
+
+  final Queue<_QueuedAudioChunk> _pendingChunkQueue =
+      Queue<_QueuedAudioChunk>();
+  bool _isDrainingChunkQueue = false;
+  final _LanguageRunningClockState _baseLanguageClock =
+      _LanguageRunningClockState();
+  final _LanguageRunningClockState _targetLanguageClock =
+      _LanguageRunningClockState();
+
+  void _resetLanguageClocks() {
+    _baseLanguageClock.reset();
+    _targetLanguageClock.reset();
+  }
 
   /// Initializes the session either for an existing [conversationId] or a new
   /// live translation session.
@@ -95,6 +117,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   }) async {
     final sw = Stopwatch()..start();
     _log.info('[PERF] ActiveConversationBloc.startNewSession() START');
+    _resetLanguageClocks();
     emit(stateValue.copyWith(error: null));
     final settings = await _settingsRepository.getSettings();
     final effectiveContextIds = initialContextIds ?? _pendingContextIds;
@@ -119,6 +142,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         messages: const <Message>[],
         streamingTranslatedText: null,
         streamingIsBaseLanguage: null,
+        lastClumpedMessageId: null,
         error: null,
       ),
     );
@@ -145,6 +169,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       '[PERF] ActiveConversationBloc.loadConversation START '
       '(conversationId=$conversationId, autoStartListening=$autoStartListening)',
     );
+    _resetLanguageClocks();
     emit(stateValue.copyWith(error: null));
     try {
       final conversation = await _conversationRepository.getConversationById(
@@ -168,6 +193,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           isListening: false,
           streamingTranslatedText: null,
           streamingIsBaseLanguage: null,
+          lastClumpedMessageId: null,
           error: conversation == null ? 'Conversation not found.' : null,
         ),
       );
@@ -705,9 +731,28 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     return !tailHasSpeech;
   }
 
+  /// Processes a timed VAD-segmented speech chunk with acoustic start and end
+  /// timestamps through the [TranslationEngine].
+  Future<void> onTimedAudioChunkReceived(VadSpeechChunk timedChunk) {
+    return onAudioChunkReceived(
+      timedChunk.samples,
+      speechStartTime: timedChunk.speechStartTime,
+      speechEndTime: timedChunk.speechEndTime,
+    );
+  }
+
   /// Processes a complete VAD-segmented 16kHz mono PCM audio chunk through
-  /// the [TranslationEngine] and saves the resulting [Message].
-  Future<void> onAudioChunkReceived(Float32List audioChunk) async {
+  /// the [TranslationEngine] and saves or updates the resulting [Message]s.
+  ///
+  /// Rapid micro-chunks are enqueued in FIFO order so each chunk observes the
+  /// updated message list and per-language 4.0s running clocks from prior
+  /// chunks. Acoustic [speechStartTime] and [speechEndTime] ensure inference
+  /// latency never causes a missed same-sentence clump.
+  Future<void> onAudioChunkReceived(
+    Float32List audioChunk, {
+    DateTime? speechStartTime,
+    DateTime? speechEndTime,
+  }) async {
     if (audioChunk.isEmpty || isClosed) {
       _log.fine(
         'onAudioChunkReceived() ignored (isEmpty=${audioChunk.isEmpty}, isClosed=$isClosed)',
@@ -732,6 +777,61 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       );
       return;
     }
+
+    final effectiveSampleRate = _audioService.vadBuffer.sampleRate > 0
+        ? _audioService.vadBuffer.sampleRate
+        : 16000;
+    final estimatedDurationUs =
+        (audioChunk.length * 1000000) ~/ effectiveSampleRate;
+    final effectiveEnd = speechEndTime ?? DateTime.now();
+    final effectiveStart =
+        speechStartTime ??
+        effectiveEnd.subtract(Duration(microseconds: estimatedDurationUs));
+
+    final completer = Completer<void>();
+    _pendingChunkQueue.add(
+      _QueuedAudioChunk(
+        samples: audioChunk,
+        speechStartTime: effectiveStart,
+        speechEndTime: effectiveEnd,
+        completer: completer,
+      ),
+    );
+    _log.info(
+      '[CHUNK QUEUE] Enqueued chunk (${audioChunk.length} samples, '
+      'speechStart=${effectiveStart.toIso8601String()}, '
+      'speechEnd=${effectiveEnd.toIso8601String()}, '
+      'queueDepth=${_pendingChunkQueue.length})',
+    );
+
+    unawaited(_drainChunkQueue());
+    return completer.future;
+  }
+
+  Future<void> _drainChunkQueue() async {
+    if (_isDrainingChunkQueue) return;
+    _isDrainingChunkQueue = true;
+    try {
+      while (_pendingChunkQueue.isNotEmpty && !isClosed) {
+        final item = _pendingChunkQueue.removeFirst();
+        try {
+          await _processSingleQueuedChunk(item);
+          if (!item.completer.isCompleted) {
+            item.completer.complete();
+          }
+        } catch (e, st) {
+          if (!item.completer.isCompleted) {
+            item.completer.completeError(e, st);
+          }
+        }
+      }
+    } finally {
+      _isDrainingChunkQueue = false;
+    }
+  }
+
+  Future<void> _processSingleQueuedChunk(_QueuedAudioChunk item) async {
+    if (isClosed) return;
 
     _isFinalChunkTranslating = true;
     _latestPendingSnapshotChunk = null;
@@ -761,191 +861,25 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         baseCurrency: settings.baseCurrency,
         targetCurrency: settings.targetCurrency,
       );
-
-      final turnContext = _buildTurnContextMetadata(
-        settings: settings,
-        conversation: conversation,
-        priorMessages: stateValue.messages,
-      );
-
-      TranslationResult? result;
-      final inFlightFuture = _inFlightSnapshotFuture;
-      final inFlightChunk = _inFlightSnapshotChunk;
-      final stepSw = Stopwatch()..start();
-
-      if (inFlightFuture != null &&
-          inFlightChunk != null &&
-          _hasSameActiveSpeech(inFlightChunk, audioChunk)) {
-        _log.info(
-          'onAudioChunkReceived(): joining in-flight active-speech snapshot '
-          '(${inFlightChunk.length} active samples) for final utterance...',
-        );
-        result = await inFlightFuture;
-      } else {
-        if (inFlightFuture != null) {
-          await inFlightFuture;
-        }
-        final completedChunk = _lastCompletedSnapshotChunk;
-        final completedResult = _lastCompletedSnapshotResult;
-        if (completedChunk != null &&
-            completedResult != null &&
-            _hasSameActiveSpeech(completedChunk, audioChunk)) {
-          _log.info(
-            'onAudioChunkReceived(): reusing completed active-speech snapshot '
-            'result (${completedChunk.length} active samples) with zero extra inference!',
-          );
-          result = completedResult;
-        }
-      }
-
       if (isClosed) return;
 
-      if (result == null) {
-        _log.info(
-          'onAudioChunkReceived(): invoking translationEngine.translateAudioChunk '
-          'for conversation=${conversation.id} '
-          '(${settings.baseLanguage}/${settings.baseCurrency} <-> '
-          '${settings.targetLanguage}/${settings.targetCurrency}, rate=${exchangeRate.rate}, '
-          'context=${turnContext.contextSummary ?? "none"}, rollingTurns=${turnContext.rollingTurnsUsed})...',
-        );
-
-        result = await _translationEngine.translateAudioChunk(
-          audioWavChunk: audioChunk,
-          baseLanguage: AppSettings.languageNameFor(settings.baseLanguage),
-          targetLanguage: AppSettings.languageNameFor(settings.targetLanguage),
+      final engine = _translationEngine;
+      if (engine is SegmentedTranslationEngine) {
+        await _processSegmentedChunk(
+          engine: engine,
+          item: item,
+          conversation: conversation,
+          settings: settings,
           exchangeRate: exchangeRate.rate,
-          baseCurrency: settings.baseCurrency,
-          targetCurrency: settings.targetCurrency,
-          contextPromptBlock: turnContext.promptBlock,
-          onPartialResult: (partial) {
-            if (isClosed || !stateValue.isLoading) return;
-            final partialIsBase = _resolveIsBaseLanguage(
-              result: partial,
-              baseLanguageCode: settings.baseLanguage,
-              targetLanguageCode: settings.targetLanguage,
-            );
-            emit(
-              stateValue.copyWith(
-                streamingTranslatedText: partial.translatedText,
-                streamingIsBaseLanguage: partialIsBase,
-              ),
-            );
-          },
+        );
+      } else {
+        await _processLegacySingleTurnChunk(
+          item: item,
+          conversation: conversation,
+          settings: settings,
+          exchangeRate: exchangeRate.rate,
         );
       }
-      final engineElapsedMs = stepSw.elapsedMilliseconds;
-      if (isClosed) return;
-
-      if (result.translatedText.trim().isEmpty ||
-          LocalTranslationEngine.isNonSpeechOrHallucination(
-            originalText: result.originalText,
-            translatedText: result.translatedText,
-          )) {
-        _log.info(
-          'onAudioChunkReceived(): pause / no speech detected in turn '
-          '(original="${result.originalText}", translated="${result.translatedText}") '
-          '-> returning to listening state without adding a message.',
-        );
-        emit(
-          stateValue.copyWith(
-            isLoading: false,
-            streamingTranslatedText: null,
-            streamingIsBaseLanguage: null,
-            error: null,
-          ),
-        );
-        return;
-      }
-
-      final postProcessSw = Stopwatch()..start();
-      final isBaseLanguage = _resolveIsBaseLanguage(
-        result: result,
-        baseLanguageCode: settings.baseLanguage,
-        targetLanguageCode: settings.targetLanguage,
-      );
-
-      final rawOriginal = result.originalText?.trim() ?? '';
-      final rawTranslated = result.translatedText.trim();
-      final annotatedText = TranslationAnnotator.annotate(
-        originalText: rawOriginal,
-        translatedText: rawTranslated,
-        exchangeRate: exchangeRate.rate,
-        baseCurrency: settings.baseCurrency,
-        targetCurrency: settings.targetCurrency,
-        isBaseLanguage: isBaseLanguage,
-      );
-      postProcessSw.stop();
-      stepSw.stop();
-
-      final speechToTextMs = result.speechToTextMs ?? engineElapsedMs;
-      final translationMs =
-          (result.translationMs ?? 0) + postProcessSw.elapsedMilliseconds;
-      final totalDurationMs =
-          result.totalDurationMs != null
-              ? result.totalDurationMs! + postProcessSw.elapsedMilliseconds
-              : (speechToTextMs + translationMs);
-      final speechToTextModel =
-          result.speechToTextModel ?? settings.activeSttModelDisplayName;
-      final translationModel =
-          result.translationModel ?? settings.activeTranslationModelDisplayName;
-
-      _log.info(
-        'onAudioChunkReceived(): translation succeeded! '
-        'detectedSource="${result.sourceLanguage}" (isBaseLanguage=$isBaseLanguage -> '
-        '${isBaseLanguage ? "Host/LEFT" : "Guest/RIGHT"}), '
-        'originalText="$rawOriginal", '
-        'translatedText="$rawTranslated", '
-        'annotatedText="$annotatedText", '
-        'models=(stt=$speechToTextModel, translation=$translationModel), '
-        'timing=(stt=${speechToTextMs}ms, translation=${translationMs}ms, total=${totalDurationMs}ms)',
-      );
-
-      final draftMessage = Message(
-        id: '',
-        conversationId: conversation.id,
-        timestamp: DateTime.now(),
-        isBaseLanguage: isBaseLanguage,
-        originalText: rawOriginal,
-        translatedText: rawTranslated,
-        annotatedText: annotatedText,
-        speechToTextMs: speechToTextMs,
-        translationMs: translationMs,
-        totalDurationMs: totalDurationMs,
-        speechToTextModel: speechToTextModel,
-        translationModel: translationModel,
-        activeContextSummary: turnContext.contextSummary,
-        rollingTurnsUsed: turnContext.rollingTurnsUsed,
-      );
-
-      final savedMessage = await _conversationRepository.saveMessage(
-        draftMessage,
-      );
-      if (isClosed) return;
-
-      _log.info(
-        'Saved translated message id=${savedMessage.id} to local storage.',
-      );
-
-      final updatedConversation = conversation.copyWith(
-        previewText: annotatedText,
-      );
-      final updatedMessages = <Message>[...stateValue.messages, savedMessage];
-
-      emit(
-        stateValue.copyWith(
-          conversation: updatedConversation,
-          messages: updatedMessages,
-          isLoading: false,
-          streamingTranslatedText: null,
-          streamingIsBaseLanguage: null,
-        ),
-      );
-
-      await _updateGeneratedSummary(
-        conversation: updatedConversation,
-        messages: updatedMessages,
-        settings: settings,
-      );
     } catch (e, st) {
       _log.severe('Translation failed in onAudioChunkReceived()', e, st);
       if (isClosed) return;
@@ -961,6 +895,773 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       _isFinalChunkTranslating = false;
       _lastCompletedSnapshotChunk = null;
       _lastCompletedSnapshotResult = null;
+    }
+  }
+
+  /// Segmented multi-language pipeline for [SegmentedTranslationEngine]:
+  /// 1. Runs Step 1 STT to produce an ordered list of language-tagged
+  ///    [SpeechSegment]s (absorbing lone interjections and splitting rapid
+  ///    language switches).
+  /// 2. Checks each segment against that language's 4.0s acoustic running clock:
+  ///    - Consecutive same-language within 4.0s (no intervening opposite turn):
+  ///      auto-clumps and re-translates in-place.
+  ///    - Interrupted same-language within 4.0s (with intervening opposite
+  ///      turn(s)): runs LLM "movie script" continuation resolution; merges
+  ///      in-place above the interjection when `same_sentence == true` or
+  ///      forks into a new bottom bubble when `same_sentence == false`.
+  ///    - Otherwise: appends a new bubble and opens/resets that language's
+  ///      4.0s running clock.
+  Future<void> _processSegmentedChunk({
+    required SegmentedTranslationEngine engine,
+    required _QueuedAudioChunk item,
+    required Conversation conversation,
+    required AppSettings settings,
+    required double exchangeRate,
+  }) async {
+    final inFlightFuture = _inFlightSnapshotFuture;
+    if (inFlightFuture != null) {
+      await inFlightFuture;
+    }
+    if (isClosed) return;
+
+    final baseLanguageName = AppSettings.languageNameFor(settings.baseLanguage);
+    final targetLanguageName = AppSettings.languageNameFor(
+      settings.targetLanguage,
+    );
+
+    final initialContext = _buildTurnContextMetadata(
+      settings: settings,
+      conversation: conversation,
+      priorMessages: stateValue.messages,
+    );
+
+    final sttSw = Stopwatch()..start();
+    _log.info(
+      '[SEGMENTED STT START] Transcribing ${item.samples.length} samples '
+      '(speechStart=${item.speechStartTime.toIso8601String()}, '
+      'speechEnd=${item.speechEndTime.toIso8601String()})...',
+    );
+    final sttResult = await engine.transcribeAudioChunk(
+      audioWavChunk: item.samples,
+      baseLanguage: baseLanguageName,
+      targetLanguage: targetLanguageName,
+      contextPromptBlock: initialContext.promptBlock,
+    );
+    sttSw.stop();
+    if (isClosed) return;
+
+    final validSegments = sttResult.effectiveSegments
+        .where(
+          (seg) =>
+              seg.text.trim().isNotEmpty &&
+              !LocalTranslationEngine.isNonSpeechOrHallucination(
+                translatedText: seg.text,
+              ),
+        )
+        .toList(growable: false);
+
+    if (validSegments.isEmpty) {
+      _log.info(
+        '[SEGMENTED STT EMPTY] No speech segments found '
+        '(rawTranscript="${sttResult.transcript}") -> returning to listening state.',
+      );
+      emit(
+        stateValue.copyWith(
+          isLoading: false,
+          streamingTranslatedText: null,
+          streamingIsBaseLanguage: null,
+          error: null,
+        ),
+      );
+      return;
+    }
+
+    _log.info(
+      '[SEGMENTED STT RESULT] Extracted ${validSegments.length} segment(s) in ${sttSw.elapsedMilliseconds}ms: '
+      '${validSegments.map((s) => '[${s.languageCode}] "${s.text}"').join(' | ')}',
+    );
+
+    final perSegmentSttMs =
+        (sttResult.durationMs > 0
+            ? sttResult.durationMs
+            : sttSw.elapsedMilliseconds) ~/
+        validSegments.length;
+    final sttModelName =
+        sttResult.modelName ?? settings.activeSttModelDisplayName;
+
+    var currentConversation = stateValue.conversation ?? conversation;
+    var currentMessages = List<Message>.of(stateValue.messages);
+
+    for (var i = 0; i < validSegments.length; i++) {
+      if (isClosed) return;
+      final segment = validSegments[i];
+      final isBaseLanguage = _matchesLanguage(
+        detectedLanguage: segment.languageCode,
+        languageCode: settings.baseLanguage,
+        languageName: baseLanguageName,
+      );
+      final speakerLangCode = isBaseLanguage
+          ? settings.baseLanguage
+          : settings.targetLanguage;
+      final ownClock = isBaseLanguage
+          ? _baseLanguageClock
+          : _targetLanguageClock;
+      final oppositeClock = isBaseLanguage
+          ? _targetLanguageClock
+          : _baseLanguageClock;
+
+      final canClump = ownClock.isOpenWithin(
+        speechStartTime: item.speechStartTime,
+        window: languageClumpingWindow,
+      );
+      final existingIndex = canClump
+          ? currentMessages.indexWhere((m) => m.id == ownClock.openMessageId)
+          : -1;
+
+      if (existingIndex != -1) {
+        final existingMsg = currentMessages[existingIndex];
+        final acousticGapMs = item.speechStartTime
+            .difference(ownClock.lastSpeechEndTime!)
+            .inMilliseconds;
+
+        if (ownClock.interveningOppositeTurns.isEmpty) {
+          // Case A: Consecutive same-language chunk within 4.0s with no intervening turn.
+          final combinedOriginal = LanguageDetector.joinTranscriptParts(
+            existingMsg.originalText,
+            segment.text,
+          );
+          _log.info(
+            '[CLUMP SAME-LANG] Segment ${i + 1}/${validSegments.length} ($speakerLangCode) '
+            'arrived ${acousticGapMs}ms after open message id=${existingMsg.id} '
+            '(<= ${languageClumpingWindow.inMilliseconds}ms, 0 intervening turns) -> '
+            'auto-clumping: "${existingMsg.originalText}" + "${segment.text}" => "$combinedOriginal"',
+          );
+
+          final clumpContext = _buildTurnContextMetadata(
+            settings: settings,
+            conversation: currentConversation,
+            priorMessages: currentMessages.sublist(0, existingIndex),
+          );
+
+          final transSw = Stopwatch()..start();
+          final translationResult = await engine.translateText(
+            transcript: combinedOriginal,
+            sourceLanguage: speakerLangCode,
+            baseLanguage: baseLanguageName,
+            targetLanguage: targetLanguageName,
+            exchangeRate: exchangeRate,
+            baseCurrency: settings.baseCurrency,
+            targetCurrency: settings.targetCurrency,
+            contextPromptBlock: clumpContext.promptBlock,
+            speechToTextMs: perSegmentSttMs,
+            speechToTextModel: sttModelName,
+            onPartialResult: (partial) {
+              if (isClosed || !stateValue.isLoading) return;
+              emit(
+                stateValue.copyWith(
+                  streamingTranslatedText: partial.translatedText,
+                  streamingIsBaseLanguage: isBaseLanguage,
+                ),
+              );
+            },
+          );
+          transSw.stop();
+          if (isClosed) return;
+
+          final rawTranslated = translationResult.translatedText.trim();
+          if (rawTranslated.isNotEmpty) {
+            final annotatedText = TranslationAnnotator.annotate(
+              originalText: combinedOriginal,
+              translatedText: rawTranslated,
+              exchangeRate: exchangeRate,
+              baseCurrency: settings.baseCurrency,
+              targetCurrency: settings.targetCurrency,
+              isBaseLanguage: isBaseLanguage,
+            );
+            final updatedSpeechToTextMs =
+                (existingMsg.speechToTextMs ?? 0) + perSegmentSttMs;
+            final stepTransMs =
+                translationResult.translationMs ?? transSw.elapsedMilliseconds;
+            final updatedTranslationMs =
+                (existingMsg.translationMs ?? 0) + stepTransMs;
+            final updatedTotalMs = updatedSpeechToTextMs + updatedTranslationMs;
+
+            final updatedDraft = existingMsg.copyWith(
+              originalText: combinedOriginal,
+              translatedText: rawTranslated,
+              annotatedText: annotatedText,
+              speechToTextMs: updatedSpeechToTextMs,
+              translationMs: updatedTranslationMs,
+              totalDurationMs: updatedTotalMs,
+              speechToTextModel: sttModelName,
+              translationModel:
+                  translationResult.translationModel ??
+                  settings.activeTranslationModelDisplayName,
+            );
+            final savedMsg = await _conversationRepository.saveMessage(
+              updatedDraft,
+            );
+            if (isClosed) return;
+
+            currentMessages[existingIndex] = savedMsg;
+            ownClock.lastSpeechEndTime = item.speechEndTime;
+            if (oppositeClock.openMessageId != null) {
+              oppositeClock.recordInterveningTurn(savedMsg);
+            }
+            currentConversation = currentConversation.copyWith(
+              previewText: currentMessages.last.effectiveTranslatedText,
+            );
+
+            emit(
+              stateValue.copyWith(
+                conversation: currentConversation,
+                messages: List<Message>.unmodifiable(currentMessages),
+                isLoading: i < validSegments.length - 1,
+                streamingTranslatedText: null,
+                streamingIsBaseLanguage: null,
+                lastClumpedMessageId: savedMsg.id,
+                clumpedUpdateCount: stateValue.clumpedUpdateCount + 1,
+              ),
+            );
+          }
+          continue;
+        } else {
+          // Case B: Intervening opposite-language turn(s) occurred while this
+          // language's 4.0s clock was still open -> run Movie-Script Continuation!
+          final interveningSnapshot = List<Message>.unmodifiable(
+            ownClock.interveningOppositeTurns,
+          );
+          _log.info(
+            '[MOVIE-SCRIPT CHECK] Segment ${i + 1}/${validSegments.length} ($speakerLangCode) '
+            'arrived ${acousticGapMs}ms after open message id=${existingMsg.id} '
+            'with ${interveningSnapshot.length} intervening opposite-language turn(s) '
+            '(${interveningSnapshot.map((m) => '"${m.originalText}"').join(', ')}) -> '
+            'asking LLM whether Part 1 ("${existingMsg.originalText}") and Part 2 ("${segment.text}") '
+            'are the same sentence...',
+          );
+
+          final continuationContext = _buildTurnContextMetadata(
+            settings: settings,
+            conversation: currentConversation,
+            priorMessages: currentMessages.sublist(0, existingIndex),
+          );
+
+          final contSw = Stopwatch()..start();
+          final decision = await engine.resolveContinuationAndTranslate(
+            part1Transcript: existingMsg.originalText,
+            part2Transcript: segment.text,
+            interveningTurns: interveningSnapshot,
+            sourceLanguage: speakerLangCode,
+            baseLanguage: baseLanguageName,
+            targetLanguage: targetLanguageName,
+            exchangeRate: exchangeRate,
+            baseCurrency: settings.baseCurrency,
+            targetCurrency: settings.targetCurrency,
+            speechToTextMs: perSegmentSttMs,
+            speechToTextModel: sttModelName,
+            contextPromptBlock: continuationContext.promptBlock,
+          );
+          contSw.stop();
+          if (isClosed) return;
+
+          if (decision.isSameSentence) {
+            final combinedOriginal =
+                decision.combinedOriginalText.trim().isNotEmpty
+                ? decision.combinedOriginalText.trim()
+                : LanguageDetector.joinTranscriptParts(
+                    existingMsg.originalText,
+                    segment.text,
+                  );
+            final rawTranslated = decision.result.translatedText.trim();
+            final annotatedText = TranslationAnnotator.annotate(
+              originalText: combinedOriginal,
+              translatedText: rawTranslated,
+              exchangeRate: exchangeRate,
+              baseCurrency: settings.baseCurrency,
+              targetCurrency: settings.targetCurrency,
+              isBaseLanguage: isBaseLanguage,
+            );
+            final updatedSpeechToTextMs =
+                (existingMsg.speechToTextMs ?? 0) + perSegmentSttMs;
+            final stepTransMs =
+                decision.result.translationMs ?? contSw.elapsedMilliseconds;
+            final updatedTranslationMs =
+                (existingMsg.translationMs ?? 0) + stepTransMs;
+            final updatedTotalMs = updatedSpeechToTextMs + updatedTranslationMs;
+
+            final updatedDraft = existingMsg.copyWith(
+              originalText: combinedOriginal,
+              translatedText: rawTranslated,
+              annotatedText: annotatedText,
+              speechToTextMs: updatedSpeechToTextMs,
+              translationMs: updatedTranslationMs,
+              totalDurationMs: updatedTotalMs,
+              speechToTextModel: sttModelName,
+              translationModel:
+                  decision.result.translationModel ??
+                  settings.activeTranslationModelDisplayName,
+            );
+            final savedMsg = await _conversationRepository.saveMessage(
+              updatedDraft,
+            );
+            if (isClosed) return;
+
+            _log.info(
+              '[MOVIE-SCRIPT MERGED IN-PLACE] Updated bubble id=${savedMsg.id} '
+              'at index $existingIndex (above interjection): '
+              'original="$combinedOriginal", translated="$rawTranslated"',
+            );
+
+            currentMessages[existingIndex] = savedMsg;
+            ownClock.lastSpeechEndTime = item.speechEndTime;
+            ownClock.interveningOppositeTurns.clear();
+            if (oppositeClock.openMessageId != null) {
+              oppositeClock.recordInterveningTurn(savedMsg);
+            }
+            currentConversation = currentConversation.copyWith(
+              previewText: currentMessages.last.effectiveTranslatedText,
+            );
+
+            emit(
+              stateValue.copyWith(
+                conversation: currentConversation,
+                messages: List<Message>.unmodifiable(currentMessages),
+                isLoading: i < validSegments.length - 1,
+                streamingTranslatedText: null,
+                streamingIsBaseLanguage: null,
+                lastClumpedMessageId: savedMsg.id,
+                clumpedUpdateCount: stateValue.clumpedUpdateCount + 1,
+              ),
+            );
+            continue;
+          } else {
+            // Conversation forked! Append Part 2 as a brand new bubble at the bottom.
+            final rawOriginal = segment.text.trim();
+            var rawTranslated = decision.result.translatedText.trim();
+            var stepTransMs =
+                decision.result.translationMs ?? contSw.elapsedMilliseconds;
+            var transModelName =
+                decision.result.translationModel ??
+                settings.activeTranslationModelDisplayName;
+
+            if (rawTranslated.isEmpty) {
+              final fallbackContext = _buildTurnContextMetadata(
+                settings: settings,
+                conversation: currentConversation,
+                priorMessages: currentMessages,
+              );
+              final fallbackRes = await engine.translateText(
+                transcript: rawOriginal,
+                sourceLanguage: speakerLangCode,
+                baseLanguage: baseLanguageName,
+                targetLanguage: targetLanguageName,
+                exchangeRate: exchangeRate,
+                baseCurrency: settings.baseCurrency,
+                targetCurrency: settings.targetCurrency,
+                contextPromptBlock: fallbackContext.promptBlock,
+                speechToTextMs: perSegmentSttMs,
+                speechToTextModel: sttModelName,
+              );
+              if (isClosed) return;
+              rawTranslated = fallbackRes.translatedText.trim();
+              stepTransMs += fallbackRes.translationMs ?? 0;
+              transModelName =
+                  fallbackRes.translationModel ?? transModelName;
+            }
+
+            if (rawTranslated.isEmpty) {
+              continue;
+            }
+
+            final annotatedText = TranslationAnnotator.annotate(
+              originalText: rawOriginal,
+              translatedText: rawTranslated,
+              exchangeRate: exchangeRate,
+              baseCurrency: settings.baseCurrency,
+              targetCurrency: settings.targetCurrency,
+              isBaseLanguage: isBaseLanguage,
+            );
+            final forkContext = _buildTurnContextMetadata(
+              settings: settings,
+              conversation: currentConversation,
+              priorMessages: currentMessages,
+            );
+
+            final draftMessage = Message(
+              id: '',
+              conversationId: currentConversation.id,
+              timestamp: DateTime.now(),
+              isBaseLanguage: isBaseLanguage,
+              originalText: rawOriginal,
+              translatedText: rawTranslated,
+              annotatedText: annotatedText,
+              speechToTextMs: perSegmentSttMs,
+              translationMs: stepTransMs,
+              totalDurationMs: perSegmentSttMs + stepTransMs,
+              speechToTextModel: sttModelName,
+              translationModel: transModelName,
+              activeContextSummary: forkContext.contextSummary,
+              rollingTurnsUsed: forkContext.rollingTurnsUsed,
+            );
+            final savedMessage = await _conversationRepository.saveMessage(
+              draftMessage,
+            );
+            if (isClosed) return;
+
+            _log.info(
+              '[MOVIE-SCRIPT FORKED NEW BUBBLE] Created new bubble id=${savedMessage.id} '
+              'at bottom: original="$rawOriginal", translated="$rawTranslated"',
+            );
+
+            currentMessages.add(savedMessage);
+            ownClock
+              ..openMessageId = savedMessage.id
+              ..lastSpeechEndTime = item.speechEndTime
+              ..interveningOppositeTurns.clear();
+            if (oppositeClock.openMessageId != null) {
+              oppositeClock.interveningOppositeTurns.add(savedMessage);
+            }
+            currentConversation = currentConversation.copyWith(
+              previewText: annotatedText,
+            );
+
+            emit(
+              stateValue.copyWith(
+                conversation: currentConversation,
+                messages: List<Message>.unmodifiable(currentMessages),
+                isLoading: i < validSegments.length - 1,
+                streamingTranslatedText: null,
+                streamingIsBaseLanguage: null,
+              ),
+            );
+            continue;
+          }
+        }
+      }
+
+      // Case C: No open message within 4.0s for this language -> translate and append new bubble.
+      final segmentContext = _buildTurnContextMetadata(
+        settings: settings,
+        conversation: currentConversation,
+        priorMessages: currentMessages,
+      );
+      final rawOriginal = segment.text.trim();
+      final transSw = Stopwatch()..start();
+      final translationResult = await engine.translateText(
+        transcript: rawOriginal,
+        sourceLanguage: speakerLangCode,
+        baseLanguage: baseLanguageName,
+        targetLanguage: targetLanguageName,
+        exchangeRate: exchangeRate,
+        baseCurrency: settings.baseCurrency,
+        targetCurrency: settings.targetCurrency,
+        contextPromptBlock: segmentContext.promptBlock,
+        speechToTextMs: perSegmentSttMs,
+        speechToTextModel: sttModelName,
+        onPartialResult: (partial) {
+          if (isClosed || !stateValue.isLoading) return;
+          emit(
+            stateValue.copyWith(
+              streamingTranslatedText: partial.translatedText,
+              streamingIsBaseLanguage: isBaseLanguage,
+            ),
+          );
+        },
+      );
+      transSw.stop();
+      if (isClosed) return;
+
+      final rawTranslated = translationResult.translatedText.trim();
+      if (rawTranslated.isEmpty ||
+          LocalTranslationEngine.isNonSpeechOrHallucination(
+            originalText: rawOriginal,
+            translatedText: rawTranslated,
+          )) {
+        _log.info(
+          '[SEGMENT SKIPPED] Segment ${i + 1}/${validSegments.length} produced empty/non-speech translation -> skipping.',
+        );
+        continue;
+      }
+
+      final annotatedText = TranslationAnnotator.annotate(
+        originalText: rawOriginal,
+        translatedText: rawTranslated,
+        exchangeRate: exchangeRate,
+        baseCurrency: settings.baseCurrency,
+        targetCurrency: settings.targetCurrency,
+        isBaseLanguage: isBaseLanguage,
+      );
+      final stepTransMs =
+          translationResult.translationMs ?? transSw.elapsedMilliseconds;
+      final totalDurationMs = perSegmentSttMs + stepTransMs;
+      final translationModel =
+          translationResult.translationModel ??
+          settings.activeTranslationModelDisplayName;
+
+      final draftMessage = Message(
+        id: '',
+        conversationId: currentConversation.id,
+        timestamp: DateTime.now(),
+        isBaseLanguage: isBaseLanguage,
+        originalText: rawOriginal,
+        translatedText: rawTranslated,
+        annotatedText: annotatedText,
+        speechToTextMs: perSegmentSttMs,
+        translationMs: stepTransMs,
+        totalDurationMs: totalDurationMs,
+        speechToTextModel: sttModelName,
+        translationModel: translationModel,
+        activeContextSummary: segmentContext.contextSummary,
+        rollingTurnsUsed: segmentContext.rollingTurnsUsed,
+      );
+      final savedMessage = await _conversationRepository.saveMessage(
+        draftMessage,
+      );
+      if (isClosed) return;
+
+      _log.info(
+        '[NEW SEGMENT BUBBLE] Saved segment ${i + 1}/${validSegments.length} '
+        'id=${savedMessage.id} (${isBaseLanguage ? "Host/LEFT" : "Guest/RIGHT"}, lang=$speakerLangCode): '
+        'original="$rawOriginal", translated="$rawTranslated"',
+      );
+
+      currentMessages.add(savedMessage);
+      ownClock
+        ..openMessageId = savedMessage.id
+        ..lastSpeechEndTime = item.speechEndTime
+        ..interveningOppositeTurns.clear();
+      if (oppositeClock.openMessageId != null) {
+        oppositeClock.interveningOppositeTurns.add(savedMessage);
+      }
+
+      currentConversation = currentConversation.copyWith(
+        previewText: annotatedText,
+      );
+
+      emit(
+        stateValue.copyWith(
+          conversation: currentConversation,
+          messages: List<Message>.unmodifiable(currentMessages),
+          isLoading: i < validSegments.length - 1,
+          streamingTranslatedText: null,
+          streamingIsBaseLanguage: null,
+        ),
+      );
+    }
+
+    if (stateValue.isLoading) {
+      emit(
+        stateValue.copyWith(
+          isLoading: false,
+          streamingTranslatedText: null,
+          streamingIsBaseLanguage: null,
+        ),
+      );
+    }
+
+    if (_pendingChunkQueue.isEmpty && currentMessages.isNotEmpty) {
+      await _updateGeneratedSummary(
+        conversation: currentConversation,
+        messages: currentMessages,
+        settings: settings,
+      );
+    }
+  }
+
+  /// Legacy single-turn fallback for test stubs that implement
+  /// [TranslationEngine] without [SegmentedTranslationEngine].
+  Future<void> _processLegacySingleTurnChunk({
+    required _QueuedAudioChunk item,
+    required Conversation conversation,
+    required AppSettings settings,
+    required double exchangeRate,
+  }) async {
+    final audioChunk = item.samples;
+    final turnContext = _buildTurnContextMetadata(
+      settings: settings,
+      conversation: conversation,
+      priorMessages: stateValue.messages,
+    );
+
+    TranslationResult? result;
+    final inFlightFuture = _inFlightSnapshotFuture;
+    final inFlightChunk = _inFlightSnapshotChunk;
+    final stepSw = Stopwatch()..start();
+
+    if (inFlightFuture != null &&
+        inFlightChunk != null &&
+        _hasSameActiveSpeech(inFlightChunk, audioChunk)) {
+      _log.info(
+        'onAudioChunkReceived(): joining in-flight active-speech snapshot '
+        '(${inFlightChunk.length} active samples) for final utterance...',
+      );
+      result = await inFlightFuture;
+    } else {
+      if (inFlightFuture != null) {
+        await inFlightFuture;
+      }
+      final completedChunk = _lastCompletedSnapshotChunk;
+      final completedResult = _lastCompletedSnapshotResult;
+      if (completedChunk != null &&
+          completedResult != null &&
+          _hasSameActiveSpeech(completedChunk, audioChunk)) {
+        _log.info(
+          'onAudioChunkReceived(): reusing completed active-speech snapshot '
+          'result (${completedChunk.length} active samples) with zero extra inference!',
+        );
+        result = completedResult;
+      }
+    }
+
+    if (isClosed) return;
+
+    if (result == null) {
+      _log.info(
+        'onAudioChunkReceived(): invoking translationEngine.translateAudioChunk '
+        'for conversation=${conversation.id} '
+        '(${settings.baseLanguage}/${settings.baseCurrency} <-> '
+        '${settings.targetLanguage}/${settings.targetCurrency}, rate=$exchangeRate, '
+        'context=${turnContext.contextSummary ?? "none"}, rollingTurns=${turnContext.rollingTurnsUsed})...',
+      );
+
+      result = await _translationEngine.translateAudioChunk(
+        audioWavChunk: audioChunk,
+        baseLanguage: AppSettings.languageNameFor(settings.baseLanguage),
+        targetLanguage: AppSettings.languageNameFor(settings.targetLanguage),
+        exchangeRate: exchangeRate,
+        baseCurrency: settings.baseCurrency,
+        targetCurrency: settings.targetCurrency,
+        contextPromptBlock: turnContext.promptBlock,
+        onPartialResult: (partial) {
+          if (isClosed || !stateValue.isLoading) return;
+          final partialIsBase = _resolveIsBaseLanguage(
+            result: partial,
+            baseLanguageCode: settings.baseLanguage,
+            targetLanguageCode: settings.targetLanguage,
+          );
+          emit(
+            stateValue.copyWith(
+              streamingTranslatedText: partial.translatedText,
+              streamingIsBaseLanguage: partialIsBase,
+            ),
+          );
+        },
+      );
+    }
+    final engineElapsedMs = stepSw.elapsedMilliseconds;
+    if (isClosed) return;
+
+    if (result.translatedText.trim().isEmpty ||
+        LocalTranslationEngine.isNonSpeechOrHallucination(
+          originalText: result.originalText,
+          translatedText: result.translatedText,
+        )) {
+      _log.info(
+        'onAudioChunkReceived(): pause / no speech detected in turn '
+        '(original="${result.originalText}", translated="${result.translatedText}") '
+        '-> returning to listening state without adding a message.',
+      );
+      emit(
+        stateValue.copyWith(
+          isLoading: false,
+          streamingTranslatedText: null,
+          streamingIsBaseLanguage: null,
+          error: null,
+        ),
+      );
+      return;
+    }
+
+    final postProcessSw = Stopwatch()..start();
+    final isBaseLanguage = _resolveIsBaseLanguage(
+      result: result,
+      baseLanguageCode: settings.baseLanguage,
+      targetLanguageCode: settings.targetLanguage,
+    );
+
+    final rawOriginal = result.originalText?.trim() ?? '';
+    final rawTranslated = result.translatedText.trim();
+    final annotatedText = TranslationAnnotator.annotate(
+      originalText: rawOriginal,
+      translatedText: rawTranslated,
+      exchangeRate: exchangeRate,
+      baseCurrency: settings.baseCurrency,
+      targetCurrency: settings.targetCurrency,
+      isBaseLanguage: isBaseLanguage,
+    );
+    postProcessSw.stop();
+    stepSw.stop();
+
+    final speechToTextMs = result.speechToTextMs ?? engineElapsedMs;
+    final translationMs =
+        (result.translationMs ?? 0) + postProcessSw.elapsedMilliseconds;
+    final totalDurationMs =
+        result.totalDurationMs != null
+            ? result.totalDurationMs! + postProcessSw.elapsedMilliseconds
+            : (speechToTextMs + translationMs);
+    final speechToTextModel =
+        result.speechToTextModel ?? settings.activeSttModelDisplayName;
+    final translationModel =
+        result.translationModel ?? settings.activeTranslationModelDisplayName;
+
+    _log.info(
+      'onAudioChunkReceived(): translation succeeded! '
+      'detectedSource="${result.sourceLanguage}" (isBaseLanguage=$isBaseLanguage -> '
+      '${isBaseLanguage ? "Host/LEFT" : "Guest/RIGHT"}), '
+      'originalText="$rawOriginal", '
+      'translatedText="$rawTranslated", '
+      'annotatedText="$annotatedText", '
+      'models=(stt=$speechToTextModel, translation=$translationModel), '
+      'timing=(stt=${speechToTextMs}ms, translation=${translationMs}ms, total=${totalDurationMs}ms)',
+    );
+
+    final draftMessage = Message(
+      id: '',
+      conversationId: conversation.id,
+      timestamp: DateTime.now(),
+      isBaseLanguage: isBaseLanguage,
+      originalText: rawOriginal,
+      translatedText: rawTranslated,
+      annotatedText: annotatedText,
+      speechToTextMs: speechToTextMs,
+      translationMs: translationMs,
+      totalDurationMs: totalDurationMs,
+      speechToTextModel: speechToTextModel,
+      translationModel: translationModel,
+      activeContextSummary: turnContext.contextSummary,
+      rollingTurnsUsed: turnContext.rollingTurnsUsed,
+    );
+
+    final savedMessage = await _conversationRepository.saveMessage(
+      draftMessage,
+    );
+    if (isClosed) return;
+
+    _log.info(
+      'Saved translated message id=${savedMessage.id} to local storage.',
+    );
+
+    final updatedConversation = conversation.copyWith(
+      previewText: annotatedText,
+    );
+    final updatedMessages = <Message>[...stateValue.messages, savedMessage];
+
+    emit(
+      stateValue.copyWith(
+        conversation: updatedConversation,
+        messages: updatedMessages,
+        isLoading: false,
+        streamingTranslatedText: null,
+        streamingIsBaseLanguage: null,
+      ),
+    );
+
+    if (_pendingChunkQueue.isEmpty) {
+      await _updateGeneratedSummary(
+        conversation: updatedConversation,
+        messages: updatedMessages,
+        settings: settings,
+      );
     }
   }
 
@@ -1028,6 +1729,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       return false;
     }
     _log.info('deleteCurrentConversation(): deleting id=${currentConv.id}...');
+    _resetLanguageClocks();
+    _pendingChunkQueue.clear();
     await stopListening();
     await _conversationRepository.deleteConversation(currentConv.id);
     if (!isClosed) {
@@ -1040,6 +1743,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           amplitude: 0.0,
           streamingTranslatedText: null,
           streamingIsBaseLanguage: null,
+          lastClumpedMessageId: null,
         ),
       );
     }
@@ -1064,6 +1768,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
 
   Future<bool> _performExitSession() async {
     _log.info('exitSession() called.');
+    _resetLanguageClocks();
+    _pendingChunkQueue.clear();
     _latestPendingSnapshotChunk = null;
     _lastCompletedSnapshotChunk = null;
     _lastCompletedSnapshotResult = null;
@@ -1103,6 +1809,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           amplitude: 0.0,
           streamingTranslatedText: null,
           streamingIsBaseLanguage: null,
+          lastClumpedMessageId: null,
         ),
       );
     }
@@ -1119,10 +1826,20 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   void _ensureAudioSubscriptions() {
     _speechChunkSub ??= _audioService.audioChunkStream.listen(
       (chunk) {
+        final timed = _audioService.vadBuffer.lastEmittedTimedChunk;
+        final hasMatchingTimed =
+            timed != null && identical(timed.samples, chunk);
         _log.info(
-          'audioChunkStream emitted a VAD speech chunk (${chunk.length} samples) -> dispatching to onAudioChunkReceived().',
+          'audioChunkStream emitted a VAD speech chunk (${chunk.length} samples, '
+          'hasTimedMetadata=$hasMatchingTimed) -> dispatching to onAudioChunkReceived().',
         );
-        unawaited(onAudioChunkReceived(chunk));
+        unawaited(
+          onAudioChunkReceived(
+            chunk,
+            speechStartTime: hasMatchingTimed ? timed.speechStartTime : null,
+            speechEndTime: hasMatchingTimed ? timed.speechEndTime : null,
+          ),
+        );
       },
       onError: (Object error, StackTrace st) {
         _log.severe('Error on audioChunkStream', error, st);
@@ -1195,5 +1912,52 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     _log.info('Closing ActiveConversationBloc...');
     await exitSession();
     return super.close();
+  }
+}
+
+class _QueuedAudioChunk {
+  _QueuedAudioChunk({
+    required this.samples,
+    required this.speechStartTime,
+    required this.speechEndTime,
+    required this.completer,
+  });
+
+  final Float32List samples;
+  final DateTime speechStartTime;
+  final DateTime speechEndTime;
+  final Completer<void> completer;
+}
+
+class _LanguageRunningClockState {
+  String? openMessageId;
+  DateTime? lastSpeechEndTime;
+  final List<Message> interveningOppositeTurns = <Message>[];
+
+  void reset() {
+    openMessageId = null;
+    lastSpeechEndTime = null;
+    interveningOppositeTurns.clear();
+  }
+
+  void recordInterveningTurn(Message message) {
+    final existingIdx = interveningOppositeTurns.indexWhere(
+      (m) => m.id == message.id,
+    );
+    if (existingIdx != -1) {
+      interveningOppositeTurns[existingIdx] = message;
+    } else {
+      interveningOppositeTurns.add(message);
+    }
+  }
+
+  bool isOpenWithin({
+    required DateTime speechStartTime,
+    required Duration window,
+  }) {
+    final end = lastSpeechEndTime;
+    if (openMessageId == null || end == null) return false;
+    final gap = speechStartTime.difference(end);
+    return gap <= window;
   }
 }

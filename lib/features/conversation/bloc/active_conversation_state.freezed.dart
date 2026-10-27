@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$ActiveConversationState {
 
- Conversation? get conversation; List<Message> get messages; bool get isListening; bool get isLoading; double get amplitude; String? get streamingTranslatedText; bool? get streamingIsBaseLanguage; String? get error;
+ Conversation? get conversation; List<Message> get messages; bool get isListening; bool get isLoading; double get amplitude; String? get streamingTranslatedText; bool? get streamingIsBaseLanguage; String? get error; String? get lastClumpedMessageId; int get clumpedUpdateCount;
 /// Create a copy of ActiveConversationState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,20 +27,20 @@ $ActiveConversationStateCopyWith<ActiveConversationState> get copyWith => _$Acti
 @override
 bool operator ==(Object other) {
   final _this = this as ActiveConversationState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ActiveConversationState&&(identical(other.conversation, _this.conversation) || other.conversation == _this.conversation)&&const DeepCollectionEquality().equals(other.messages, _this.messages)&&(identical(other.isListening, _this.isListening) || other.isListening == _this.isListening)&&(identical(other.isLoading, _this.isLoading) || other.isLoading == _this.isLoading)&&(identical(other.amplitude, _this.amplitude) || other.amplitude == _this.amplitude)&&(identical(other.streamingTranslatedText, _this.streamingTranslatedText) || other.streamingTranslatedText == _this.streamingTranslatedText)&&(identical(other.streamingIsBaseLanguage, _this.streamingIsBaseLanguage) || other.streamingIsBaseLanguage == _this.streamingIsBaseLanguage)&&(identical(other.error, _this.error) || other.error == _this.error));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ActiveConversationState&&(identical(other.conversation, _this.conversation) || other.conversation == _this.conversation)&&const DeepCollectionEquality().equals(other.messages, _this.messages)&&(identical(other.isListening, _this.isListening) || other.isListening == _this.isListening)&&(identical(other.isLoading, _this.isLoading) || other.isLoading == _this.isLoading)&&(identical(other.amplitude, _this.amplitude) || other.amplitude == _this.amplitude)&&(identical(other.streamingTranslatedText, _this.streamingTranslatedText) || other.streamingTranslatedText == _this.streamingTranslatedText)&&(identical(other.streamingIsBaseLanguage, _this.streamingIsBaseLanguage) || other.streamingIsBaseLanguage == _this.streamingIsBaseLanguage)&&(identical(other.error, _this.error) || other.error == _this.error)&&(identical(other.lastClumpedMessageId, _this.lastClumpedMessageId) || other.lastClumpedMessageId == _this.lastClumpedMessageId)&&(identical(other.clumpedUpdateCount, _this.clumpedUpdateCount) || other.clumpedUpdateCount == _this.clumpedUpdateCount));
 }
 
 
 @override
 int get hashCode {
   final _this = this as ActiveConversationState;
-  return Object.hash(runtimeType,_this.conversation,const DeepCollectionEquality().hash(_this.messages),_this.isListening,_this.isLoading,_this.amplitude,_this.streamingTranslatedText,_this.streamingIsBaseLanguage,_this.error);
+  return Object.hash(runtimeType,_this.conversation,const DeepCollectionEquality().hash(_this.messages),_this.isListening,_this.isLoading,_this.amplitude,_this.streamingTranslatedText,_this.streamingIsBaseLanguage,_this.error,_this.lastClumpedMessageId,_this.clumpedUpdateCount);
 }
 
 @override
 String toString() {
   final _this = this as ActiveConversationState;
-  return 'ActiveConversationState(conversation: ${_this.conversation}, messages: ${_this.messages}, isListening: ${_this.isListening}, isLoading: ${_this.isLoading}, amplitude: ${_this.amplitude}, streamingTranslatedText: ${_this.streamingTranslatedText}, streamingIsBaseLanguage: ${_this.streamingIsBaseLanguage}, error: ${_this.error})';
+  return 'ActiveConversationState(conversation: ${_this.conversation}, messages: ${_this.messages}, isListening: ${_this.isListening}, isLoading: ${_this.isLoading}, amplitude: ${_this.amplitude}, streamingTranslatedText: ${_this.streamingTranslatedText}, streamingIsBaseLanguage: ${_this.streamingIsBaseLanguage}, error: ${_this.error}, lastClumpedMessageId: ${_this.lastClumpedMessageId}, clumpedUpdateCount: ${_this.clumpedUpdateCount})';
 }
 
 
@@ -51,7 +51,7 @@ abstract mixin class $ActiveConversationStateCopyWith<$Res>  {
   factory $ActiveConversationStateCopyWith(ActiveConversationState value, $Res Function(ActiveConversationState) _then) = _$ActiveConversationStateCopyWithImpl;
 @useResult
 $Res call({
- Conversation? conversation, List<Message> messages, bool isListening, bool isLoading, double amplitude, String? streamingTranslatedText, bool? streamingIsBaseLanguage, String? error
+ Conversation? conversation, List<Message> messages, bool isListening, bool isLoading, double amplitude, String? streamingTranslatedText, bool? streamingIsBaseLanguage, String? error, String? lastClumpedMessageId, int clumpedUpdateCount
 });
 
 
@@ -68,7 +68,7 @@ class _$ActiveConversationStateCopyWithImpl<$Res>
 
 /// Create a copy of ActiveConversationState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? conversation = freezed,Object? messages = null,Object? isListening = null,Object? isLoading = null,Object? amplitude = null,Object? streamingTranslatedText = freezed,Object? streamingIsBaseLanguage = freezed,Object? error = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? conversation = freezed,Object? messages = null,Object? isListening = null,Object? isLoading = null,Object? amplitude = null,Object? streamingTranslatedText = freezed,Object? streamingIsBaseLanguage = freezed,Object? error = freezed,Object? lastClumpedMessageId = freezed,Object? clumpedUpdateCount = null,}) {
   return _then(ActiveConversationState(
 conversation: freezed == conversation ? _self.conversation : conversation // ignore: cast_nullable_to_non_nullable
 as Conversation?,messages: null == messages ? _self.messages : messages // ignore: cast_nullable_to_non_nullable
@@ -78,7 +78,9 @@ as bool,amplitude: null == amplitude ? _self.amplitude : amplitude // ignore: ca
 as double,streamingTranslatedText: freezed == streamingTranslatedText ? _self.streamingTranslatedText : streamingTranslatedText // ignore: cast_nullable_to_non_nullable
 as String?,streamingIsBaseLanguage: freezed == streamingIsBaseLanguage ? _self.streamingIsBaseLanguage : streamingIsBaseLanguage // ignore: cast_nullable_to_non_nullable
 as bool?,error: freezed == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,lastClumpedMessageId: freezed == lastClumpedMessageId ? _self.lastClumpedMessageId : lastClumpedMessageId // ignore: cast_nullable_to_non_nullable
+as String?,clumpedUpdateCount: null == clumpedUpdateCount ? _self.clumpedUpdateCount : clumpedUpdateCount // ignore: cast_nullable_to_non_nullable
+as int,
   ));
 }
 /// Create a copy of ActiveConversationState
@@ -129,28 +131,28 @@ return $default(_that);case _:
 }
 }
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( Conversation? conversation,  List<Message> messages,  bool isListening,  bool isLoading,  double amplitude,  String? streamingTranslatedText,  bool? streamingIsBaseLanguage,  String? error)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( Conversation? conversation,  List<Message> messages,  bool isListening,  bool isLoading,  double amplitude,  String? streamingTranslatedText,  bool? streamingIsBaseLanguage,  String? error,  String? lastClumpedMessageId,  int clumpedUpdateCount)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _ActiveConversationState() when $default != null:
-return $default(_that.conversation,_that.messages,_that.isListening,_that.isLoading,_that.amplitude,_that.streamingTranslatedText,_that.streamingIsBaseLanguage,_that.error);case _:
+return $default(_that.conversation,_that.messages,_that.isListening,_that.isLoading,_that.amplitude,_that.streamingTranslatedText,_that.streamingIsBaseLanguage,_that.error,_that.lastClumpedMessageId,_that.clumpedUpdateCount);case _:
   return orElse();
 
 }
 }
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( Conversation? conversation,  List<Message> messages,  bool isListening,  bool isLoading,  double amplitude,  String? streamingTranslatedText,  bool? streamingIsBaseLanguage,  String? error)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( Conversation? conversation,  List<Message> messages,  bool isListening,  bool isLoading,  double amplitude,  String? streamingTranslatedText,  bool? streamingIsBaseLanguage,  String? error,  String? lastClumpedMessageId,  int clumpedUpdateCount)  $default,) {final _that = this;
 switch (_that) {
 case _ActiveConversationState():
-return $default(_that.conversation,_that.messages,_that.isListening,_that.isLoading,_that.amplitude,_that.streamingTranslatedText,_that.streamingIsBaseLanguage,_that.error);case _:
+return $default(_that.conversation,_that.messages,_that.isListening,_that.isLoading,_that.amplitude,_that.streamingTranslatedText,_that.streamingIsBaseLanguage,_that.error,_that.lastClumpedMessageId,_that.clumpedUpdateCount);case _:
   throw StateError('Unexpected subclass');
 
 }
 }
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( Conversation? conversation,  List<Message> messages,  bool isListening,  bool isLoading,  double amplitude,  String? streamingTranslatedText,  bool? streamingIsBaseLanguage,  String? error)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( Conversation? conversation,  List<Message> messages,  bool isListening,  bool isLoading,  double amplitude,  String? streamingTranslatedText,  bool? streamingIsBaseLanguage,  String? error,  String? lastClumpedMessageId,  int clumpedUpdateCount)?  $default,) {final _that = this;
 switch (_that) {
 case _ActiveConversationState() when $default != null:
-return $default(_that.conversation,_that.messages,_that.isListening,_that.isLoading,_that.amplitude,_that.streamingTranslatedText,_that.streamingIsBaseLanguage,_that.error);case _:
+return $default(_that.conversation,_that.messages,_that.isListening,_that.isLoading,_that.amplitude,_that.streamingTranslatedText,_that.streamingIsBaseLanguage,_that.error,_that.lastClumpedMessageId,_that.clumpedUpdateCount);case _:
   return null;
 
 }
@@ -162,7 +164,7 @@ return $default(_that.conversation,_that.messages,_that.isListening,_that.isLoad
 
 
 class _ActiveConversationState extends ActiveConversationState {
-  const _ActiveConversationState({this.conversation,  List<Message> messages = const <Message>[], this.isListening = false, this.isLoading = false, this.amplitude = 0.0, this.streamingTranslatedText, this.streamingIsBaseLanguage, this.error}): _messages = messages,super._();
+  const _ActiveConversationState({this.conversation,  List<Message> messages = const <Message>[], this.isListening = false, this.isLoading = false, this.amplitude = 0.0, this.streamingTranslatedText, this.streamingIsBaseLanguage, this.error, this.lastClumpedMessageId, this.clumpedUpdateCount = 0}): _messages = messages,super._();
   
 
 @override final  Conversation? conversation;
@@ -179,6 +181,8 @@ class _ActiveConversationState extends ActiveConversationState {
 @override final  String? streamingTranslatedText;
 @override final  bool? streamingIsBaseLanguage;
 @override final  String? error;
+@override final  String? lastClumpedMessageId;
+@override@JsonKey() final  int clumpedUpdateCount;
 
 /// Create a copy of ActiveConversationState
 /// with the given fields replaced by the non-null parameter values.
@@ -190,18 +194,18 @@ _$ActiveConversationStateCopyWith<_ActiveConversationState> get copyWith => __$A
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ActiveConversationState&&(identical(other.conversation, conversation) || other.conversation == conversation)&&const DeepCollectionEquality().equals(other._messages, _messages)&&(identical(other.isListening, isListening) || other.isListening == isListening)&&(identical(other.isLoading, isLoading) || other.isLoading == isLoading)&&(identical(other.amplitude, amplitude) || other.amplitude == amplitude)&&(identical(other.streamingTranslatedText, streamingTranslatedText) || other.streamingTranslatedText == streamingTranslatedText)&&(identical(other.streamingIsBaseLanguage, streamingIsBaseLanguage) || other.streamingIsBaseLanguage == streamingIsBaseLanguage)&&(identical(other.error, error) || other.error == error));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _ActiveConversationState&&(identical(other.conversation, conversation) || other.conversation == conversation)&&const DeepCollectionEquality().equals(other._messages, _messages)&&(identical(other.isListening, isListening) || other.isListening == isListening)&&(identical(other.isLoading, isLoading) || other.isLoading == isLoading)&&(identical(other.amplitude, amplitude) || other.amplitude == amplitude)&&(identical(other.streamingTranslatedText, streamingTranslatedText) || other.streamingTranslatedText == streamingTranslatedText)&&(identical(other.streamingIsBaseLanguage, streamingIsBaseLanguage) || other.streamingIsBaseLanguage == streamingIsBaseLanguage)&&(identical(other.error, error) || other.error == error)&&(identical(other.lastClumpedMessageId, lastClumpedMessageId) || other.lastClumpedMessageId == lastClumpedMessageId)&&(identical(other.clumpedUpdateCount, clumpedUpdateCount) || other.clumpedUpdateCount == clumpedUpdateCount));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,conversation,const DeepCollectionEquality().hash(_messages),isListening,isLoading,amplitude,streamingTranslatedText,streamingIsBaseLanguage,error);
+    return Object.hash(runtimeType,conversation,const DeepCollectionEquality().hash(_messages),isListening,isLoading,amplitude,streamingTranslatedText,streamingIsBaseLanguage,error,lastClumpedMessageId,clumpedUpdateCount);
 }
 
 @override
 String toString() {
-    return 'ActiveConversationState(conversation: $conversation, messages: $messages, isListening: $isListening, isLoading: $isLoading, amplitude: $amplitude, streamingTranslatedText: $streamingTranslatedText, streamingIsBaseLanguage: $streamingIsBaseLanguage, error: $error)';
+    return 'ActiveConversationState(conversation: $conversation, messages: $messages, isListening: $isListening, isLoading: $isLoading, amplitude: $amplitude, streamingTranslatedText: $streamingTranslatedText, streamingIsBaseLanguage: $streamingIsBaseLanguage, error: $error, lastClumpedMessageId: $lastClumpedMessageId, clumpedUpdateCount: $clumpedUpdateCount)';
 }
 
 
@@ -212,7 +216,7 @@ abstract mixin class _$ActiveConversationStateCopyWith<$Res> implements $ActiveC
   factory _$ActiveConversationStateCopyWith(_ActiveConversationState value, $Res Function(_ActiveConversationState) _then) = __$ActiveConversationStateCopyWithImpl;
 @override @useResult
 $Res call({
- Conversation? conversation, List<Message> messages, bool isListening, bool isLoading, double amplitude, String? streamingTranslatedText, bool? streamingIsBaseLanguage, String? error
+ Conversation? conversation, List<Message> messages, bool isListening, bool isLoading, double amplitude, String? streamingTranslatedText, bool? streamingIsBaseLanguage, String? error, String? lastClumpedMessageId, int clumpedUpdateCount
 });
 
 
@@ -229,7 +233,7 @@ class __$ActiveConversationStateCopyWithImpl<$Res>
 
 /// Create a copy of ActiveConversationState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? conversation = freezed,Object? messages = null,Object? isListening = null,Object? isLoading = null,Object? amplitude = null,Object? streamingTranslatedText = freezed,Object? streamingIsBaseLanguage = freezed,Object? error = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? conversation = freezed,Object? messages = null,Object? isListening = null,Object? isLoading = null,Object? amplitude = null,Object? streamingTranslatedText = freezed,Object? streamingIsBaseLanguage = freezed,Object? error = freezed,Object? lastClumpedMessageId = freezed,Object? clumpedUpdateCount = null,}) {
   return _then(_ActiveConversationState(
 conversation: freezed == conversation ? _self.conversation : conversation // ignore: cast_nullable_to_non_nullable
 as Conversation?,messages: null == messages ? _self._messages : messages // ignore: cast_nullable_to_non_nullable
@@ -239,7 +243,9 @@ as bool,amplitude: null == amplitude ? _self.amplitude : amplitude // ignore: ca
 as double,streamingTranslatedText: freezed == streamingTranslatedText ? _self.streamingTranslatedText : streamingTranslatedText // ignore: cast_nullable_to_non_nullable
 as String?,streamingIsBaseLanguage: freezed == streamingIsBaseLanguage ? _self.streamingIsBaseLanguage : streamingIsBaseLanguage // ignore: cast_nullable_to_non_nullable
 as bool?,error: freezed == error ? _self.error : error // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,lastClumpedMessageId: freezed == lastClumpedMessageId ? _self.lastClumpedMessageId : lastClumpedMessageId // ignore: cast_nullable_to_non_nullable
+as String?,clumpedUpdateCount: null == clumpedUpdateCount ? _self.clumpedUpdateCount : clumpedUpdateCount // ignore: cast_nullable_to_non_nullable
+as int,
   ));
 }
 

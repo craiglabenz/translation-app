@@ -10,6 +10,7 @@ import 'package:translation_app/core/ai/local_translation_engine.dart';
 import 'package:translation_app/core/ai/model_manager.dart';
 import 'package:translation_app/core/ai/network_translation_engine.dart';
 import 'package:translation_app/core/ai/prompt_templates.dart';
+import 'package:translation_app/core/ai/speech_to_text_engine.dart';
 import 'package:translation_app/core/ai/switchable_translation_engine.dart';
 import 'package:translation_app/core/ai/translation_engine.dart';
 import 'package:translation_app/core/data/models/app_settings.dart';
@@ -1394,6 +1395,125 @@ Let me know if you need anything else!
 
       await switchable.dispose();
       await modelManager.close();
+    });
+
+    test('LanguageDetector.segmentAndResolveTranscript splits multi-language clauses and absorbs lone interjections', () {
+      // 1. Rapid switch from English to Spanish within a single audio snippet
+      final splitEnEs = LanguageDetector.segmentAndResolveTranscript(
+        rawSegments: const <SpeechSegment>[
+          SpeechSegment(
+            languageCode: 'en',
+            text: 'Where is the elevator? Está al fondo a la derecha.',
+          ),
+        ],
+        baseLanguage: 'en',
+        targetLanguage: 'es',
+      );
+      expect(splitEnEs, hasLength(2));
+      expect(splitEnEs[0].languageCode, 'en');
+      expect(splitEnEs[0].text, 'Where is the elevator?');
+      expect(splitEnEs[1].languageCode, 'es');
+      expect(splitEnEs[1].text, 'Está al fondo a la derecha.');
+
+      // 2. Rapid switch between Latin and Hangul scripts without punctuation
+      final splitEnKo = LanguageDetector.segmentAndResolveTranscript(
+        rawSegments: const <SpeechSegment>[
+          SpeechSegment(
+            languageCode: 'en',
+            text: 'Thank you so much 정말 감사합니다',
+          ),
+        ],
+        baseLanguage: 'en',
+        targetLanguage: 'ko',
+      );
+      expect(splitEnKo, hasLength(2));
+      expect(splitEnKo[0].languageCode, 'en');
+      expect(splitEnKo[0].text, 'Thank you so much');
+      expect(splitEnKo[1].languageCode, 'ko');
+      expect(splitEnKo[1].text, '정말 감사합니다');
+
+      // 3. Interjection absorption: "Okay. ¿Dónde está el baño?" absorbs "Okay." into Spanish
+      final absorbedInterjection = LanguageDetector.segmentAndResolveTranscript(
+        rawSegments: const <SpeechSegment>[
+          SpeechSegment(
+            languageCode: 'es',
+            text: 'Okay. ¿Dónde está el baño?',
+          ),
+        ],
+        baseLanguage: 'en',
+        targetLanguage: 'es',
+      );
+      expect(absorbedInterjection, hasLength(1));
+      expect(absorbedInterjection.single.languageCode, 'es');
+      expect(absorbedInterjection.single.text, 'Okay. ¿Dónde está el baño?');
+
+      // 4. Standalone interjection ("Okay.") is preserved as a single segment
+      final standaloneInterjection =
+          LanguageDetector.segmentAndResolveTranscript(
+            rawSegments: const <SpeechSegment>[
+              SpeechSegment(languageCode: 'en', text: 'Okay.'),
+            ],
+            baseLanguage: 'en',
+            targetLanguage: 'es',
+          );
+      expect(standaloneInterjection, hasLength(1));
+      expect(standaloneInterjection.single.languageCode, 'en');
+      expect(standaloneInterjection.single.text, 'Okay.');
+    });
+
+    test('parseSpeechToTextResponse parses segmented JSON arrays and parseContinuationResponse resolves movie-script decisions', () {
+      final sttSegmented = LocalTranslationEngine.parseSpeechToTextResponse(
+        '{"segments": [{"lang": "en", "text": "Excuse me, how much is this?"}, {"lang": "es", "text": "Cuesta veinte dólares."}]}',
+        baseLanguage: 'English',
+        targetLanguage: 'Spanish',
+        durationMs: 320,
+        modelName: 'Gemma 4',
+      );
+      expect(sttSegmented.effectiveSegments, hasLength(2));
+      expect(sttSegmented.effectiveSegments[0].languageCode, 'en');
+      expect(
+        sttSegmented.effectiveSegments[0].text,
+        'Excuse me, how much is this?',
+      );
+      expect(sttSegmented.effectiveSegments[1].languageCode, 'es');
+      expect(sttSegmented.effectiveSegments[1].text, 'Cuesta veinte dólares.');
+
+      final sameSentenceDecision =
+          LocalTranslationEngine.parseContinuationResponse(
+            '{"same_sentence": true, "combined_original": "Are we too early to check in?", "translated_text": "¿Llegamos demasiado temprano para registrarnos?"}',
+            part1Transcript: 'Are we too early',
+            part2Transcript: 'to check in?',
+            interveningTurns: const <Message>[],
+            resolvedSourceCode: 'en',
+            translationMs: 210,
+            speechToTextMs: 140,
+            speechToTextModel: 'Gemma 4',
+            translationModel: 'Gemma 4',
+          );
+      expect(sameSentenceDecision.isSameSentence, isTrue);
+      expect(
+        sameSentenceDecision.combinedOriginalText,
+        'Are we too early to check in?',
+      );
+      expect(
+        sameSentenceDecision.result.translatedText,
+        '¿Llegamos demasiado temprano para registrarnos?',
+      );
+
+      final forkedDecision = LocalTranslationEngine.parseContinuationResponse(
+        '{"same_sentence": false, "translated_text": "Genial, ¿cuánto cuesta?"}',
+        part1Transcript: 'Do you have a room available?',
+        part2Transcript: 'Great, how much is it?',
+        interveningTurns: const <Message>[],
+        resolvedSourceCode: 'en',
+        translationMs: 190,
+        speechToTextMs: 120,
+        speechToTextModel: 'Gemma 4',
+        translationModel: 'Gemma 4',
+      );
+      expect(forkedDecision.isSameSentence, isFalse);
+      expect(forkedDecision.combinedOriginalText, 'Great, how much is it?');
+      expect(forkedDecision.result.translatedText, 'Genial, ¿cuánto cuesta?');
     });
   });
 }
