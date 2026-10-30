@@ -146,11 +146,8 @@ void configureDependencies({
       () => NativeAudioService(
         vadBuffer: VadBuffer(
           silenceCutoff: VadBuffer.interactiveSilenceCutoff,
-          maxChunkDuration: VadBuffer.interactiveMaxChunkDuration,
           minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
           silenceThreshold: VadBuffer.interactiveSilenceThreshold,
-          liveSnapshotInterval: VadBuffer.interactiveLiveSnapshotInterval,
-          livePauseSnapshotDelay: VadBuffer.interactiveLivePauseSnapshotDelay,
         ),
       ),
       dispose: (service) => service.dispose(),

@@ -30,7 +30,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     required this._translationEngine,
     required this._audioService,
     Duration? languageClumpingWindow,
-  }) : _languageClumpingWindow =
+  }) : languageClumpingWindow =
            languageClumpingWindow ?? defaultLanguageClumpingWindow,
        super(initialState: const ActiveConversationState());
 
@@ -45,16 +45,12 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   final SettingsRepository _settingsRepository;
   final TranslationEngine _translationEngine;
   final NativeAudioService _audioService;
-  final Duration? _languageClumpingWindow;
-
-  Duration get languageClumpingWindow =>
-      _languageClumpingWindow ?? defaultLanguageClumpingWindow;
+  final Duration languageClumpingWindow;
 
   StreamSubscription<Float32List>? _speechChunkSub;
   StreamSubscription<Float32List>? _activeSpeechSnapshotSub;
   StreamSubscription<double>? _amplitudeSub;
   Future<bool>? _ongoingExitFuture;
-  bool? _hasExitedSession;
 
   Float32List? _latestPendingSnapshotChunk;
   Float32List? _inFlightSnapshotChunk;
@@ -65,21 +61,14 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   List<String> _pendingContextIds = const <String>[];
   List<String> _pendingCustomKeywords = const <String>[];
 
-  Queue<_QueuedAudioChunk>? _pendingChunkQueueField;
-  Queue<_QueuedAudioChunk> get _pendingChunkQueue =>
-      _pendingChunkQueueField ??= Queue<_QueuedAudioChunk>();
+  final Queue<_QueuedAudioChunk> _pendingChunkQueue =
+      Queue<_QueuedAudioChunk>();
+  bool _isDrainingChunkQueue = false;
 
-  bool? _isDrainingChunkQueueField;
-  bool get _isDrainingChunkQueue => _isDrainingChunkQueueField ?? false;
-  set _isDrainingChunkQueue(bool value) => _isDrainingChunkQueueField = value;
-
-  _LanguageRunningClockState? _baseLanguageClockField;
-  _LanguageRunningClockState get _baseLanguageClock =>
-      _baseLanguageClockField ??= _LanguageRunningClockState();
-
-  _LanguageRunningClockState? _targetLanguageClockField;
-  _LanguageRunningClockState get _targetLanguageClock =>
-      _targetLanguageClockField ??= _LanguageRunningClockState();
+  final _LanguageRunningClockState _baseLanguageClock =
+      _LanguageRunningClockState();
+  final _LanguageRunningClockState _targetLanguageClock =
+      _LanguageRunningClockState();
 
   void _resetLanguageClocks() {
     _baseLanguageClock.reset();
@@ -100,7 +89,6 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       '(conversationId=$conversationId, autoStartListening=$autoStartListening, '
       'initialContextIds=$initialContextIds, initialCustomKeywords=$initialCustomKeywords)',
     );
-    _hasExitedSession = false;
     _pendingContextIds = List<String>.unmodifiable(initialContextIds);
     _pendingCustomKeywords = List<String>.unmodifiable(initialCustomKeywords);
     if (conversationId != null) {
@@ -132,7 +120,6 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   }) async {
     final sw = Stopwatch()..start();
     _log.info('[PERF] ActiveConversationBloc.startNewSession() START');
-    _hasExitedSession = false;
     _resetLanguageClocks();
     emit(stateValue.copyWith(error: null));
     final settings = await _settingsRepository.getSettings();
@@ -185,7 +172,6 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       '[PERF] ActiveConversationBloc.loadConversation START '
       '(conversationId=$conversationId, autoStartListening=$autoStartListening)',
     );
-    _hasExitedSession = false;
     _resetLanguageClocks();
     emit(stateValue.copyWith(error: null));
     try {
@@ -243,7 +229,6 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   /// Starts or resumes microphone capture and VAD speech segmentation.
   Future<void> startListening([Conversation? targetConversation]) async {
     final sw = Stopwatch()..start();
-    _hasExitedSession = false;
     _log.info(
       '[PERF] ActiveConversationBloc.startListening() START '
       '(currentIsListening=${stateValue.isListening}, '
@@ -829,6 +814,8 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   Future<void> _drainChunkQueue() async {
     if (_isDrainingChunkQueue) return;
     _isDrainingChunkQueue = true;
+    _isFinalChunkTranslating = true;
+    _latestPendingSnapshotChunk = null;
     try {
       while (_pendingChunkQueue.isNotEmpty && !isClosed) {
         final item = _pendingChunkQueue.removeFirst();
@@ -844,6 +831,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         }
       }
     } finally {
+      _isFinalChunkTranslating = false;
       _isDrainingChunkQueue = false;
     }
   }
@@ -910,16 +898,16 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         ),
       );
     } finally {
-      _isFinalChunkTranslating = false;
       _lastCompletedSnapshotChunk = null;
       _lastCompletedSnapshotResult = null;
     }
   }
 
   /// Segmented multi-language pipeline for [SegmentedTranslationEngine]:
-  /// 1. Runs Step 1 STT to produce an ordered list of language-tagged
-  ///    [SpeechSegment]s (absorbing lone interjections and splitting rapid
-  ///    language switches).
+  /// 1. Reuses an in-flight or completed live active-speech snapshot when it
+  ///    covers the same active speech, or runs Step 1 STT to produce an ordered
+  ///    list of language-tagged [SpeechSegment]s (absorbing lone interjections
+  ///    and splitting rapid language switches).
   /// 2. Checks each segment against that language's 4.0s acoustic running clock:
   ///    - Consecutive same-language within 4.0s (no intervening opposite turn):
   ///      auto-clumps and re-translates in-place.
@@ -936,9 +924,33 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     required AppSettings settings,
     required double exchangeRate,
   }) async {
+    TranslationResult? matchedSnapshotResult;
     final inFlightFuture = _inFlightSnapshotFuture;
-    if (inFlightFuture != null) {
-      await inFlightFuture;
+    final inFlightChunk = _inFlightSnapshotChunk;
+
+    if (inFlightFuture != null &&
+        inFlightChunk != null &&
+        _hasSameActiveSpeech(inFlightChunk, item.samples)) {
+      _log.info(
+        'onAudioChunkReceived(): joining in-flight active-speech snapshot '
+        '(${inFlightChunk.length} active samples) for final utterance...',
+      );
+      matchedSnapshotResult = await inFlightFuture;
+    } else {
+      if (inFlightFuture != null) {
+        await inFlightFuture;
+      }
+      final completedChunk = _lastCompletedSnapshotChunk;
+      final completedResult = _lastCompletedSnapshotResult;
+      if (completedChunk != null &&
+          completedResult != null &&
+          _hasSameActiveSpeech(completedChunk, item.samples)) {
+        _log.info(
+          'onAudioChunkReceived(): reusing completed active-speech snapshot '
+          'result (${completedChunk.length} active samples) with zero extra inference!',
+        );
+        matchedSnapshotResult = completedResult;
+      }
     }
     if (isClosed) return;
 
@@ -947,42 +959,112 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       settings.targetLanguage,
     );
 
-    final initialContext = _buildTurnContextMetadata(
-      settings: settings,
-      conversation: conversation,
-      priorMessages: stateValue.messages,
-    );
+    if (matchedSnapshotResult != null &&
+        (matchedSnapshotResult.translatedText.trim().isEmpty ||
+            LocalTranslationEngine.isNonSpeechOrHallucination(
+              originalText: matchedSnapshotResult.originalText,
+              translatedText: matchedSnapshotResult.translatedText,
+            ))) {
+      _log.info(
+        '[SEGMENTED SNAPSHOT EMPTY] Reused snapshot indicated pause / no speech '
+        '(original="${matchedSnapshotResult.originalText}", translated="${matchedSnapshotResult.translatedText}") '
+        '-> reporting non-speech audio and returning to listening state.',
+      );
+      _audioService.reportNonSpeechAudio(item.samples);
+      emit(
+        stateValue.copyWith(
+          isLoading: false,
+          streamingTranslatedText: null,
+          streamingIsBaseLanguage: null,
+          error: null,
+        ),
+      );
+      return;
+    }
 
-    final sttSw = Stopwatch()..start();
-    _log.info(
-      '[SEGMENTED STT START] Transcribing ${item.samples.length} samples '
-      '(speechStart=${item.speechStartTime.toIso8601String()}, '
-      'speechEnd=${item.speechEndTime.toIso8601String()})...',
-    );
-    final sttResult = await engine.transcribeAudioChunk(
-      audioWavChunk: item.samples,
-      baseLanguage: baseLanguageName,
-      targetLanguage: targetLanguageName,
-      contextPromptBlock: initialContext.promptBlock,
-    );
-    sttSw.stop();
-    if (isClosed) return;
+    late final List<SpeechSegment> validSegments;
+    late final int perSegmentSttMs;
+    late final String sttModelName;
 
-    final validSegments = sttResult.effectiveSegments
-        .where(
-          (seg) =>
-              seg.text.trim().isNotEmpty &&
-              !LocalTranslationEngine.isNonSpeechOrHallucination(
-                translatedText: seg.text,
+    final snapshotOriginal = matchedSnapshotResult?.originalText?.trim() ?? '';
+    if (matchedSnapshotResult != null && snapshotOriginal.isNotEmpty) {
+      final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguageName);
+      final targetCode = LanguageDetector.normalizeLanguageCode(
+        targetLanguageName,
+      );
+      final resolvedFromSnapshot =
+          LanguageDetector.segmentAndResolveTranscript(
+            rawSegments: <SpeechSegment>[
+              SpeechSegment(
+                text: snapshotOriginal,
+                languageCode: matchedSnapshotResult.sourceLanguage,
               ),
-        )
-        .toList(growable: false);
+            ],
+            baseLanguage: baseCode,
+            targetLanguage: targetCode,
+          );
+      validSegments = resolvedFromSnapshot
+          .where(
+            (seg) =>
+                seg.text.trim().isNotEmpty &&
+                !LocalTranslationEngine.isNonSpeechOrHallucination(
+                  translatedText: seg.text,
+                ),
+          )
+          .toList(growable: false);
+      perSegmentSttMs = validSegments.isEmpty
+          ? 0
+          : (matchedSnapshotResult.speechToTextMs ?? 0) ~/ validSegments.length;
+      sttModelName =
+          matchedSnapshotResult.speechToTextModel ??
+          settings.activeSttModelDisplayName;
+    } else {
+      final initialContext = _buildTurnContextMetadata(
+        settings: settings,
+        conversation: conversation,
+        priorMessages: stateValue.messages,
+      );
+
+      final sttSw = Stopwatch()..start();
+      _log.info(
+        '[SEGMENTED STT START] Transcribing ${item.samples.length} samples '
+        '(speechStart=${item.speechStartTime.toIso8601String()}, '
+        'speechEnd=${item.speechEndTime.toIso8601String()})...',
+      );
+      final sttResult = await engine.transcribeAudioChunk(
+        audioWavChunk: item.samples,
+        baseLanguage: baseLanguageName,
+        targetLanguage: targetLanguageName,
+        contextPromptBlock: initialContext.promptBlock,
+      );
+      sttSw.stop();
+      if (isClosed) return;
+
+      validSegments = sttResult.effectiveSegments
+          .where(
+            (seg) =>
+                seg.text.trim().isNotEmpty &&
+                !LocalTranslationEngine.isNonSpeechOrHallucination(
+                  translatedText: seg.text,
+                ),
+          )
+          .toList(growable: false);
+      perSegmentSttMs = validSegments.isEmpty
+          ? 0
+          : (sttResult.durationMs > 0
+                    ? sttResult.durationMs
+                    : sttSw.elapsedMilliseconds) ~/
+                validSegments.length;
+      sttModelName =
+          sttResult.modelName ?? settings.activeSttModelDisplayName;
+    }
 
     if (validSegments.isEmpty) {
       _log.info(
         '[SEGMENTED STT EMPTY] No speech segments found '
-        '(rawTranscript="${sttResult.transcript}") -> returning to listening state.',
+        '-> reporting non-speech audio and returning to listening state.',
       );
+      _audioService.reportNonSpeechAudio(item.samples);
       emit(
         stateValue.copyWith(
           isLoading: false,
@@ -995,17 +1077,9 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     }
 
     _log.info(
-      '[SEGMENTED STT RESULT] Extracted ${validSegments.length} segment(s) in ${sttSw.elapsedMilliseconds}ms: '
+      '[SEGMENTED STT RESULT] Extracted ${validSegments.length} segment(s): '
       '${validSegments.map((s) => '[${s.languageCode}] "${s.text}"').join(' | ')}',
     );
-
-    final perSegmentSttMs =
-        (sttResult.durationMs > 0
-            ? sttResult.durationMs
-            : sttSw.elapsedMilliseconds) ~/
-        validSegments.length;
-    final sttModelName =
-        sttResult.modelName ?? settings.activeSttModelDisplayName;
 
     var currentConversation = stateValue.conversation ?? conversation;
     var currentMessages = List<Message>.of(stateValue.messages);
@@ -1365,27 +1439,38 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       );
       final rawOriginal = segment.text.trim();
       final transSw = Stopwatch()..start();
-      final translationResult = await engine.translateText(
-        transcript: rawOriginal,
-        sourceLanguage: speakerLangCode,
-        baseLanguage: baseLanguageName,
-        targetLanguage: targetLanguageName,
-        exchangeRate: exchangeRate,
-        baseCurrency: settings.baseCurrency,
-        targetCurrency: settings.targetCurrency,
-        contextPromptBlock: segmentContext.promptBlock,
-        speechToTextMs: perSegmentSttMs,
-        speechToTextModel: sttModelName,
-        onPartialResult: (partial) {
-          if (isClosed || !stateValue.isLoading) return;
-          emit(
-            stateValue.copyWith(
-              streamingTranslatedText: partial.translatedText,
-              streamingIsBaseLanguage: isBaseLanguage,
-            ),
-          );
-        },
-      );
+      final TranslationResult translationResult;
+      if (matchedSnapshotResult != null &&
+          validSegments.length == 1 &&
+          matchedSnapshotResult.translatedText.trim().isNotEmpty) {
+        _log.info(
+          '[SNAPSHOT REUSED FOR FINAL BUBBLE] Reusing live snapshot translation '
+          'for single-segment turn with zero extra inference!',
+        );
+        translationResult = matchedSnapshotResult;
+      } else {
+        translationResult = await engine.translateText(
+          transcript: rawOriginal,
+          sourceLanguage: speakerLangCode,
+          baseLanguage: baseLanguageName,
+          targetLanguage: targetLanguageName,
+          exchangeRate: exchangeRate,
+          baseCurrency: settings.baseCurrency,
+          targetCurrency: settings.targetCurrency,
+          contextPromptBlock: segmentContext.promptBlock,
+          speechToTextMs: perSegmentSttMs,
+          speechToTextModel: sttModelName,
+          onPartialResult: (partial) {
+            if (isClosed || !stateValue.isLoading) return;
+            emit(
+              stateValue.copyWith(
+                streamingTranslatedText: partial.translatedText,
+                streamingIsBaseLanguage: isBaseLanguage,
+              ),
+            );
+          },
+        );
+      }
       transSw.stop();
       if (isClosed) return;
 
@@ -1579,6 +1664,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         '(original="${result.originalText}", translated="${result.translatedText}") '
         '-> returning to listening state without adding a message.',
       );
+      _audioService.reportNonSpeechAudio(audioChunk);
       emit(
         stateValue.copyWith(
           isLoading: false,
@@ -1775,10 +1861,6 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   Future<bool> exitSession() {
     final inFlight = _ongoingExitFuture;
     if (inFlight != null) return inFlight;
-    if (_hasExitedSession ?? false) {
-      return Future<bool>.value(false);
-    }
-    _hasExitedSession = true;
     final future = _performExitSession();
     _ongoingExitFuture = future;
     return future.whenComplete(() {

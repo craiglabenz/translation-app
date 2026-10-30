@@ -37,10 +37,8 @@ class NativeAudioService {
       StreamController<double>.broadcast();
 
   StreamSubscription<Float32List>? _customStreamSub;
-  Stream<Object?>? _nativeBroadcastStream;
   StreamSubscription<Object?>? _nativeStreamSub;
   WebAudioRecorder? _webRecorder;
-  Future<void>? _inFlightControlOp;
   bool _isCapturing = false;
   int _frameCount = 0;
 
@@ -73,26 +71,6 @@ class NativeAudioService {
 
   /// Starts streaming 16kHz mono `Float32List` PCM audio from the microphone.
   Future<void> startCapture() async {
-    while (_inFlightControlOp != null) {
-      try {
-        await _inFlightControlOp;
-      } on Object {
-        // Ignore errors from prior operation.
-      }
-    }
-    final completer = Completer<void>();
-    _inFlightControlOp = completer.future;
-    try {
-      await _performStartCapture();
-    } finally {
-      if (identical(_inFlightControlOp, completer.future)) {
-        _inFlightControlOp = null;
-      }
-      completer.complete();
-    }
-  }
-
-  Future<void> _performStartCapture() async {
     final isTestEnv = isFlutterTestEnvironment;
     _log.info(
       'startCapture() requested: isCapturing=$_isCapturing, '
@@ -101,17 +79,8 @@ class NativeAudioService {
     );
 
     if (_isCapturing) {
-      final isNativePlatformCapture =
-          _customFrameStreamProvider == null &&
-          (!isTestEnv || enablePlatformChannelInTests) &&
-          !kIsWeb;
-      if (!isNativePlatformCapture) {
-        _log.info('startCapture() ignored because capture is already active.');
-        return;
-      }
-      _log.info(
-        'startCapture(): _isCapturing was true on native platform -> re-asserting native audio start & stream subscription.',
-      );
+      _log.info('startCapture() ignored because capture is already active.');
+      return;
     }
     _vadBuffer.reset();
     _frameCount = 0;
@@ -119,11 +88,6 @@ class NativeAudioService {
 
     if (_customFrameStreamProvider != null) {
       _log.info('Subscribing to custom audio frame stream provider...');
-      final prevCustom = _customStreamSub;
-      _customStreamSub = null;
-      if (prevCustom != null) {
-        unawaited(prevCustom.cancel());
-      }
       final stream = _customFrameStreamProvider();
       _customStreamSub = stream.listen(
         pushSamples,
@@ -144,9 +108,7 @@ class NativeAudioService {
 
     if (kIsWeb) {
       try {
-        _log.info(
-          'Starting WebAudioRecorder at ${VadBuffer.defaultSampleRate}Hz...',
-        );
+        _log.info('Starting WebAudioRecorder at ${VadBuffer.defaultSampleRate}Hz...');
         final webRecorder = WebAudioRecorder(
           onSamples: pushSamples,
           targetSampleRate: VadBuffer.defaultSampleRate,
@@ -163,11 +125,6 @@ class NativeAudioService {
     }
 
     try {
-      final prevNative = _nativeStreamSub;
-      _nativeStreamSub = null;
-      if (prevNative != null) {
-        await prevNative.cancel();
-      }
       _log.info(
         'Invoking native MethodChannel("${_controlChannel.name}").start(sampleRate=${VadBuffer.defaultSampleRate}, channels=1)...',
       );
@@ -178,22 +135,13 @@ class NativeAudioService {
       _log.info(
         'Native audio_control "start" succeeded. Subscribing to EventChannel("${_streamChannel.name}")...',
       );
-      _isCapturing = true;
-      final broadcastStream =
-          _nativeBroadcastStream ??= _streamChannel.receiveBroadcastStream();
-      _nativeStreamSub = broadcastStream.listen(
+      _nativeStreamSub = _streamChannel.receiveBroadcastStream().listen(
         _handleNativePayload,
         onError: (Object error, StackTrace st) {
-          _log.severe(
-            'Error received from native audio_stream EventChannel',
-            error,
-            st,
-          );
+          _log.severe('Error received from native audio_stream EventChannel', error, st);
         },
         onDone: () {
           _log.info('Native audio_stream EventChannel closed (onDone).');
-          _nativeStreamSub = null;
-          _isCapturing = false;
         },
       );
       _log.info('Microphone capture is now LIVE and listening for PCM frames.');
@@ -238,26 +186,6 @@ class NativeAudioService {
 
   /// Stops microphone capture and flushes any remaining speech in [VadBuffer].
   Future<Float32List?> stopCapture() async {
-    while (_inFlightControlOp != null) {
-      try {
-        await _inFlightControlOp;
-      } on Object {
-        // Ignore errors from prior operation.
-      }
-    }
-    final completer = Completer<void>();
-    _inFlightControlOp = completer.future;
-    try {
-      return await _performStopCapture();
-    } finally {
-      if (identical(_inFlightControlOp, completer.future)) {
-        _inFlightControlOp = null;
-      }
-      completer.complete();
-    }
-  }
-
-  Future<Float32List?> _performStopCapture() async {
     _log.info(
       'stopCapture() requested: isCapturing=$_isCapturing, '
       'totalFramesReceived=$_frameCount, '
@@ -285,11 +213,7 @@ class NativeAudioService {
     final nativeSub = _nativeStreamSub;
     _nativeStreamSub = null;
     if (nativeSub != null) {
-      try {
-        await nativeSub.cancel();
-      } on Object catch (e) {
-        _log.warning('Ignored error cancelling native audio_stream sub: $e');
-      }
+      unawaited(nativeSub.cancel());
       try {
         _log.info('Invoking native MethodChannel("${_controlChannel.name}").stop()...');
         await _controlChannel.invokeMethod<void>('stop');

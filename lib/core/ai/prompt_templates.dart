@@ -142,11 +142,11 @@ Output ONLY valid JSON:
     final trimmedContext = contextPromptBlock?.trim() ?? '';
     final contextSuffix = trimmedContext.isEmpty ? '' : '\n$trimmedContext';
     return '''
-You are an accurate speech-to-text transcriber and language identifier for conversations between "$baseLanguage" ($baseCode) and "$targetLanguage" ($targetCode).
-Listen to the entire provided audio clip, transcribe the exact words spoken in their original language, and identify whether "$baseLanguage" ($baseCode) or "$targetLanguage" ($targetCode) is being spoken.
+You are an accurate speech-to-text transcriber and language detector for conversations between "$baseLanguage" ($baseCode) and "$targetLanguage" ($targetCode).
+Listen to the entire provided audio clip, transcribe the exact words spoken in their original language, and identify whether "$baseCode" or "$targetCode" was spoken.
 Rules (CRITICAL):
-- Do NOT translate the speech. "original_transcript" MUST be written in the exact language(s) spoken in the audio.
-- Determine "detected_language" ("$baseCode" or "$targetCode") from the MAJORITY of the full utterance. Do NOT let a single leading loanword, interjection (e.g., "Okay", "No", "Yes", "Oh", "Wait", "Um", "Bueno", "Hotel"), proper noun, or ambiguous first word override the language of the rest of the sentence.
+- Do NOT translate the speech. "original_transcript" MUST be written in the exact language spoken in the audio.
+- Classify "detected_language" based on the MAJORITY language of the full utterance ("$baseCode" or "$targetCode"). Do NOT let a single leading loanword, interjection (e.g., "Okay", "OK", "No", "Yes", "Oh", "Ah", "Hey", "Wait", "Um"), cognate, or ambiguous first word trick you into classifying or transcribing the rest of the sentence as $baseLanguage.
 - If the audio contains only silence, a pause, breathing, or background noise with no clear human speech, return empty strings: {"original_transcript": "", "detected_language": "$baseCode"}.
 - NEVER invent, guess, or hallucinate example phrases when nothing was said, and NEVER output meta-commentary about missing or silent audio files.
 - Return ONLY a valid JSON object: {"original_transcript": "...", "detected_language": "$baseCode"}.$contextSuffix''';
@@ -161,8 +161,8 @@ Rules (CRITICAL):
     final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
     return '''
 Transcribe the spoken audio verbatim in its original language ($baseLanguage ($baseCode) or $targetLanguage ($targetCode)) without translating:
-1. "original_transcript": exact verbatim transcript in the spoken language(s), or "" if no clear speech was spoken.
-2. "detected_language": "$baseCode" if the utterance was spoken in $baseLanguage, or "$targetCode" if spoken in $targetLanguage (judged by the majority of the sentence).
+1. "original_transcript": exact spoken words in their original language (evaluate the whole utterance; do not let an ambiguous or English-sounding first word cause you to translate the sentence), or "" if no clear speech was spoken.
+2. "detected_language": "$baseCode" or "$targetCode" based on the MAJORITY of the full utterance (ignore any single leading interjection, loanword, or cognate).
 Output ONLY valid JSON:
 {"original_transcript": "...", "detected_language": "$baseCode"}''';
   }

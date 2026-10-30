@@ -106,30 +106,9 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
 
   InferenceModel? _model;
   Future<void>? _initializingFuture;
-  Future<void>? _activeSessionLock;
   bool _initialized = false;
 
   bool get isInitialized => _initialized;
-
-  Future<T> _withModelSessionLock<T>(Future<T> Function() action) async {
-    while (_activeSessionLock != null) {
-      try {
-        await _activeSessionLock;
-      } on Object {
-        // Ignore errors from the prior session holder.
-      }
-    }
-    final completer = Completer<void>();
-    _activeSessionLock = completer.future;
-    try {
-      return await action();
-    } finally {
-      if (identical(_activeSessionLock, completer.future)) {
-        _activeSessionLock = null;
-      }
-      completer.complete();
-    }
-  }
 
   @override
   Future<void> initialize() async {
@@ -183,29 +162,12 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
         'supportAudio=true, preferredBackend=gpu, enableSpeculativeDecoding=true)...',
       );
       final stopwatch = Stopwatch()..start();
-      try {
-        _model = await FlutterEdgeAi.getActiveModel(
-          maxTokens: 2048,
-          supportAudio: true,
-          preferredBackend: PreferredBackend.gpu,
-          enableSpeculativeDecoding: true,
-        );
-      } on NoActiveModelError catch (e) {
-        _log.warning(
-          'initialize(): getActiveModel threw NoActiveModelError ($e); '
-          'activating model via ModelManager.downloadModel() and retrying...',
-        );
-        final activated = await _modelManager.downloadModel();
-        if (!activated) {
-          rethrow;
-        }
-        _model = await FlutterEdgeAi.getActiveModel(
-          maxTokens: 2048,
-          supportAudio: true,
-          preferredBackend: PreferredBackend.gpu,
-          enableSpeculativeDecoding: true,
-        );
-      }
+      _model = await FlutterEdgeAi.getActiveModel(
+        maxTokens: 2048,
+        supportAudio: true,
+        preferredBackend: PreferredBackend.gpu,
+        enableSpeculativeDecoding: true,
+      );
       AppLogger.restoreConsoleStdio();
       stopwatch.stop();
       _initialized = true;
@@ -1339,121 +1301,115 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
     required String systemPrompt,
     required String userPrompt,
     void Function(String accumulated)? onPartialAccumulated,
-  }) {
-    return _withModelSessionLock(() async {
-      var model = _model;
-      if (model == null || model.isClosed) {
-        _log.info('Re-acquiring active Gemma 4 model from FlutterEdgeAi...');
-        model = await FlutterEdgeAi.getActiveModel(
-          maxTokens: 2048,
-          supportAudio: true,
-          preferredBackend: PreferredBackend.gpu,
-          enableSpeculativeDecoding: true,
-        );
-        AppLogger.restoreConsoleStdio();
-        _model = model;
-      }
+  }) async {
+    var model = _model;
+    if (model == null || model.isClosed) {
+      _log.info('Re-acquiring active Gemma 4 model from FlutterEdgeAi...');
+      model = await FlutterEdgeAi.getActiveModel(
+        maxTokens: 2048,
+        supportAudio: true,
+        preferredBackend: PreferredBackend.gpu,
+        enableSpeculativeDecoding: true,
+      );
+      AppLogger.restoreConsoleStdio();
+      _model = model;
+    }
 
+    _log.info(
+      'Creating Gemma 4 audio session (enableAudioModality=true, enableThinking=false, maxOutputTokens=256)...',
+    );
+    final session = await model.createSession(
+      enableAudioModality: true,
+      systemInstruction: systemPrompt,
+      enableThinking: false,
+      maxOutputTokens: 256,
+    );
+    try {
       _log.info(
-        'Creating Gemma 4 audio session (enableAudioModality=true, enableThinking=false, maxOutputTokens=256)...',
+        'Adding audio + prompt query chunk (${wavBytes.length} WAV bytes) to Gemma 4 session...',
       );
-      final session = await model.createSession(
-        enableAudioModality: true,
-        systemInstruction: systemPrompt,
-        enableThinking: false,
-        maxOutputTokens: 256,
+      await session.addQueryChunk(
+        Message.withAudio(
+          text: userPrompt,
+          audioBytes: wavBytes,
+          isUser: true,
+        ),
       );
-      try {
-        _log.info(
-          'Adding audio + prompt query chunk (${wavBytes.length} WAV bytes) to Gemma 4 session...',
-        );
-        await session.addQueryChunk(
-          Message.withAudio(
-            text: userPrompt,
-            audioBytes: wavBytes,
-            isUser: true,
-          ),
-        );
-        _log.info('Streaming tokens from session.getResponseAsync()...');
-        final rawStream = session.getResponseAsync().map(TextResponse.new);
-        final filteredStream = ModelThinkingFilter.filterThinkingStream(
-          rawStream,
-          modelType: ModelType.gemma4,
-        );
+      _log.info('Streaming tokens from session.getResponseAsync()...');
+      final rawStream = session.getResponseAsync().map(TextResponse.new);
+      final filteredStream = ModelThinkingFilter.filterThinkingStream(
+        rawStream,
+        modelType: ModelType.gemma4,
+      );
 
-        final buffer = StringBuffer();
-        await for (final response in filteredStream) {
-          if (response is TextResponse && response.token.isNotEmpty) {
-            buffer.write(response.token);
-            onPartialAccumulated?.call(buffer.toString());
-          }
+      final buffer = StringBuffer();
+      await for (final response in filteredStream) {
+        if (response is TextResponse && response.token.isNotEmpty) {
+          buffer.write(response.token);
+          onPartialAccumulated?.call(buffer.toString());
         }
-
-        try {
-          final metrics = session.getSessionMetrics();
-          _log.info('Gemma 4 audio session metrics: $metrics');
-        } on Object {
-          // Ignore if session metrics are unavailable on this backend.
-        }
-        return buffer.toString();
-      } finally {
-        await session.close();
       }
-    });
+
+      try {
+        final metrics = session.getSessionMetrics();
+        _log.info('Gemma 4 audio session metrics: $metrics');
+      } on Object {
+        // Ignore if session metrics are unavailable on this backend.
+      }
+      return buffer.toString();
+    } finally {
+      await session.close();
+    }
   }
 
   Future<String> _runModelTextFallback({
     required String prompt,
     required String systemPrompt,
     void Function(String accumulated)? onPartialAccumulated,
-  }) {
-    return _withModelSessionLock(() async {
-      var model = _model;
-      if (model == null || model.isClosed) {
-        model = await FlutterEdgeAi.getActiveModel(
-          maxTokens: 2048,
-          supportAudio: true,
-          preferredBackend: PreferredBackend.gpu,
-          enableSpeculativeDecoding: true,
-        );
-        AppLogger.restoreConsoleStdio();
-        _model = model;
-      }
-
-      _log.info(
-        'Creating Gemma 4 text fallback session (maxOutputTokens=256)...',
+  }) async {
+    var model = _model;
+    if (model == null || model.isClosed) {
+      model = await FlutterEdgeAi.getActiveModel(
+        maxTokens: 2048,
+        supportAudio: true,
+        preferredBackend: PreferredBackend.gpu,
+        enableSpeculativeDecoding: true,
       );
-      final session = await model.createSession(
-        enableAudioModality: false,
-        systemInstruction: systemPrompt,
-        enableThinking: false,
-        maxOutputTokens: 256,
-      );
-      try {
-        await session.addQueryChunk(
-          Message(
-            text: prompt,
-            isUser: true,
-          ),
-        );
-        final rawStream = session.getResponseAsync().map(TextResponse.new);
-        final filteredStream = ModelThinkingFilter.filterThinkingStream(
-          rawStream,
-          modelType: ModelType.gemma4,
-        );
+      AppLogger.restoreConsoleStdio();
+      _model = model;
+    }
 
-        final buffer = StringBuffer();
-        await for (final response in filteredStream) {
-          if (response is TextResponse && response.token.isNotEmpty) {
-            buffer.write(response.token);
-            onPartialAccumulated?.call(buffer.toString());
-          }
+    _log.info('Creating Gemma 4 text fallback session (maxOutputTokens=256)...');
+    final session = await model.createSession(
+      enableAudioModality: false,
+      systemInstruction: systemPrompt,
+      enableThinking: false,
+      maxOutputTokens: 256,
+    );
+    try {
+      await session.addQueryChunk(
+        Message(
+          text: prompt,
+          isUser: true,
+        ),
+      );
+      final rawStream = session.getResponseAsync().map(TextResponse.new);
+      final filteredStream = ModelThinkingFilter.filterThinkingStream(
+        rawStream,
+        modelType: ModelType.gemma4,
+      );
+
+      final buffer = StringBuffer();
+      await for (final response in filteredStream) {
+        if (response is TextResponse && response.token.isNotEmpty) {
+          buffer.write(response.token);
+          onPartialAccumulated?.call(buffer.toString());
         }
-        return buffer.toString();
-      } finally {
-        await session.close();
       }
-    });
+      return buffer.toString();
+    } finally {
+      await session.close();
+    }
   }
 
   /// Offloads trailing silence trimming and 16-bit PCM RIFF/WAV encoding to a
@@ -1759,10 +1715,6 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
     if (value.trim().isEmpty) return false;
     final cleaned = stripSpecialTokens(value).trim();
     if (cleaned.isEmpty) return true;
-    // Reject strings that contain no letters or digits in any script.
-    if (!RegExp(r'[\p{L}\p{N}]', unicode: true).hasMatch(cleaned)) {
-      return true;
-    }
     final normalized = cleaned.toLowerCase();
     const exactMarkers = <String>{
       '...',

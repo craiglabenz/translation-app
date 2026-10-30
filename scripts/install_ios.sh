@@ -218,12 +218,6 @@ INSTALL_ARTIFACT="${APP_BUNDLE_PATH}"
 if [[ "${USE_ADHOC}" == "true" ]]; then
   echo "🔨 Building Ad-Hoc Release IPA (flutter build ipa --release --export-method=ad-hoc)..."
   if flutter build ipa "${FLUTTER_BUILD_ARGS[@]}" --export-method=ad-hoc; then
-    ARCHIVE_APP_PATH="${PROJECT_ROOT}/build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app"
-    if [[ -d "${ARCHIVE_APP_PATH}" ]]; then
-      mkdir -p "$(dirname "${APP_BUNDLE_PATH}")"
-      rm -rf "${APP_BUNDLE_PATH}"
-      cp -R "${ARCHIVE_APP_PATH}" "${APP_BUNDLE_PATH}"
-    fi
     IPA_FILE="$(find "${PROJECT_ROOT}/build/ios/ipa" -maxdepth 1 -name "*.ipa" | head -n 1 || true)"
     if [[ -n "${IPA_FILE}" && -f "${IPA_FILE}" ]]; then
       INSTALL_ARTIFACT="${IPA_FILE}"

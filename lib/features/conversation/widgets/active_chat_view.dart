@@ -106,14 +106,18 @@ class _ActiveChatViewState extends State<ActiveChatView> {
       'animationStatus=${animation?.status}, '
       'animationValue=${animation?.value.toStringAsFixed(2)})',
     );
-    if (animation != null && animation.status == AnimationStatus.forward) {
+    if (animation != null && !animation.isCompleted) {
+      _log.info(
+        '[PERF] Deferring chat session initialization until page transition completes...',
+      );
       _routeAnimation = animation;
       _startFrameTimingMonitor();
       animation.addStatusListener(_onRouteAnimationStatusChanged);
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _triggerInitializeIfNeeded();
+      });
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _triggerInitializeIfNeeded();
-    });
   }
 
   void _startFrameTimingMonitor() {

@@ -718,28 +718,28 @@ void main() {
       await vad.dispose();
     });
 
-    test('interactive micro-chunking constants and VadSpeechChunk acoustic timestamps track speechStartTime and speechEndTime', () async {
+    test('interactive chunking constants and VadSpeechChunk acoustic timestamps track speechStartTime and speechEndTime', () async {
       expect(
         VadBuffer.interactiveSilenceCutoff,
-        const Duration(milliseconds: 500),
+        const Duration(milliseconds: 1600),
       );
       expect(
         VadBuffer.interactiveMaxChunkDuration,
-        const Duration(seconds: 6),
+        const Duration(seconds: 15),
       );
       expect(
         VadBuffer.interactiveLiveSnapshotInterval,
-        const Duration(milliseconds: 1800),
+        const Duration(milliseconds: 600),
       );
       expect(
         VadBuffer.interactiveLivePauseSnapshotDelay,
-        Duration.zero,
+        const Duration(milliseconds: 300),
       );
 
       var currentNow = DateTime.utc(2026, 10, 25, 18, 0, 0);
       final vad = VadBuffer(
         sampleRate: 1000,
-        silenceCutoff: VadBuffer.interactiveSilenceCutoff,
+        silenceCutoff: const Duration(milliseconds: 500),
         maxChunkDuration: VadBuffer.interactiveMaxChunkDuration,
         minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
         liveSnapshotInterval: VadBuffer.interactiveLiveSnapshotInterval,

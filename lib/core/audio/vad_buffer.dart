@@ -52,14 +52,14 @@ class VadBuffer {
 
   static const int defaultSampleRate = 16000;
 
-  /// Aggressive 500ms micro-pause cutoff for live interactive conversation,
-  /// flushing phrase-sized chunks quickly so rapid multi-language turns can be
-  /// segmented and re-clumped via per-language running clocks.
-  static const Duration interactiveSilenceCutoff = Duration(milliseconds: 500);
+  /// Responsive 1.6-second silence cutoff for live interactive conversation,
+  /// allowing natural mid-sentence breathing pauses without premature flushes
+  /// and giving the 1.0s stationary-noise detector time to suppress room hum.
+  static const Duration interactiveSilenceCutoff = Duration(milliseconds: 1600);
 
-  /// 6.0-second hard ceiling for continuous non-stop speech in live interactive
-  /// mode so long monologues flush periodically without waiting 15 seconds.
-  static const Duration interactiveMaxChunkDuration = Duration(seconds: 6);
+  /// 15.0-second hard ceiling for continuous non-stop speech in live interactive
+  /// mode.
+  static const Duration interactiveMaxChunkDuration = Duration(seconds: 15);
 
   /// Minimum active speech duration required in live interactive mode so brief
   /// clicks, taps, or breaths during a pause do not trigger hallucinated turns.
@@ -71,16 +71,15 @@ class VadBuffer {
   /// remaining sensitive to normal conversational speech.
   static const double interactiveSilenceThreshold = 0.015;
 
-  /// Live snapshot interval in interactive mode (1.8 seconds of continuous
-  /// speech), avoiding redundant in-progress inferences on short phrases that
-  /// will flush at the 500ms micro-pause cutoff.
+  /// Live snapshot interval in interactive mode (600ms of continuous speech).
   static const Duration interactiveLiveSnapshotInterval = Duration(
-    milliseconds: 1800,
+    milliseconds: 600,
   );
 
-  /// Pause snapshot delay disabled in interactive mode because the 500ms
-  /// [interactiveSilenceCutoff] already flushes the final micro-chunk.
-  static const Duration interactiveLivePauseSnapshotDelay = Duration.zero;
+  /// Pause snapshot delay in interactive mode (300ms after active speech).
+  static const Duration interactiveLivePauseSnapshotDelay = Duration(
+    milliseconds: 300,
+  );
 
   /// Coefficient of variation (`stdDev / mean`) below which a sustained AC
   /// signal is classified as stationary mechanical/background noise (e.g., a
@@ -327,6 +326,8 @@ class VadBuffer {
         _peakActiveWindowRms = windowRms;
       }
 
+      DateTime? windowTimestamp;
+
       for (var i = windowStart; i < windowEnd; i++) {
         final sample = samples[i];
         final isSampleSilent = windowSize > 1
@@ -334,7 +335,7 @@ class VadBuffer {
             : (isWindowSilent && sample.abs() < currentThreshold);
 
         if (!isSampleSilent) {
-          final now = _now();
+          final now = windowTimestamp ??= _now();
           if (!_hasDetectedSpeech) {
             _utteranceSpeechStartTime = now;
             _log.info(

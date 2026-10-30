@@ -1146,33 +1146,53 @@ void main() {
       await segBloc.close();
     });
 
-    test('disposing an already-exited bloc does not stop microphone capture of a newly started session', () async {
-      await bloc.startNewSession();
-      expect(audioService.isCapturing, isTrue);
-
-      // User taps back on Session 1 -> exitSession() stops capture
+    test('SegmentedTranslationEngine reuses live snapshot result when utterance ends with zero extra STT or translation calls', () async {
       await bloc.exitSession();
-      expect(audioService.isCapturing, isFalse);
-
-      // User immediately starts Session 2 on the shared NativeAudioService
-      final secondBloc = ActiveConversationBloc(
+      final segEngine = _ConfigurableSegmentedTranslationEngine();
+      final segBloc = ActiveConversationBloc(
         conversationRepository: conversationRepo,
         settingsRepository: settingsRepo,
-        translationEngine: fakeEngine,
+        translationEngine: segEngine,
         audioService: audioService,
       );
-      await secondBloc.startNewSession();
-      expect(secondBloc.stateValue.isListening, isTrue);
-      expect(audioService.isCapturing, isTrue);
+      await segBloc.startNewSession();
 
-      // Session 1's widget finishes its pop transition and disposes (calling close())
-      await bloc.close();
+      segEngine.translateCallCount = 0;
+      segEngine.sttCallCount = 0;
+      segEngine.nextResult = const TranslationResult(
+        sourceLanguage: 'en',
+        originalText: 'Where is the station?',
+        translatedText: '¿Dónde está la estación?',
+      );
 
-      // Session 2's microphone must remain actively capturing!
-      expect(audioService.isCapturing, isTrue);
-      expect(secondBloc.stateValue.isListening, isTrue);
+      // Push 700ms of active speech -> triggers live snapshot translation
+      frameStreamController.add(
+        Float32List.fromList(List<double>.filled(700, 0.25)),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      await secondBloc.close();
+      expect(segEngine.translateCallCount, 1);
+      expect(segEngine.sttCallCount, 0);
+      expect(segBloc.stateValue.isLoading, isTrue);
+      expect(
+        segBloc.stateValue.streamingTranslatedText,
+        '¿Dónde está la estación?',
+      );
+
+      // Push 2s of trailing silence -> finalizes chunk and reuses the snapshot with zero extra inference!
+      frameStreamController.add(Float32List(2000));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(segEngine.sttCallCount, 0);
+      expect(segEngine.translateCallCount, 1);
+      expect(segBloc.stateValue.isLoading, isFalse);
+      expect(segBloc.stateValue.messages, hasLength(1));
+      expect(
+        segBloc.stateValue.messages.single.translatedText,
+        '¿Dónde está la estación?',
+      );
+
+      await segBloc.close();
     });
   });
 }
@@ -1185,6 +1205,7 @@ class _ConfigurableSegmentedTranslationEngine extends _ConfigurableTranslationEn
     durationMs: 100,
   );
 
+  int sttCallCount = 0;
   final Map<String, String> translationsByTranscript = <String, String>{};
   ContinuationDecision? nextContinuationDecision;
   int continuationCallCount = 0;
@@ -1197,6 +1218,7 @@ class _ConfigurableSegmentedTranslationEngine extends _ConfigurableTranslationEn
     required String targetLanguage,
     String? contextPromptBlock,
   }) async {
+    sttCallCount++;
     if (translateError != null) {
       throw translateError!;
     }

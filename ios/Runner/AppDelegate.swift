@@ -324,35 +324,15 @@ final class NativeAudioCaptureController: NSObject, FlutterStreamHandler {
           return buffer
         }
 
-        guard status != .error, error == nil,
-              outputBuffer.frameLength > 0,
-              let channelData = outputBuffer.floatChannelData?[0] else {
-          // Fallback to direct linear resampling if AVAudioConverter produced 0 frames.
-          let inFrames = Int(buffer.frameLength)
-          let inRate = buffer.format.sampleRate > 0 ? buffer.format.sampleRate : hardwareFormat.sampleRate
-          guard inFrames > 0, inRate > 0, let inChannel = buffer.floatChannelData?[0] else {
-            return
-          }
-          let outFrames = max(1, Int((Double(inFrames) * targetSampleRate / inRate).rounded()))
-          var resampled = [Float](repeating: 0, count: outFrames)
-          let step = Double(inFrames) / Double(outFrames)
-          for i in 0..<outFrames {
-            let srcPos = Double(i) * step
-            let idx0 = min(inFrames - 1, Int(srcPos))
-            let idx1 = min(inFrames - 1, idx0 + 1)
-            let frac = Float(srcPos - Double(idx0))
-            resampled[i] = inChannel[idx0] * (1.0 - frac) + inChannel[idx1] * frac
-          }
-          let fallbackData = resampled.withUnsafeBufferPointer { Data(buffer: $0) }
-          let fallbackTyped = FlutterStandardTypedData(float32: fallbackData)
-          self.frameCounter += 1
-          DispatchQueue.main.async { [weak self] in
-            self?.eventSink?(fallbackTyped)
-          }
+        guard status != .error, error == nil else {
           return
         }
 
         let frameLength = Int(outputBuffer.frameLength)
+        guard frameLength > 0,
+              let channelData = outputBuffer.floatChannelData?[0] else {
+          return
+        }
 
         let byteCount = frameLength * MemoryLayout<Float32>.size
         let data = Data(bytes: channelData, count: byteCount)
