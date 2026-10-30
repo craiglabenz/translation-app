@@ -106,9 +106,30 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
 
   InferenceModel? _model;
   Future<void>? _initializingFuture;
+  Future<void>? _activeSessionLock;
   bool _initialized = false;
 
   bool get isInitialized => _initialized;
+
+  Future<T> _withModelSessionLock<T>(Future<T> Function() action) async {
+    while (_activeSessionLock != null) {
+      try {
+        await _activeSessionLock;
+      } on Object {
+        // Ignore errors from the prior session holder.
+      }
+    }
+    final completer = Completer<void>();
+    _activeSessionLock = completer.future;
+    try {
+      return await action();
+    } finally {
+      if (identical(_activeSessionLock, completer.future)) {
+        _activeSessionLock = null;
+      }
+      completer.complete();
+    }
+  }
 
   @override
   Future<void> initialize() async {
@@ -162,12 +183,29 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
         'supportAudio=true, preferredBackend=gpu, enableSpeculativeDecoding=true)...',
       );
       final stopwatch = Stopwatch()..start();
-      _model = await FlutterEdgeAi.getActiveModel(
-        maxTokens: 2048,
-        supportAudio: true,
-        preferredBackend: PreferredBackend.gpu,
-        enableSpeculativeDecoding: true,
-      );
+      try {
+        _model = await FlutterEdgeAi.getActiveModel(
+          maxTokens: 2048,
+          supportAudio: true,
+          preferredBackend: PreferredBackend.gpu,
+          enableSpeculativeDecoding: true,
+        );
+      } on NoActiveModelError catch (e) {
+        _log.warning(
+          'initialize(): getActiveModel threw NoActiveModelError ($e); '
+          'activating model via ModelManager.downloadModel() and retrying...',
+        );
+        final activated = await _modelManager.downloadModel();
+        if (!activated) {
+          rethrow;
+        }
+        _model = await FlutterEdgeAi.getActiveModel(
+          maxTokens: 2048,
+          supportAudio: true,
+          preferredBackend: PreferredBackend.gpu,
+          enableSpeculativeDecoding: true,
+        );
+      }
       AppLogger.restoreConsoleStdio();
       stopwatch.stop();
       _initialized = true;
@@ -717,7 +755,7 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
   }) {
     final baseCode = LanguageDetector.normalizeLanguageCode(baseLanguage);
     final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
-    final trimmed = rawOutput.trim();
+    final trimmed = stripSpecialTokens(rawOutput).trim();
     if (trimmed.isEmpty) {
       return SpeechToTextResult(
         transcript: '',
@@ -727,7 +765,15 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
       );
     }
 
-    final stripped = stripMarkdownFences(trimmed);
+    final stripped = stripSpecialTokens(stripMarkdownFences(trimmed)).trim();
+    if (stripped.isEmpty) {
+      return SpeechToTextResult(
+        transcript: '',
+        detectedLanguageCode: baseCode,
+        durationMs: durationMs,
+        modelName: modelName,
+      );
+    }
     final jsonCandidate = _extractJsonObject(stripped) ?? stripped;
 
     var transcript = '';
@@ -738,36 +784,36 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
       final decoded = jsonDecode(jsonCandidate);
       if (decoded is Map) {
         final map = decoded.cast<String, Object?>();
-        transcript =
-            (map['original_transcript'] as String? ??
-                    map['original_text'] as String? ??
-                    map['transcript'] as String? ??
-                    map['translated_text'] as String? ??
-                    '')
-                .trim();
-        reportedLang =
-            (map['detected_language'] as String? ??
-                    map['source_language'] as String? ??
-                    baseCode)
-                .trim();
+        transcript = stripSpecialTokens(
+          map['original_transcript'] as String? ??
+              map['original_text'] as String? ??
+              map['transcript'] as String? ??
+              map['translated_text'] as String? ??
+              '',
+        ).trim();
+        reportedLang = stripSpecialTokens(
+          map['detected_language'] as String? ??
+              map['source_language'] as String? ??
+              baseCode,
+        ).trim();
 
         final segmentsField = map['segments'];
         if (segmentsField is List) {
           for (final item in segmentsField) {
             if (item is Map) {
               final segMap = item.cast<String, Object?>();
-              final segText =
-                  (segMap['text'] as String? ??
-                          segMap['transcript'] as String? ??
-                          segMap['original_transcript'] as String? ??
-                          '')
-                      .trim();
-              final segLang =
-                  (segMap['lang'] as String? ??
-                          segMap['languageCode'] as String? ??
-                          segMap['detected_language'] as String? ??
-                          reportedLang)
-                      .trim();
+              final segText = stripSpecialTokens(
+                segMap['text'] as String? ??
+                    segMap['transcript'] as String? ??
+                    segMap['original_transcript'] as String? ??
+                    '',
+              ).trim();
+              final segLang = stripSpecialTokens(
+                segMap['lang'] as String? ??
+                    segMap['languageCode'] as String? ??
+                    segMap['detected_language'] as String? ??
+                    reportedLang,
+              ).trim();
               if (segText.isNotEmpty &&
                   !isNonSpeechOrHallucination(translatedText: segText)) {
                 rawSegments.add(
@@ -961,7 +1007,9 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
       part1Transcript,
       part2Transcript,
     );
-    final stripped = stripMarkdownFences(rawOutput.trim());
+    final stripped = stripSpecialTokens(
+      stripMarkdownFences(rawOutput.trim()),
+    ).trim();
     final jsonCandidate = _extractJsonObject(stripped) ?? stripped;
 
     bool? sameSentence;
@@ -980,11 +1028,11 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
         } else if (rawFlag is String) {
           sameSentence = rawFlag.trim().toLowerCase() == 'true';
         }
-        translatedText =
-            (map['translated_text'] as String? ??
-                    map['translation'] as String? ??
-                    '')
-                .trim();
+        translatedText = stripSpecialTokens(
+          map['translated_text'] as String? ??
+              map['translation'] as String? ??
+              '',
+        ).trim();
       }
     } on Object {
       // Fallback to heuristic if plain text was returned
@@ -1172,7 +1220,7 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
   /// Cleans and normalizes raw LLM summary output into a concise 3 to 5 word
   /// description.
   static String cleanSummaryOutput(String rawOutput) {
-    final stripped = stripMarkdownFences(rawOutput).trim();
+    final stripped = stripSpecialTokens(stripMarkdownFences(rawOutput)).trim();
     if (stripped.isEmpty) return '';
 
     var candidate = stripped;
@@ -1291,115 +1339,121 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
     required String systemPrompt,
     required String userPrompt,
     void Function(String accumulated)? onPartialAccumulated,
-  }) async {
-    var model = _model;
-    if (model == null || model.isClosed) {
-      _log.info('Re-acquiring active Gemma 4 model from FlutterEdgeAi...');
-      model = await FlutterEdgeAi.getActiveModel(
-        maxTokens: 2048,
-        supportAudio: true,
-        preferredBackend: PreferredBackend.gpu,
-        enableSpeculativeDecoding: true,
-      );
-      AppLogger.restoreConsoleStdio();
-      _model = model;
-    }
+  }) {
+    return _withModelSessionLock(() async {
+      var model = _model;
+      if (model == null || model.isClosed) {
+        _log.info('Re-acquiring active Gemma 4 model from FlutterEdgeAi...');
+        model = await FlutterEdgeAi.getActiveModel(
+          maxTokens: 2048,
+          supportAudio: true,
+          preferredBackend: PreferredBackend.gpu,
+          enableSpeculativeDecoding: true,
+        );
+        AppLogger.restoreConsoleStdio();
+        _model = model;
+      }
 
-    _log.info(
-      'Creating Gemma 4 audio session (enableAudioModality=true, enableThinking=false, maxOutputTokens=256)...',
-    );
-    final session = await model.createSession(
-      enableAudioModality: true,
-      systemInstruction: systemPrompt,
-      enableThinking: false,
-      maxOutputTokens: 256,
-    );
-    try {
       _log.info(
-        'Adding audio + prompt query chunk (${wavBytes.length} WAV bytes) to Gemma 4 session...',
+        'Creating Gemma 4 audio session (enableAudioModality=true, enableThinking=false, maxOutputTokens=256)...',
       );
-      await session.addQueryChunk(
-        Message.withAudio(
-          text: userPrompt,
-          audioBytes: wavBytes,
-          isUser: true,
-        ),
+      final session = await model.createSession(
+        enableAudioModality: true,
+        systemInstruction: systemPrompt,
+        enableThinking: false,
+        maxOutputTokens: 256,
       );
-      _log.info('Streaming tokens from session.getResponseAsync()...');
-      final rawStream = session.getResponseAsync().map(TextResponse.new);
-      final filteredStream = ModelThinkingFilter.filterThinkingStream(
-        rawStream,
-        modelType: ModelType.gemma4,
-      );
-
-      final buffer = StringBuffer();
-      await for (final response in filteredStream) {
-        if (response is TextResponse && response.token.isNotEmpty) {
-          buffer.write(response.token);
-          onPartialAccumulated?.call(buffer.toString());
-        }
-      }
-
       try {
-        final metrics = session.getSessionMetrics();
-        _log.info('Gemma 4 audio session metrics: $metrics');
-      } on Object {
-        // Ignore if session metrics are unavailable on this backend.
+        _log.info(
+          'Adding audio + prompt query chunk (${wavBytes.length} WAV bytes) to Gemma 4 session...',
+        );
+        await session.addQueryChunk(
+          Message.withAudio(
+            text: userPrompt,
+            audioBytes: wavBytes,
+            isUser: true,
+          ),
+        );
+        _log.info('Streaming tokens from session.getResponseAsync()...');
+        final rawStream = session.getResponseAsync().map(TextResponse.new);
+        final filteredStream = ModelThinkingFilter.filterThinkingStream(
+          rawStream,
+          modelType: ModelType.gemma4,
+        );
+
+        final buffer = StringBuffer();
+        await for (final response in filteredStream) {
+          if (response is TextResponse && response.token.isNotEmpty) {
+            buffer.write(response.token);
+            onPartialAccumulated?.call(buffer.toString());
+          }
+        }
+
+        try {
+          final metrics = session.getSessionMetrics();
+          _log.info('Gemma 4 audio session metrics: $metrics');
+        } on Object {
+          // Ignore if session metrics are unavailable on this backend.
+        }
+        return buffer.toString();
+      } finally {
+        await session.close();
       }
-      return buffer.toString();
-    } finally {
-      await session.close();
-    }
+    });
   }
 
   Future<String> _runModelTextFallback({
     required String prompt,
     required String systemPrompt,
     void Function(String accumulated)? onPartialAccumulated,
-  }) async {
-    var model = _model;
-    if (model == null || model.isClosed) {
-      model = await FlutterEdgeAi.getActiveModel(
-        maxTokens: 2048,
-        supportAudio: true,
-        preferredBackend: PreferredBackend.gpu,
-        enableSpeculativeDecoding: true,
-      );
-      AppLogger.restoreConsoleStdio();
-      _model = model;
-    }
-
-    _log.info('Creating Gemma 4 text fallback session (maxOutputTokens=256)...');
-    final session = await model.createSession(
-      enableAudioModality: false,
-      systemInstruction: systemPrompt,
-      enableThinking: false,
-      maxOutputTokens: 256,
-    );
-    try {
-      await session.addQueryChunk(
-        Message(
-          text: prompt,
-          isUser: true,
-        ),
-      );
-      final rawStream = session.getResponseAsync().map(TextResponse.new);
-      final filteredStream = ModelThinkingFilter.filterThinkingStream(
-        rawStream,
-        modelType: ModelType.gemma4,
-      );
-
-      final buffer = StringBuffer();
-      await for (final response in filteredStream) {
-        if (response is TextResponse && response.token.isNotEmpty) {
-          buffer.write(response.token);
-          onPartialAccumulated?.call(buffer.toString());
-        }
+  }) {
+    return _withModelSessionLock(() async {
+      var model = _model;
+      if (model == null || model.isClosed) {
+        model = await FlutterEdgeAi.getActiveModel(
+          maxTokens: 2048,
+          supportAudio: true,
+          preferredBackend: PreferredBackend.gpu,
+          enableSpeculativeDecoding: true,
+        );
+        AppLogger.restoreConsoleStdio();
+        _model = model;
       }
-      return buffer.toString();
-    } finally {
-      await session.close();
-    }
+
+      _log.info(
+        'Creating Gemma 4 text fallback session (maxOutputTokens=256)...',
+      );
+      final session = await model.createSession(
+        enableAudioModality: false,
+        systemInstruction: systemPrompt,
+        enableThinking: false,
+        maxOutputTokens: 256,
+      );
+      try {
+        await session.addQueryChunk(
+          Message(
+            text: prompt,
+            isUser: true,
+          ),
+        );
+        final rawStream = session.getResponseAsync().map(TextResponse.new);
+        final filteredStream = ModelThinkingFilter.filterThinkingStream(
+          rawStream,
+          modelType: ModelType.gemma4,
+        );
+
+        final buffer = StringBuffer();
+        await for (final response in filteredStream) {
+          if (response is TextResponse && response.token.isNotEmpty) {
+            buffer.write(response.token);
+            onPartialAccumulated?.call(buffer.toString());
+          }
+        }
+        return buffer.toString();
+      } finally {
+        await session.close();
+      }
+    });
   }
 
   /// Offloads trailing silence trimming and 16-bit PCM RIFF/WAV encoding to a
@@ -1485,8 +1539,8 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
       return null;
     }
 
-    final rawPartialTranslated = _unescapeJsonPartialString(
-      translatedMatch.group(1) ?? '',
+    final rawPartialTranslated = stripSpecialTokens(
+      _unescapeJsonPartialString(translatedMatch.group(1) ?? ''),
     ).trim();
     if (rawPartialTranslated.isEmpty) {
       return null;
@@ -1495,13 +1549,18 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
     final detectedMatch = RegExp(
       r'"(?:detected_language|source_language)"\s*:\s*"([^"]+)"',
     ).firstMatch(trimmed);
-    final reportedSource = detectedMatch?.group(1)?.trim() ?? baseCode;
+    final reportedSource =
+        stripSpecialTokens(detectedMatch?.group(1) ?? '').trim().isNotEmpty
+        ? stripSpecialTokens(detectedMatch!.group(1)!).trim()
+        : baseCode;
 
     final originalMatch = RegExp(
       r'"(?:original_transcript|original_text)"\s*:\s*"((?:\\.|[^"\\])*)"',
     ).firstMatch(trimmed);
     final originalTranscript = originalMatch != null
-        ? _unescapeJsonPartialString(originalMatch.group(1) ?? '').trim()
+        ? stripSpecialTokens(
+            _unescapeJsonPartialString(originalMatch.group(1) ?? ''),
+          ).trim()
         : null;
 
     // Suppress streaming if the partial text looks like an untranslated echo of
@@ -1560,7 +1619,7 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
     String rawOutput, {
     String fallbackSourceLanguage = 'en',
   }) {
-    final stripped = stripMarkdownFences(rawOutput).trim();
+    final stripped = stripSpecialTokens(stripMarkdownFences(rawOutput)).trim();
     if (stripped.isEmpty) return '';
 
     if (stripped.startsWith('{')) {
@@ -1569,13 +1628,15 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
           stripped,
           fallbackSourceLanguage: fallbackSourceLanguage,
         );
-        return parsed.translatedText;
+        return stripSpecialTokens(parsed.translatedText).trim();
       } on Object {
         final partialMatch = RegExp(
           r'"(?:translated_text|translation)"\s*:\s*"((?:\\.|[^"\\])*)',
         ).firstMatch(stripped);
         if (partialMatch != null) {
-          return _unescapeJsonPartialString(partialMatch.group(1) ?? '').trim();
+          return stripSpecialTokens(
+            _unescapeJsonPartialString(partialMatch.group(1) ?? ''),
+          ).trim();
         }
         return '';
       }
@@ -1587,7 +1648,21 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
             (result.startsWith("'") && result.endsWith("'")))) {
       result = result.substring(1, result.length - 1).trim();
     }
-    return result;
+    return stripSpecialTokens(result).trim();
+  }
+
+  /// Strips SentencePiece / Gemma / LiteRT-LM special and unused vocabulary
+  /// control tokens (such as `<unused5>`, `<unused47>`, `<pad>`, `<eos>`,
+  /// `<bos>`, `<unk>`, `<start_of_turn>`, `<end_of_turn>`, `<|...|>`) that can
+  /// be emitted on short audio micro-chunks or token boundary transitions.
+  static final RegExp _specialTokenRegex = RegExp(
+    r'<\s*(?:unused\d+|pad|eos|bos|unk|mask|start_of_turn|end_of_turn|audio_soft_token|start_of_audio|end_of_audio|\|[^|>]*\|)\s*>',
+    caseSensitive: false,
+  );
+
+  static String stripSpecialTokens(String input) {
+    if (input.isEmpty) return '';
+    return input.replaceAll(_specialTokenRegex, '').trim();
   }
 
   /// Returns `true` when [originalText] or [translatedText] represents silence,
@@ -1598,12 +1673,18 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
     String? originalText,
     required String translatedText,
   }) {
-    final trimmedTrans = translatedText.trim();
+    final trimmedTrans = stripSpecialTokens(translatedText).trim();
     if (trimmedTrans.isEmpty) return true;
 
     if (_isNonSpeechMarker(trimmedTrans)) return true;
-    if (originalText != null && _isNonSpeechMarker(originalText.trim())) {
-      return true;
+    if (originalText != null) {
+      final cleanedOrig = stripSpecialTokens(originalText).trim();
+      if (cleanedOrig.isEmpty && originalText.trim().isNotEmpty) {
+        return true;
+      }
+      if (_isNonSpeechMarker(cleanedOrig)) {
+        return true;
+      }
     }
 
     final combinedLower = '${originalText ?? ''}\n$trimmedTrans'.toLowerCase();
@@ -1675,8 +1756,14 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
   }
 
   static bool _isNonSpeechMarker(String value) {
-    if (value.isEmpty) return false;
-    final normalized = value.trim().toLowerCase();
+    if (value.trim().isEmpty) return false;
+    final cleaned = stripSpecialTokens(value).trim();
+    if (cleaned.isEmpty) return true;
+    // Reject strings that contain no letters or digits in any script.
+    if (!RegExp(r'[\p{L}\p{N}]', unicode: true).hasMatch(cleaned)) {
+      return true;
+    }
+    final normalized = cleaned.toLowerCase();
     const exactMarkers = <String>{
       '...',
       '…',
@@ -1721,7 +1808,7 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
     String fallbackSourceLanguage = 'en',
     bool allowEmptyForSilence = false,
   }) {
-    final trimmed = rawOutput.trim();
+    final trimmed = stripSpecialTokens(rawOutput).trim();
     if (trimmed.isEmpty) {
       if (allowEmptyForSilence) {
         return TranslationResult(
@@ -1733,7 +1820,17 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
       throw const FormatException('Empty response from translation engine.');
     }
 
-    final stripped = stripMarkdownFences(trimmed);
+    final stripped = stripSpecialTokens(stripMarkdownFences(trimmed)).trim();
+    if (stripped.isEmpty) {
+      if (allowEmptyForSilence) {
+        return TranslationResult(
+          sourceLanguage: fallbackSourceLanguage.toLowerCase(),
+          translatedText: '',
+          originalText: '',
+        );
+      }
+      throw const FormatException('Empty response from translation engine.');
+    }
     final jsonCandidate = _extractJsonObject(stripped) ?? stripped;
 
     Map<String, Object?>? parsedMap;
@@ -1747,24 +1844,25 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
     }
 
     if (parsedMap != null) {
-      final detectedLanguage =
-          (parsedMap['detected_language'] as String? ??
-                  parsedMap['source_language'] as String? ??
-                  fallbackSourceLanguage)
-              .trim()
-              .toLowerCase();
-      final translatedText =
-          (parsedMap['translated_text'] as String? ??
-                  parsedMap['translation'] as String? ??
-                  '')
-              .trim();
+      final detectedLanguage = stripSpecialTokens(
+        parsedMap['detected_language'] as String? ??
+            parsedMap['source_language'] as String? ??
+            fallbackSourceLanguage,
+      ).trim().toLowerCase();
+      final translatedText = stripSpecialTokens(
+        parsedMap['translated_text'] as String? ??
+            parsedMap['translation'] as String? ??
+            '',
+      ).trim();
       final hasOriginalTranscriptKey =
           parsedMap.containsKey('original_transcript') ||
           parsedMap.containsKey('original_text');
-      final originalTranscript =
-          (parsedMap['original_transcript'] as String? ??
-                  parsedMap['original_text'] as String?)
-              ?.trim();
+      final rawOriginalTranscript =
+          parsedMap['original_transcript'] as String? ??
+          parsedMap['original_text'] as String?;
+      final originalTranscript = rawOriginalTranscript != null
+          ? stripSpecialTokens(rawOriginalTranscript).trim()
+          : null;
 
       // If translatedText is empty and either allowEmptyForSilence is true or
       // the model explicitly reported empty original_transcript (silence/pause),

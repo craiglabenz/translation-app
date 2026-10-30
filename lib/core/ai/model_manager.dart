@@ -62,10 +62,30 @@ class ModelManager extends CubitSignal<ModelDownloadState> {
       if (_isInstalledCheck != null) {
         installed = await _isInstalledCheck();
       } else {
-        final hasActive = FlutterEdgeAi.hasActiveModel();
+        var hasActive = FlutterEdgeAi.hasActiveModel();
         final fileInstalled = await FlutterEdgeAi.isModelInstalled(
           defaultModelFilename,
         );
+        if (fileInstalled && !hasActive) {
+          _log.info(
+            'checkModelReady(): $defaultModelFilename is on disk but hasActiveModel=false; '
+            'registering active model spec via installModel()...',
+          );
+          try {
+            await _defaultInstall(
+              fallbackUrl: AppSettings.defaultModelDownloadUrl,
+              cancelToken: CancelToken(),
+              onProgress: (_) {},
+            );
+            hasActive = FlutterEdgeAi.hasActiveModel();
+          } on Object catch (e, st) {
+            _log.warning(
+              'checkModelReady(): failed to activate on-disk model spec',
+              e,
+              st,
+            );
+          }
+        }
         installed = hasActive || fileInstalled;
         _log.info(
           'checkModelReady(): hasActiveModel=$hasActive, '

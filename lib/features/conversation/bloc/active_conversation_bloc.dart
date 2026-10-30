@@ -29,8 +29,10 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     required this._settingsRepository,
     required this._translationEngine,
     required this._audioService,
-    this.languageClumpingWindow = defaultLanguageClumpingWindow,
-  }) : super(initialState: const ActiveConversationState());
+    Duration? languageClumpingWindow,
+  }) : _languageClumpingWindow =
+           languageClumpingWindow ?? defaultLanguageClumpingWindow,
+       super(initialState: const ActiveConversationState());
 
   static final _log = AppLogger.of('ActiveConversationBloc');
 
@@ -43,12 +45,16 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   final SettingsRepository _settingsRepository;
   final TranslationEngine _translationEngine;
   final NativeAudioService _audioService;
-  final Duration languageClumpingWindow;
+  final Duration? _languageClumpingWindow;
+
+  Duration get languageClumpingWindow =>
+      _languageClumpingWindow ?? defaultLanguageClumpingWindow;
 
   StreamSubscription<Float32List>? _speechChunkSub;
   StreamSubscription<Float32List>? _activeSpeechSnapshotSub;
   StreamSubscription<double>? _amplitudeSub;
   Future<bool>? _ongoingExitFuture;
+  bool? _hasExitedSession;
 
   Float32List? _latestPendingSnapshotChunk;
   Float32List? _inFlightSnapshotChunk;
@@ -59,13 +65,21 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   List<String> _pendingContextIds = const <String>[];
   List<String> _pendingCustomKeywords = const <String>[];
 
-  final Queue<_QueuedAudioChunk> _pendingChunkQueue =
-      Queue<_QueuedAudioChunk>();
-  bool _isDrainingChunkQueue = false;
-  final _LanguageRunningClockState _baseLanguageClock =
-      _LanguageRunningClockState();
-  final _LanguageRunningClockState _targetLanguageClock =
-      _LanguageRunningClockState();
+  Queue<_QueuedAudioChunk>? _pendingChunkQueueField;
+  Queue<_QueuedAudioChunk> get _pendingChunkQueue =>
+      _pendingChunkQueueField ??= Queue<_QueuedAudioChunk>();
+
+  bool? _isDrainingChunkQueueField;
+  bool get _isDrainingChunkQueue => _isDrainingChunkQueueField ?? false;
+  set _isDrainingChunkQueue(bool value) => _isDrainingChunkQueueField = value;
+
+  _LanguageRunningClockState? _baseLanguageClockField;
+  _LanguageRunningClockState get _baseLanguageClock =>
+      _baseLanguageClockField ??= _LanguageRunningClockState();
+
+  _LanguageRunningClockState? _targetLanguageClockField;
+  _LanguageRunningClockState get _targetLanguageClock =>
+      _targetLanguageClockField ??= _LanguageRunningClockState();
 
   void _resetLanguageClocks() {
     _baseLanguageClock.reset();
@@ -86,6 +100,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       '(conversationId=$conversationId, autoStartListening=$autoStartListening, '
       'initialContextIds=$initialContextIds, initialCustomKeywords=$initialCustomKeywords)',
     );
+    _hasExitedSession = false;
     _pendingContextIds = List<String>.unmodifiable(initialContextIds);
     _pendingCustomKeywords = List<String>.unmodifiable(initialCustomKeywords);
     if (conversationId != null) {
@@ -117,6 +132,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   }) async {
     final sw = Stopwatch()..start();
     _log.info('[PERF] ActiveConversationBloc.startNewSession() START');
+    _hasExitedSession = false;
     _resetLanguageClocks();
     emit(stateValue.copyWith(error: null));
     final settings = await _settingsRepository.getSettings();
@@ -169,6 +185,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       '[PERF] ActiveConversationBloc.loadConversation START '
       '(conversationId=$conversationId, autoStartListening=$autoStartListening)',
     );
+    _hasExitedSession = false;
     _resetLanguageClocks();
     emit(stateValue.copyWith(error: null));
     try {
@@ -226,6 +243,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   /// Starts or resumes microphone capture and VAD speech segmentation.
   Future<void> startListening([Conversation? targetConversation]) async {
     final sw = Stopwatch()..start();
+    _hasExitedSession = false;
     _log.info(
       '[PERF] ActiveConversationBloc.startListening() START '
       '(currentIsListening=${stateValue.isListening}, '
@@ -1757,6 +1775,10 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   Future<bool> exitSession() {
     final inFlight = _ongoingExitFuture;
     if (inFlight != null) return inFlight;
+    if (_hasExitedSession ?? false) {
+      return Future<bool>.value(false);
+    }
+    _hasExitedSession = true;
     final future = _performExitSession();
     _ongoingExitFuture = future;
     return future.whenComplete(() {

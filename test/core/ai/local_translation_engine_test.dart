@@ -1515,5 +1515,45 @@ Let me know if you need anything else!
       expect(forkedDecision.combinedOriginalText, 'Great, how much is it?');
       expect(forkedDecision.result.translatedText, 'Genial, ¿cuánto cuesta?');
     });
+
+    test('strips Gemma <unused5> and <unused47> special tokens from STT and translation outputs', () {
+      expect(
+        LocalTranslationEngine.stripSpecialTokens('<unused5> <unused47>'),
+        isEmpty,
+      );
+      expect(
+        LocalTranslationEngine.stripSpecialTokens(
+          '<unused5>Hola, ¿cómo estás?<unused47>',
+        ),
+        'Hola, ¿cómo estás?',
+      );
+      expect(
+        LocalTranslationEngine.isNonSpeechOrHallucination(
+          originalText: '<unused5>',
+          translatedText: '<unused47>',
+        ),
+        isTrue,
+      );
+
+      final unusedStt = LocalTranslationEngine.parseSpeechToTextResponse(
+        '<unused5><unused47>',
+        baseLanguage: 'English',
+        targetLanguage: 'Spanish',
+        durationMs: 90,
+        modelName: 'Gemma 4',
+      );
+      expect(unusedStt.transcript, isEmpty);
+      expect(unusedStt.effectiveSegments, isEmpty);
+
+      final unusedJsonStt = LocalTranslationEngine.parseSpeechToTextResponse(
+        '{"original_transcript": "<unused5>", "detected_language": "en"}',
+        baseLanguage: 'English',
+        targetLanguage: 'Spanish',
+        durationMs: 90,
+        modelName: 'Gemma 4',
+      );
+      expect(unusedJsonStt.transcript, isEmpty);
+      expect(unusedJsonStt.effectiveSegments, isEmpty);
+    });
   });
 }

@@ -142,15 +142,14 @@ Output ONLY valid JSON:
     final trimmedContext = contextPromptBlock?.trim() ?? '';
     final contextSuffix = trimmedContext.isEmpty ? '' : '\n$trimmedContext';
     return '''
-You are an accurate speech-to-text transcriber and language segmenter for conversations between "$baseLanguage" ($baseCode) and "$targetLanguage" ($targetCode).
-Listen to the entire provided audio clip, transcribe the exact words spoken in their original language, and segment the speech by language whenever a speaker switches between "$baseCode" and "$targetCode".
+You are an accurate speech-to-text transcriber and language identifier for conversations between "$baseLanguage" ($baseCode) and "$targetLanguage" ($targetCode).
+Listen to the entire provided audio clip, transcribe the exact words spoken in their original language, and identify whether "$baseLanguage" ($baseCode) or "$targetLanguage" ($targetCode) is being spoken.
 Rules (CRITICAL):
-- Do NOT translate the speech. Every segment's "text" MUST be written in the exact language spoken in the audio.
-- If the audio contains rapid back-and-forth turns or switches between $baseLanguage ($baseCode) and $targetLanguage ($targetCode), split the transcript chronologically into "segments": [{"lang": "$baseCode", "text": "..."}, {"lang": "$targetCode", "text": "..."}].
-- Absorb lone 1–2 word interjections, discourse markers, or shared loanwords (e.g., "Okay", "OK", "No", "Oh", "Ah", "Wait", "Um", "Bueno", "Hotel") into the adjacent clause's language unless they form a standalone utterance.
-- If the audio contains only silence, a pause, breathing, or background noise with no clear human speech, return empty segments: {"segments": [], "original_transcript": "", "detected_language": "$baseCode"}.
+- Do NOT translate the speech. "original_transcript" MUST be written in the exact language(s) spoken in the audio.
+- Determine "detected_language" ("$baseCode" or "$targetCode") from the MAJORITY of the full utterance. Do NOT let a single leading loanword, interjection (e.g., "Okay", "No", "Yes", "Oh", "Wait", "Um", "Bueno", "Hotel"), proper noun, or ambiguous first word override the language of the rest of the sentence.
+- If the audio contains only silence, a pause, breathing, or background noise with no clear human speech, return empty strings: {"original_transcript": "", "detected_language": "$baseCode"}.
 - NEVER invent, guess, or hallucinate example phrases when nothing was said, and NEVER output meta-commentary about missing or silent audio files.
-- Return ONLY a valid JSON object: {"segments": [{"lang": "$baseCode", "text": "..."}], "original_transcript": "...", "detected_language": "$baseCode"}.$contextSuffix''';
+- Return ONLY a valid JSON object: {"original_transcript": "...", "detected_language": "$baseCode"}.$contextSuffix''';
   }
 
   /// Builds the user-turn prompt for the Speech-to-Text (STT) step.
@@ -162,11 +161,10 @@ Rules (CRITICAL):
     final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
     return '''
 Transcribe the spoken audio verbatim in its original language ($baseLanguage ($baseCode) or $targetLanguage ($targetCode)) without translating:
-1. "segments": ordered list of {"lang": "$baseCode" or "$targetCode", "text": "..."} spans. Split into separate segments whenever a clause switches between $baseLanguage ($baseCode) and $targetLanguage ($targetCode), but absorb lone 1-2 word interjections or loanwords ("Okay", "No", "Ah", "Hotel") into the adjacent clause's language. Return [] if no clear speech was spoken.
-2. "original_transcript": full verbatim transcript (or "" if no speech).
-3. "detected_language": "$baseCode" or "$targetCode" for the primary segment.
+1. "original_transcript": exact verbatim transcript in the spoken language(s), or "" if no clear speech was spoken.
+2. "detected_language": "$baseCode" if the utterance was spoken in $baseLanguage, or "$targetCode" if spoken in $targetLanguage (judged by the majority of the sentence).
 Output ONLY valid JSON:
-{"segments": [{"lang": "$baseCode", "text": "..."}], "original_transcript": "...", "detected_language": "$baseCode"}''';
+{"original_transcript": "...", "detected_language": "$baseCode"}''';
   }
 
   /// Builds the system prompt for deciding whether two same-language speech

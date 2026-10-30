@@ -47,9 +47,8 @@ class VadBuffer {
     this.noiseFloorMarginMultiplier = 1.75,
     this.maxAdaptiveSilenceThreshold = 0.16,
     this.stationaryNoiseWindow = const Duration(milliseconds: 1000),
-    DateTime Function()? clock,
-  }) : _clock = clock ?? DateTime.now,
-       assert(sampleRate > 0, 'sampleRate must be positive');
+    this.clock,
+  }) : assert(sampleRate > 0, 'sampleRate must be positive');
 
   static const int defaultSampleRate = 16000;
 
@@ -95,7 +94,9 @@ class VadBuffer {
   final Duration maxChunkDuration;
   final double silenceThreshold;
   final Duration minSpeechDuration;
-  final DateTime Function() _clock;
+  final DateTime Function()? clock;
+
+  DateTime _now() => (clock ?? DateTime.now)();
 
   /// Interval of active speech accumulation after which a live in-progress
   /// audio snapshot is emitted to [onActiveSpeechSnapshot] so translation can
@@ -139,8 +140,10 @@ class VadBuffer {
   final StreamController<Float32List> _chunkController =
       StreamController<Float32List>.broadcast();
 
-  final StreamController<VadSpeechChunk> _timedChunkController =
-      StreamController<VadSpeechChunk>.broadcast();
+  StreamController<VadSpeechChunk>? _timedChunkController;
+
+  StreamController<VadSpeechChunk> get _effectiveTimedChunkController =>
+      _timedChunkController ??= StreamController<VadSpeechChunk>.broadcast();
 
   final StreamController<Float32List> _snapshotController =
       StreamController<Float32List>.broadcast();
@@ -151,7 +154,8 @@ class VadBuffer {
 
   /// Stream of segmented [VadSpeechChunk] instances including acoustic
   /// `speechStartTime` and `speechEndTime` metadata.
-  Stream<VadSpeechChunk> get onTimedChunkReady => _timedChunkController.stream;
+  Stream<VadSpeechChunk> get onTimedChunkReady =>
+      _effectiveTimedChunkController.stream;
 
   /// Most recently emitted [VadSpeechChunk], if any.
   VadSpeechChunk? get lastEmittedTimedChunk => _lastEmittedTimedChunk;
@@ -330,7 +334,7 @@ class VadBuffer {
             : (isWindowSilent && sample.abs() < currentThreshold);
 
         if (!isSampleSilent) {
-          final now = _clock();
+          final now = _now();
           if (!_hasDetectedSpeech) {
             _utteranceSpeechStartTime = now;
             _log.info(
@@ -625,7 +629,7 @@ class VadBuffer {
     }
     final chunk = Float32List.fromList(_buffer);
     final durationSec = (chunk.length / sampleRate).toStringAsFixed(2);
-    final startTime = _utteranceSpeechStartTime ?? _clock();
+    final startTime = _utteranceSpeechStartTime ?? _now();
     final activeSpanSamples = _lastActiveSampleEndIndex > 0
         ? _lastActiveSampleEndIndex
         : _activeSpeechSamples;
@@ -654,8 +658,9 @@ class VadBuffer {
     if (!_chunkController.isClosed) {
       _chunkController.add(chunk);
     }
-    if (!_timedChunkController.isClosed) {
-      _timedChunkController.add(timedChunk);
+    final timedController = _effectiveTimedChunkController;
+    if (!timedController.isClosed) {
+      timedController.add(timedChunk);
     }
     return chunk;
   }
@@ -663,7 +668,10 @@ class VadBuffer {
   Future<void> dispose() async {
     reset();
     unawaited(_chunkController.close());
-    unawaited(_timedChunkController.close());
+    final timedController = _timedChunkController;
+    if (timedController != null) {
+      unawaited(timedController.close());
+    }
     unawaited(_snapshotController.close());
   }
 }

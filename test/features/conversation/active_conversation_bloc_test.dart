@@ -1145,6 +1145,35 @@ void main() {
 
       await segBloc.close();
     });
+
+    test('disposing an already-exited bloc does not stop microphone capture of a newly started session', () async {
+      await bloc.startNewSession();
+      expect(audioService.isCapturing, isTrue);
+
+      // User taps back on Session 1 -> exitSession() stops capture
+      await bloc.exitSession();
+      expect(audioService.isCapturing, isFalse);
+
+      // User immediately starts Session 2 on the shared NativeAudioService
+      final secondBloc = ActiveConversationBloc(
+        conversationRepository: conversationRepo,
+        settingsRepository: settingsRepo,
+        translationEngine: fakeEngine,
+        audioService: audioService,
+      );
+      await secondBloc.startNewSession();
+      expect(secondBloc.stateValue.isListening, isTrue);
+      expect(audioService.isCapturing, isTrue);
+
+      // Session 1's widget finishes its pop transition and disposes (calling close())
+      await bloc.close();
+
+      // Session 2's microphone must remain actively capturing!
+      expect(audioService.isCapturing, isTrue);
+      expect(secondBloc.stateValue.isListening, isTrue);
+
+      await secondBloc.close();
+    });
   });
 }
 
