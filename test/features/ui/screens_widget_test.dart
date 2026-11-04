@@ -662,6 +662,84 @@ void main() {
         await audioService.dispose();
       },
     );
+
+    testWidgets(
+      'keeps streaming translation bubble stably rendered across multi-clause updates without flickering',
+      (tester) async {
+        configureDependencies();
+        final convRepo = GetIt.I<ConversationRepository>();
+        final settingsRepo = GetIt.I<SettingsRepository>();
+        final settingsBloc = GetIt.I<SettingsBloc>();
+        final audioService = NativeAudioService();
+        final chatBloc = ActiveConversationBloc(
+          conversationRepository: convRepo,
+          settingsRepository: settingsRepo,
+          translationEngine: _StubTranslationEngine(),
+          audioService: audioService,
+        );
+
+        final conv = await convRepo.createConversation(
+          baseLanguage: 'en',
+          targetLanguage: 'es',
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light(),
+            home: ActiveChatView(
+              conversationId: conv.id,
+              autoStartListening: false,
+              conversationBloc: chatBloc,
+              settingsBloc: settingsBloc,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Clause 1 locked in while isLoading is true
+        chatBloc.emit(
+          chatBloc.stateValue.copyWith(
+            isLoading: true,
+            streamingTranslatedText: 'Hola, me gustaría una mesa.',
+            streamingIsBaseLanguage: true,
+          ),
+        );
+        await tester.pump();
+        expect(find.text('Hola, me gustaría una mesa.'), findsOneWidget);
+
+        // Even if isLoading briefly toggles false between snapshots while
+        // streamingTranslatedText is still non-empty, the bubble remains visible.
+        chatBloc.emit(
+          chatBloc.stateValue.copyWith(
+            isLoading: false,
+            streamingTranslatedText: 'Hola, me gustaría una mesa.',
+            streamingIsBaseLanguage: true,
+          ),
+        );
+        await tester.pump();
+        expect(find.text('Hola, me gustaría una mesa.'), findsOneWidget);
+
+        // Clause 2 appends onto Clause 1 in the same streaming bubble
+        chatBloc.emit(
+          chatBloc.stateValue.copyWith(
+            isLoading: true,
+            streamingTranslatedText:
+                'Hola, me gustaría una mesa. Para cuatro personas, por favor.',
+            streamingIsBaseLanguage: true,
+          ),
+        );
+        await tester.pump();
+        expect(
+          find.text(
+            'Hola, me gustaría una mesa. Para cuatro personas, por favor.',
+          ),
+          findsOneWidget,
+        );
+
+        await chatBloc.close();
+        await audioService.dispose();
+      },
+    );
   });
 
   group('HistoryScreen widget tests', () {

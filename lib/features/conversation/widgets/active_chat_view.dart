@@ -869,22 +869,21 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                   text: msg.effectiveTranslatedText,
                   timestamp: msg.timestamp,
                 ),
-              if (state.isLoading)
-                if (state.streamingTranslatedText != null &&
-                    state.streamingTranslatedText!.isNotEmpty)
-                  FlowMessageData.text(
-                    id: '__translating_streaming__',
-                    role: (state.streamingIsBaseLanguage ?? true)
-                        ? FlowMessageRole.assistant
-                        : FlowMessageRole.user,
-                    text: state.streamingTranslatedText!,
-                  )
-                else
-                  const FlowMessageData(
-                    id: '__translating_pending__',
-                    role: FlowMessageRole.assistant,
-                    status: FlowMessageStatus.pending,
-                  ),
+              if (state.streamingTranslatedText != null &&
+                  state.streamingTranslatedText!.isNotEmpty)
+                FlowMessageData.text(
+                  id: '__translating_streaming__',
+                  role: (state.streamingIsBaseLanguage ?? true)
+                      ? FlowMessageRole.assistant
+                      : FlowMessageRole.user,
+                  text: state.streamingTranslatedText!,
+                )
+              else if (state.isLoading)
+                const FlowMessageData(
+                  id: '__translating_pending__',
+                  role: FlowMessageRole.assistant,
+                  status: FlowMessageStatus.pending,
+                ),
             ];
 
             final effectiveBaseLanguage =

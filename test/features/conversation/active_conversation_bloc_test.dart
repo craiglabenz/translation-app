@@ -38,6 +38,7 @@ class _ConfigurableTranslationEngine implements TranslationEngine {
   }
 
   List<TranslationResult> partialResultsToEmit = const <TranslationResult>[];
+  final List<Float32List> receivedAudioChunks = <Float32List>[];
   int translateCallCount = 0;
   int summarizeCallCount = 0;
   String nextSummary = 'Asking about item price';
@@ -55,6 +56,7 @@ class _ConfigurableTranslationEngine implements TranslationEngine {
     void Function(TranslationResult partialResult)? onPartialResult,
   }) async {
     translateCallCount++;
+    receivedAudioChunks.add(Float32List.fromList(audioWavChunk));
     lastContextPromptBlock = contextPromptBlock;
     if (translateError != null) {
       throw translateError!;
@@ -1194,6 +1196,244 @@ void main() {
 
       await segBloc.close();
     });
+
+    test(
+      'sustained speech streams initial clause tokens, swaps atomically on refinement, locks completed clauses, and slices only new audio for subsequent clauses',
+      () async {
+        await bloc.startNewSession();
+        fakeEngine.receivedAudioChunks.clear();
+
+        final observedStreamingTexts = <String>[];
+        final unsub = bloc.state.subscribe((s) {
+          final text = s.streamingTranslatedText;
+          if (text != null &&
+              (observedStreamingTexts.isEmpty ||
+                  observedStreamingTexts.last != text)) {
+            observedStreamingTexts.add(text);
+          }
+        });
+
+        // 1. Snapshot 1 (600ms = 600 samples @ 1kHz): Initial pass of Clause 1.
+        // Streams partial tokens and stays uncommitted (< 2 * intervalSamples, no pause).
+        fakeEngine.partialResultsToEmit = const <TranslationResult>[
+          TranslationResult(
+            sourceLanguage: 'en',
+            originalText: 'Hello',
+            translatedText: 'Hola,',
+          ),
+          TranslationResult(
+            sourceLanguage: 'en',
+            originalText: 'Hello, I would like',
+            translatedText: 'Hola, me gustaría',
+          ),
+        ];
+        fakeEngine.nextResult = const TranslationResult(
+          sourceLanguage: 'en',
+          originalText: 'Hello, I would like',
+          translatedText: 'Hola, me gustaría',
+          speechToTextMs: 100,
+          translationMs: 80,
+          totalDurationMs: 180,
+        );
+
+        final cumulative600 = Float32List.fromList(
+          List<double>.filled(600, 0.25),
+        );
+        await bloc.onActiveSpeechSnapshotReceived(cumulative600);
+
+        expect(fakeEngine.receivedAudioChunks, hasLength(1));
+        expect(fakeEngine.receivedAudioChunks.last.length, 600);
+        expect(
+          observedStreamingTexts,
+          equals(<String>['Hola,', 'Hola, me gustaría']),
+        );
+
+        // 2. Snapshot 2 (1200ms = 1200 samples @ 1kHz): Refinement pass of Clause 1.
+        // Partial tokens are held back so the UI never shrinks/flickers back to "Hola",
+        // then swaps atomically and locks Clause 1 at sample offset 1200.
+        fakeEngine.partialResultsToEmit = const <TranslationResult>[
+          TranslationResult(
+            sourceLanguage: 'en',
+            originalText: 'Hello',
+            translatedText: 'Hola',
+          ),
+          TranslationResult(
+            sourceLanguage: 'en',
+            originalText: 'Hello, I would like a table.',
+            translatedText: 'Hola, me gustaría una mesa.',
+          ),
+        ];
+        fakeEngine.nextResult = const TranslationResult(
+          sourceLanguage: 'en',
+          originalText: 'Hello, I would like a table.',
+          translatedText: 'Hola, me gustaría una mesa.',
+          speechToTextMs: 120,
+          translationMs: 90,
+          totalDurationMs: 210,
+        );
+
+        final cumulative1200 = Float32List.fromList(
+          List<double>.filled(1200, 0.25),
+        );
+        await bloc.onActiveSpeechSnapshotReceived(cumulative1200);
+
+        expect(fakeEngine.receivedAudioChunks, hasLength(2));
+        expect(fakeEngine.receivedAudioChunks.last.length, 1200);
+        // Notice "Hola" was NOT emitted during pass 2; it swapped atomically!
+        expect(
+          observedStreamingTexts,
+          equals(<String>[
+            'Hola,',
+            'Hola, me gustaría',
+            'Hola, me gustaría una mesa.',
+          ]),
+        );
+
+        // 3. Snapshot 3 (1800ms = 1800 samples @ 1kHz): Initial pass of Clause 2.
+        // Because Clause 1 is locked at offset 1200, only the new 600 samples (1200..1800)
+        // are sent to translateAudioChunk, and Clause 2's streaming tokens append to Clause 1!
+        fakeEngine.partialResultsToEmit = const <TranslationResult>[
+          TranslationResult(
+            sourceLanguage: 'en',
+            originalText: 'For four',
+            translatedText: 'Para cuatro',
+          ),
+        ];
+        fakeEngine.nextResult = const TranslationResult(
+          sourceLanguage: 'en',
+          originalText: 'For four people',
+          translatedText: 'Para cuatro personas',
+          speechToTextMs: 110,
+          translationMs: 70,
+          totalDurationMs: 180,
+        );
+
+        final cumulative1800 = Float32List.fromList(
+          List<double>.filled(1800, 0.25),
+        );
+        await bloc.onActiveSpeechSnapshotReceived(cumulative1800);
+
+        expect(fakeEngine.receivedAudioChunks, hasLength(3));
+        // Only the 600 new samples after offset 1200 were sent!
+        expect(fakeEngine.receivedAudioChunks.last.length, 600);
+        expect(
+          observedStreamingTexts,
+          equals(<String>[
+            'Hola,',
+            'Hola, me gustaría',
+            'Hola, me gustaría una mesa.',
+            'Hola, me gustaría una mesa. Para cuatro',
+            'Hola, me gustaría una mesa. Para cuatro personas',
+          ]),
+        );
+
+        // 4. Final chunk (2200 samples = 1200 Clause 1 + 1000 Clause 2):
+        // Refines Clause 2 (1200..2200 = 1000 samples) without emitting shrinking partial tokens,
+        // swaps atomically, and saves the combined multi-clause Message.
+        fakeEngine.partialResultsToEmit = const <TranslationResult>[
+          TranslationResult(
+            sourceLanguage: 'en',
+            originalText: 'For',
+            translatedText: 'Para',
+          ),
+        ];
+        fakeEngine.nextResult = const TranslationResult(
+          sourceLanguage: 'en',
+          originalText: 'For four people, please.',
+          translatedText: 'Para cuatro personas, por favor.',
+          speechToTextMs: 130,
+          translationMs: 95,
+          totalDurationMs: 225,
+        );
+
+        final finalChunk2200 = Float32List.fromList(
+          List<double>.filled(2200, 0.25),
+        );
+        await bloc.onAudioChunkReceived(finalChunk2200);
+        unsub();
+
+        expect(fakeEngine.receivedAudioChunks, hasLength(4));
+        expect(fakeEngine.receivedAudioChunks.last.length, 1000);
+        // Never shrank or flickered during final pass of Clause 2
+        expect(
+          observedStreamingTexts,
+          equals(<String>[
+            'Hola,',
+            'Hola, me gustaría',
+            'Hola, me gustaría una mesa.',
+            'Hola, me gustaría una mesa. Para cuatro',
+            'Hola, me gustaría una mesa. Para cuatro personas',
+          ]),
+        );
+
+        expect(bloc.stateValue.isLoading, isFalse);
+        expect(bloc.stateValue.streamingTranslatedText, isNull);
+        expect(bloc.stateValue.messages, hasLength(1));
+        final savedMsg = bloc.stateValue.messages.single;
+        expect(
+          savedMsg.originalText,
+          'Hello, I would like a table. For four people, please.',
+        );
+        expect(
+          savedMsg.translatedText,
+          'Hola, me gustaría una mesa. Para cuatro personas, por favor.',
+        );
+        expect(
+          savedMsg.annotatedText,
+          'Hola, me gustaría una mesa. Para cuatro personas, por favor.',
+        );
+      },
+    );
+
+    test(
+      'empty or non-speech intermediate snapshot never clears already-rendered streaming translation',
+      () async {
+        await bloc.startNewSession();
+
+        // Snapshot 1 renders valid translation
+        fakeEngine.partialResultsToEmit = const <TranslationResult>[];
+        fakeEngine.nextResult = const TranslationResult(
+          sourceLanguage: 'en',
+          originalText: 'Where is the exit?',
+          translatedText: '¿Dónde está la salida?',
+        );
+        await bloc.onActiveSpeechSnapshotReceived(
+          Float32List.fromList(List<double>.filled(600, 0.25)),
+        );
+        expect(
+          bloc.stateValue.streamingTranslatedText,
+          '¿Dónde está la salida?',
+        );
+        expect(bloc.stateValue.isLoading, isTrue);
+
+        // Snapshot 2 returns empty (e.g. brief cough/noise mid-turn) -> must NOT clear rendered bubble
+        fakeEngine.nextResult = const TranslationResult(
+          sourceLanguage: 'en',
+          originalText: '',
+          translatedText: '',
+        );
+        await bloc.onActiveSpeechSnapshotReceived(
+          Float32List.fromList(List<double>.filled(900, 0.25)),
+        );
+        expect(
+          bloc.stateValue.streamingTranslatedText,
+          '¿Dónde está la salida?',
+        );
+        expect(bloc.stateValue.isLoading, isTrue);
+
+        // Final chunk also returns empty on the tail -> preserves the valid clause from Snapshot 1
+        await bloc.onAudioChunkReceived(
+          Float32List.fromList(List<double>.filled(1100, 0.25)),
+        );
+        expect(bloc.stateValue.isLoading, isFalse);
+        expect(bloc.stateValue.streamingTranslatedText, isNull);
+        expect(bloc.stateValue.messages, hasLength(1));
+        expect(
+          bloc.stateValue.messages.single.translatedText,
+          '¿Dónde está la salida?',
+        );
+      },
+    );
   });
 }
 
