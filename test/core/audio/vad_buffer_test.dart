@@ -773,5 +773,106 @@ void main() {
       await sub.cancel();
       await vad.dispose();
     });
+
+    test('onset hysteresis rejects weak background chatter below effectiveOnsetThreshold and seeds opening windows on real speech onset', () async {
+      final vad = VadBuffer(
+        sampleRate: 1000,
+        silenceCutoff: const Duration(milliseconds: 500),
+        minSpeechDuration: const Duration(milliseconds: 200),
+        silenceThreshold: 0.015,
+        onsetMultiplier: 1.8, // effectiveOnsetThreshold = 0.027
+        onsetConsecutiveWindows: 2,
+      );
+
+      // 1. Distant background conversation at 0.020 RMS (> 0.015 base, but < 0.027 onset threshold)
+      final distantChatter = Float32List.fromList(List<double>.filled(600, 0.020));
+      expect(vad.addSamples(distantChatter), isEmpty);
+      expect(vad.hasDetectedSpeech, isFalse);
+      expect(vad.bufferedSampleCount, 0);
+
+      // 2. Single 20ms transient spike at 0.05 RMS followed by silence (< 2 consecutive windows)
+      final singleSpike = Float32List.fromList(<double>[
+        ...List<double>.filled(20, 0.05),
+        ...List<double>.filled(600, 0.0),
+      ]);
+      expect(vad.addSamples(singleSpike), isEmpty);
+      expect(vad.hasDetectedSpeech, isFalse);
+
+      // 3. Foreground speech at 0.12 RMS for 300ms (15 windows >= 2 consecutive windows):
+      // All 300 samples (including the first 2 onset windows) are preserved!
+      final foregroundSpeech = Float32List.fromList(List<double>.filled(300, 0.12));
+      vad.addSamples(foregroundSpeech);
+      expect(vad.hasDetectedSpeech, isTrue);
+      expect(vad.bufferedSampleCount, 300);
+
+      await vad.dispose();
+    });
+
+    test('relative speaker envelope drop-off treats quieter background chatter after loud foreground speech as trailing silence', () async {
+      final vad = VadBuffer(
+        sampleRate: 1000,
+        silenceCutoff: const Duration(milliseconds: 500),
+        minSpeechDuration: const Duration(milliseconds: 200),
+        silenceThreshold: 0.015,
+        onsetMultiplier: 1.8,
+        onsetConsecutiveWindows: 2,
+        enableRelativeSpeakerDropOff: true,
+        relativeSpeakerDropOffRatio: 0.30,
+      );
+
+      // 1. Foreground speaker talks at 0.15 RMS for 400ms
+      // -> peakActiveWindowRms = 0.15, raising effectiveContinuationSilenceThreshold to 0.045 (30% of 0.15)
+      vad.addSamples(Float32List.fromList(List<double>.filled(400, 0.15)));
+      expect(vad.hasDetectedSpeech, isTrue);
+      expect(vad.effectiveContinuationSilenceThreshold, closeTo(0.045, 0.002));
+
+      // 2. Foreground speaker pauses while background cafe chatter continues at 0.025 RMS
+      // (> 0.015 static threshold, but < 0.045 relative continuation floor) for 500ms -> flushes on schedule!
+      final backgroundChatter = Float32List.fromList(
+        List<double>.generate(500, (i) => (i % 40 < 20) ? 0.030 : 0.018),
+      );
+      final emitted = vad.addSamples(backgroundChatter);
+      expect(emitted, hasLength(1));
+      expect(vad.hasDetectedSpeech, isFalse);
+      expect(vad.bufferedSampleCount, 0);
+
+      await vad.dispose();
+    });
+
+    test('standby rolling 2.0s pre-roll buffer captures opening words and snaps to speech onset when promoted', () async {
+      final vad = VadBuffer(
+        sampleRate: 1000,
+        silenceCutoff: const Duration(milliseconds: 500),
+        minSpeechDuration: const Duration(milliseconds: 200),
+        silenceThreshold: 0.015,
+        onsetMultiplier: 1.8,
+        onsetConsecutiveWindows: 2,
+      );
+
+      vad.enterStandby();
+      expect(vad.isStandby, isTrue);
+
+      // Feed 1.0s of silence + 0.8s of speech + 0.6s of speech while in Standby (total 2.4s -> capped to last 2.0s)
+      vad.addSamples(Float32List(1000));
+      vad.addSamples(Float32List.fromList(List<double>.filled(1400, 0.15)));
+      // In standby, no speech chunk or active buffer is accumulated yet
+      expect(vad.hasDetectedSpeech, isFalse);
+      expect(vad.bufferedSampleCount, 0);
+      expect(vad.preRollSampleCount, 2000); // capped at 2.0s (2000 samples @ 1kHz)
+
+      // User reacts 1.4s after speech started and presses the mic button!
+      vad.exitStandbyAndPromotePreRoll(bypassOnsetGate: true);
+      expect(vad.isStandby, isFalse);
+      expect(vad.hasDetectedSpeech, isTrue);
+      // Pre-roll promoted the speech onset + pre-onset cushion into the active utterance buffer
+      expect(vad.bufferedSampleCount, greaterThanOrEqualTo(1400));
+
+      // Now 500ms of silence flushes the complete utterance including the pre-roll speech!
+      final emitted = vad.addSamples(Float32List(500));
+      expect(emitted, hasLength(1));
+      expect(emitted.single.length, greaterThanOrEqualTo(1900));
+
+      await vad.dispose();
+    });
   });
 }

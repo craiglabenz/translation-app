@@ -109,6 +109,9 @@ _AppSettings _$AppSettingsFromJson(Map<String, dynamic> json) => _AppSettings(
           )
           .toList() ??
       AppSettings.defaultContextPresets,
+  micControlMode:
+      $enumDecodeNullable(_$MicControlModeEnumMap, json['micControlMode']) ??
+      MicControlMode.continuous,
 );
 
 Map<String, dynamic> _$AppSettingsToJson(_AppSettings instance) =>
@@ -129,9 +132,15 @@ Map<String, dynamic> _$AppSettingsToJson(_AppSettings instance) =>
       'geminiApiKey': instance.geminiApiKey,
       'rollingTurnCount': instance.rollingTurnCount,
       'contextPresets': instance.contextPresets.map((e) => e.toJson()).toList(),
+      'micControlMode': _$MicControlModeEnumMap[instance.micControlMode]!,
     };
 
 const _$TranslationEngineModeEnumMap = {
   TranslationEngineMode.onDevice: 'onDevice',
   TranslationEngineMode.cloud: 'cloud',
+};
+
+const _$MicControlModeEnumMap = {
+  MicControlMode.continuous: 'continuous',
+  MicControlMode.pushToTalk: 'pushToTalk',
 };

@@ -148,6 +148,8 @@ void configureDependencies({
           silenceCutoff: VadBuffer.interactiveSilenceCutoff,
           minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
           silenceThreshold: VadBuffer.interactiveSilenceThreshold,
+          onsetMultiplier: VadBuffer.interactiveOnsetMultiplier,
+          onsetConsecutiveWindows: VadBuffer.interactiveOnsetConsecutiveWindows,
         ),
       ),
       dispose: (service) => service.dispose(),

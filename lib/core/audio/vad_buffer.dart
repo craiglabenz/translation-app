@@ -47,6 +47,12 @@ class VadBuffer {
     this.noiseFloorMarginMultiplier = 1.75,
     this.maxAdaptiveSilenceThreshold = 0.16,
     this.stationaryNoiseWindow = const Duration(milliseconds: 1000),
+    this.onsetMultiplier = 1.0,
+    this.onsetConsecutiveWindows = 1,
+    this.enableRelativeSpeakerDropOff = true,
+    this.relativeSpeakerDropOffRatio = 0.30,
+    this.maxPreRollDuration = const Duration(milliseconds: 2000),
+    this.minPreRollDuration = const Duration(milliseconds: 1000),
     this.clock,
   }) : assert(sampleRate > 0, 'sampleRate must be positive');
 
@@ -70,6 +76,16 @@ class VadBuffer {
   /// RMS threshold for live microphone capture to reject quiet room hum while
   /// remaining sensitive to normal conversational speech.
   static const double interactiveSilenceThreshold = 0.015;
+
+  /// Multiplier applied to [effectiveSilenceThreshold] in live interactive
+  /// continuous mode to require a stronger near-field speech onset (`~0.027+`)
+  /// before starting a turn, preventing distant café chatter from triggering
+  /// false turns.
+  static const double interactiveOnsetMultiplier = 1.8;
+
+  /// Number of consecutive 20ms windows above [effectiveOnsetThreshold] required
+  /// to trigger speech onset in interactive continuous mode.
+  static const int interactiveOnsetConsecutiveWindows = 2;
 
   /// Live snapshot interval in interactive mode (600ms of continuous speech).
   static const Duration interactiveLiveSnapshotInterval = Duration(
@@ -122,8 +138,34 @@ class VadBuffer {
   /// drones (e.g. a neighbor's saw or sand grinder).
   final Duration stationaryNoiseWindow;
 
+  /// Multiplier applied to [effectiveSilenceThreshold] to compute the RMS
+  /// required to initiate a new speech turn when idle (`!hasDetectedSpeech`).
+  final double onsetMultiplier;
+
+  /// Number of consecutive 20ms windows that must meet [effectiveOnsetThreshold]
+  /// to initiate a new speech turn when not bypassing the onset gate.
+  final int onsetConsecutiveWindows;
+
+  /// Whether to treat low-volume background chatter as silence once a louder
+  /// foreground speaker has established the turn's peak envelope.
+  final bool enableRelativeSpeakerDropOff;
+
+  /// Ratio of `_peakActiveWindowRms` below which residual background chatter
+  /// is classified as silence so the turn can close cleanly.
+  final double relativeSpeakerDropOffRatio;
+
+  /// Maximum duration of rolling audio kept while in standby (`isStandby == true`).
+  final Duration maxPreRollDuration;
+
+  /// Minimum default lookback duration promoted when exiting standby.
+  final Duration minPreRollDuration;
+
   final List<double> _buffer = <double>[];
   final List<double> _recentAcWindowRms = <double>[];
+  final List<Float32List> _preRollWindows = <Float32List>[];
+  final List<double> _preRollWindowRms = <double>[];
+  final List<Float32List> _pendingOnsetWindows = <Float32List>[];
+  int _preRollTotalSamples = 0;
   int _trailingSilenceSamples = 0;
   int _activeSpeechSamples = 0;
   int _lastActiveSampleEndIndex = 0;
@@ -132,6 +174,8 @@ class VadBuffer {
   double _noiseFloorRms = 0.0;
   double _peakActiveWindowRms = 0.0;
   bool _hasDetectedSpeech = false;
+  bool _isStandby = false;
+  bool _bypassOnsetGate = false;
   DateTime? _utteranceSpeechStartTime;
   DateTime? _utteranceLastSpeechTime;
   VadSpeechChunk? _lastEmittedTimedChunk;
@@ -194,8 +238,29 @@ class VadBuffer {
       (sampleRate * stationaryNoiseWindow.inMicroseconds) ~/
       Duration.microsecondsPerSecond;
 
+  /// Maximum number of samples retained in the standby rolling pre-roll buffer.
+  int get maxPreRollSamples =>
+      (sampleRate * maxPreRollDuration.inMicroseconds) ~/
+      Duration.microsecondsPerSecond;
+
+  /// Minimum default number of samples promoted from the standby pre-roll buffer.
+  int get minPreRollSamples =>
+      (sampleRate * minPreRollDuration.inMicroseconds) ~/
+      Duration.microsecondsPerSecond;
+
   /// Current number of buffered samples.
   int get bufferedSampleCount => _buffer.length;
+
+  /// Current number of samples held in the rolling standby pre-roll buffer.
+  int get preRollSampleCount => _preRollTotalSamples;
+
+  /// Whether the VAD is currently in Standby mode (maintaining only the rolling
+  /// pre-roll ring buffer without emitting speech chunks).
+  bool get isStandby => _isStandby;
+
+  /// Whether strict onset hysteresis is bypassed for the current turn (e.g.
+  /// during an explicit Push-to-Talk hold/latch).
+  bool get bypassOnsetGate => _bypassOnsetGate;
 
   /// Current number of consecutive trailing silent samples.
   int get trailingSilenceSamples => _trailingSilenceSamples;
@@ -219,6 +284,136 @@ class VadBuffer {
       silenceThreshold,
       math.max(silenceThreshold, maxAdaptiveSilenceThreshold),
     );
+  }
+
+  /// Effective RMS threshold required to initiate a new speech turn when idle
+  /// (`!hasDetectedSpeech`), applying [onsetMultiplier] unless [bypassOnsetGate]
+  /// is active.
+  double get effectiveOnsetThreshold {
+    final base = effectiveSilenceThreshold;
+    if (_bypassOnsetGate || onsetMultiplier <= 1.0) {
+      return base;
+    }
+    return base * onsetMultiplier;
+  }
+
+  /// Effective RMS threshold required to sustain an already-active speech turn,
+  /// raising the silence floor to [relativeSpeakerDropOffRatio] of the active
+  /// foreground speaker's peak RMS so quieter background conversations during a
+  /// pause are treated as silence.
+  double get effectiveContinuationSilenceThreshold {
+    final base = effectiveSilenceThreshold;
+    if (!enableRelativeSpeakerDropOff ||
+        !_hasDetectedSpeech ||
+        _peakActiveWindowRms < base * 2.2) {
+      return base;
+    }
+    return (_peakActiveWindowRms * relativeSpeakerDropOffRatio).clamp(
+      base,
+      math.max(base, 0.065),
+    );
+  }
+
+  /// Puts the VAD into Standby mode (used when Paused or waiting for PTT),
+  /// clearing any active utterance buffer without emitting a chunk and
+  /// maintaining only the rolling [maxPreRollDuration] ring buffer.
+  void enterStandby({bool clearPreRoll = true}) {
+    _clearUtteranceBuffer();
+    _isStandby = true;
+    _bypassOnsetGate = false;
+    if (clearPreRoll) {
+      _clearPreRollBuffer();
+    }
+  }
+
+  /// Exits Standby mode and promotes the rolling pre-roll lookback buffer into
+  /// the active utterance buffer, snapping to the natural speech onset within
+  /// the [minPreRollDuration]..[maxPreRollDuration] window.
+  ///
+  /// Returns the number of promoted pre-roll samples.
+  int exitStandbyAndPromotePreRoll({bool bypassOnsetGate = false}) {
+    _isStandby = false;
+    _bypassOnsetGate = bypassOnsetGate;
+    if (_preRollWindows.isEmpty) {
+      return 0;
+    }
+
+    final threshold = effectiveSilenceThreshold;
+    final minSamples = minPreRollSamples;
+    var accumulated = 0;
+    var minStartIndex = _preRollWindows.length;
+    for (var i = _preRollWindows.length - 1; i >= 0; i--) {
+      accumulated += _preRollWindows[i].length;
+      minStartIndex = i;
+      if (accumulated >= minSamples) {
+        break;
+      }
+    }
+
+    var selectedStartIndex = minStartIndex;
+    if (_preRollWindowRms[minStartIndex] >= threshold) {
+      // Speaker was already talking 1.0s ago: walk backward toward 2.0s to find
+      // the silence-to-speech onset so we don't chop their opening word in half.
+      var idx = minStartIndex;
+      while (idx > 0 && _preRollWindowRms[idx - 1] >= threshold) {
+        idx--;
+      }
+      selectedStartIndex = math.max(0, idx - 2);
+    } else {
+      // It was silent at the 1.0s mark: check if speech started more recently
+      // within the last 1.0s and snap to 2 windows (~40ms) before speech onset
+      // so we don't prepend earlier background noise.
+      var firstSpeechIdx = -1;
+      for (var i = minStartIndex; i < _preRollWindows.length; i++) {
+        if (_preRollWindowRms[i] >= threshold) {
+          firstSpeechIdx = i;
+          break;
+        }
+      }
+      if (firstSpeechIdx >= 0) {
+        selectedStartIndex = math.max(minStartIndex, firstSpeechIdx - 2);
+      } else {
+        selectedStartIndex = minStartIndex;
+      }
+    }
+
+    final promotedSamplesList = <double>[];
+    for (var i = selectedStartIndex; i < _preRollWindows.length; i++) {
+      promotedSamplesList.addAll(_preRollWindows[i]);
+    }
+    _clearPreRollBuffer();
+
+    if (promotedSamplesList.isEmpty) {
+      return 0;
+    }
+
+    final promoted = Float32List.fromList(promotedSamplesList);
+    _log.info(
+      '[VAD PRE-ROLL PROMOTE] Promoted ${promoted.length} samples '
+      '(${(promoted.length / sampleRate).toStringAsFixed(2)}s, '
+      'bypassOnsetGate=$bypassOnsetGate) from standby rolling buffer.',
+    );
+    addSamples(promoted);
+
+    // If bypassOnsetGate is true (explicit PTT press) and all pre-roll windows
+    // were quieter than the threshold, still retain the pre-roll audio in the
+    // buffer so soft/whispered speech before the button press is not lost.
+    if (bypassOnsetGate && !_hasDetectedSpeech && _buffer.isEmpty) {
+      final now = _now();
+      _utteranceSpeechStartTime = now;
+      _utteranceLastSpeechTime = now;
+      _hasDetectedSpeech = true;
+      _buffer.addAll(promoted);
+      _lastActiveSampleEndIndex = _buffer.length;
+    }
+
+    return promoted.length;
+  }
+
+  void _clearPreRollBuffer() {
+    _preRollWindows.clear();
+    _preRollWindowRms.clear();
+    _preRollTotalSamples = 0;
   }
 
   /// Computes the Root Mean Square (RMS) energy of [samples].
@@ -319,8 +514,58 @@ class VadBuffer {
         );
       }
 
-      final currentThreshold = effectiveSilenceThreshold;
-      final isWindowSilent = windowRms < currentThreshold;
+      if (_isStandby) {
+        final windowCopy = Float32List.fromList(windowView);
+        _preRollWindows.add(windowCopy);
+        _preRollWindowRms.add(windowRms);
+        _preRollTotalSamples += windowCopy.length;
+        final maxPreRoll = maxPreRollSamples;
+        while (_preRollTotalSamples > maxPreRoll && _preRollWindows.isNotEmpty) {
+          final removed = _preRollWindows.removeAt(0);
+          _preRollWindowRms.removeAt(0);
+          _preRollTotalSamples -= removed.length;
+        }
+        continue;
+      }
+
+      final activeThreshold = _hasDetectedSpeech
+          ? effectiveContinuationSilenceThreshold
+          : effectiveOnsetThreshold;
+      var isWindowSilent = windowRms < activeThreshold;
+
+      if (!_hasDetectedSpeech) {
+        final requiredOnset = _bypassOnsetGate
+            ? 1
+            : math.max(1, onsetConsecutiveWindows);
+        if (requiredOnset > 1) {
+          if (!isWindowSilent) {
+            _pendingOnsetWindows.add(Float32List.fromList(windowView));
+            if (_pendingOnsetWindows.length < requiredOnset) {
+              continue;
+            }
+            // Sustained near-field speech onset confirmed! Seed the preceding
+            // onset windows into _buffer so the leading consonant is preserved.
+            final now = _now();
+            _utteranceSpeechStartTime = now;
+            _utteranceLastSpeechTime = now;
+            _hasDetectedSpeech = true;
+            for (var p = 0; p < _pendingOnsetWindows.length - 1; p++) {
+              final priorWin = _pendingOnsetWindows[p];
+              final priorRms = computeRms(priorWin);
+              if (priorRms > _peakActiveWindowRms) {
+                _peakActiveWindowRms = priorRms;
+              }
+              _buffer.addAll(priorWin);
+              _activeSpeechSamples += priorWin.length;
+              _lastActiveSampleEndIndex = _buffer.length;
+            }
+            _pendingOnsetWindows.clear();
+          } else {
+            _pendingOnsetWindows.clear();
+            continue;
+          }
+        }
+      }
 
       if (!isWindowSilent && windowRms > _peakActiveWindowRms) {
         _peakActiveWindowRms = windowRms;
@@ -332,7 +577,7 @@ class VadBuffer {
         final sample = samples[i];
         final isSampleSilent = windowSize > 1
             ? isWindowSilent
-            : (isWindowSilent && sample.abs() < currentThreshold);
+            : (isWindowSilent && sample.abs() < activeThreshold);
 
         if (!isSampleSilent) {
           final now = windowTimestamp ??= _now();
@@ -340,7 +585,7 @@ class VadBuffer {
             _utteranceSpeechStartTime = now;
             _log.info(
               '[VAD SPEECH ONSET] windowRms=${windowRms.toStringAsFixed(4)} >= '
-              'threshold=${currentThreshold.toStringAsFixed(4)} '
+              'threshold=${activeThreshold.toStringAsFixed(4)} '
               '(noiseFloor=${_noiseFloorRms.toStringAsFixed(4)}, zcr=${windowZcr.toStringAsFixed(3)}) '
               '-> started accumulating utterance buffer.',
             );
@@ -590,6 +835,7 @@ class VadBuffer {
 
   void _clearUtteranceBuffer() {
     _buffer.clear();
+    _pendingOnsetWindows.clear();
     _trailingSilenceSamples = 0;
     _activeSpeechSamples = 0;
     _lastActiveSampleEndIndex = 0;
@@ -607,6 +853,9 @@ class VadBuffer {
   /// ambient background noise remains suppressed across turns.
   void reset({bool preserveNoiseFloor = false}) {
     _clearUtteranceBuffer();
+    _clearPreRollBuffer();
+    _isStandby = false;
+    _bypassOnsetGate = false;
     if (!preserveNoiseFloor) {
       _recentAcWindowRms.clear();
       _noiseFloorRms = 0.0;

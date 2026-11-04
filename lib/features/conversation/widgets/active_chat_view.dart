@@ -1283,8 +1283,27 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                             isLoading: state.isLoading,
                             amplitude: state.amplitude,
                             modelName: settings.activeModelDisplayName,
+                            micControlMode: settings.micControlMode,
+                            hasBufferedSpeech:
+                                state.streamingTranslatedText != null &&
+                                state.streamingTranslatedText!.isNotEmpty,
                             onToggleListening:
                                 _conversationBloc.toggleListening,
+                            onStartPushToTalk:
+                                _conversationBloc.startPushToTalk,
+                            onFinishPushToTalk: _conversationBloc.stopListening,
+                            onDiscardUtterance: _conversationBloc
+                                .discardCurrentUtteranceAndPause,
+                            onToggleMicControlMode: () {
+                              final nextMode =
+                                  settings.micControlMode ==
+                                      MicControlMode.pushToTalk
+                                  ? MicControlMode.continuous
+                                  : MicControlMode.pushToTalk;
+                              unawaited(
+                                _settingsBloc.updateMicControlMode(nextMode),
+                              );
+                            },
                           ),
                         );
                       },

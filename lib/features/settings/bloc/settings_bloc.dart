@@ -330,6 +330,12 @@ class SettingsBloc extends CubitSignal<SettingsState> {
     await _persistSettings(updated);
   }
 
+  /// Updates the default microphone control mode (`continuous` vs `pushToTalk`).
+  Future<void> updateMicControlMode(MicControlMode mode) async {
+    final updated = stateValue.settings.copyWith(micControlMode: mode);
+    await _persistSettings(updated);
+  }
+
   /// Adds a new [ConversationContextPreset] or updates an existing preset with
   /// the same [ConversationContextPreset.id].
   Future<void> saveContextPreset(ConversationContextPreset preset) async {

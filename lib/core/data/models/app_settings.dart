@@ -17,6 +17,18 @@ enum TranslationEngineMode {
   cloud,
 }
 
+/// Controls the default microphone capture behavior when launching or using a
+/// conversation.
+enum MicControlMode {
+  /// Hands-free continuous listening (auto-starts on new conversations; tap
+  /// pause to enter 2s pre-roll standby).
+  continuous,
+
+  /// Push-to-Talk mode for noisy environments (launches new conversations in
+  /// 2s rolling pre-roll standby; hold or tap mic to capture a turn).
+  pushToTalk,
+}
+
 /// Represents a selectable cloud Gemini model in Settings.
 @freezed
 abstract class SupportedCloudModel with _$SupportedCloudModel {
@@ -82,7 +94,8 @@ abstract class ConversationContextPreset with _$ConversationContextPreset {
       _$ConversationContextPresetFromJson(json);
 
   /// Compact label combining icon and name (e.g. `'🍽️ Restaurant & Dining'`).
-  String get displayLabel => icon.trim().isEmpty ? name : '${icon.trim()} $name';
+  String get displayLabel =>
+      icon.trim().isEmpty ? name : '${icon.trim()} $name';
 }
 
 /// Persistent application settings for language pairs, currencies, model URL,
@@ -109,6 +122,7 @@ abstract class AppSettings with _$AppSettings {
     @Default(AppSettings.defaultRollingTurnCount) int rollingTurnCount,
     @Default(AppSettings.defaultContextPresets)
     List<ConversationContextPreset> contextPresets,
+    @Default(MicControlMode.continuous) MicControlMode micControlMode,
   }) = _AppSettings;
 
   const AppSettings._();
@@ -123,7 +137,7 @@ abstract class AppSettings with _$AppSettings {
   );
   static const String appBuildNumber = String.fromEnvironment(
     'FLUTTER_BUILD_NUMBER',
-    defaultValue: '5',
+    defaultValue: '7',
   );
   static const String appVersion = '$appVersionName+$appBuildNumber';
   static const double defaultTextScaleFactor = 1.0;
@@ -140,43 +154,37 @@ abstract class AppSettings with _$AppSettings {
       id: 'restaurant',
       name: 'Restaurant & Dining',
       icon: '🍽️',
-      keywords:
-          'menu, order, dish, ingredients, allergy, bill, check, table, reservation, spicy, vegetarian',
+      keywords: 'menu, order, dish, ingredients, allergy, bill, check, table, reservation, spicy, vegetarian',
     ),
     ConversationContextPreset(
       id: 'airport',
       name: 'Airport & Flights',
       icon: '✈️',
-      keywords:
-          'flight, boarding pass, gate, terminal, baggage claim, customs, passport, security, layover, delay',
+      keywords: 'flight, boarding pass, gate, terminal, baggage claim, customs, passport, security, layover, delay',
     ),
     ConversationContextPreset(
       id: 'taxi',
       name: 'Taxi & Transit',
       icon: '🚕',
-      keywords:
-          'destination, address, turn left, turn right, stop here, meter, fare, station, subway, drop-off',
+      keywords: 'destination, address, turn left, turn right, stop here, meter, fare, station, subway, drop-off',
     ),
     ConversationContextPreset(
       id: 'hotel',
       name: 'Hotel & Lodging',
       icon: '🏨',
-      keywords:
-          'check-in, check-out, reservation, room key, Wi-Fi, breakfast, luggage, towels, front desk',
+      keywords: 'check-in, check-out, reservation, room key, Wi-Fi, breakfast, luggage, towels, front desk',
     ),
     ConversationContextPreset(
       id: 'shopping',
       name: 'Shopping & Market',
       icon: '🛍️',
-      keywords:
-          'how much, price, discount, size, color, receipt, cash, credit card, tax-free, fitting room',
+      keywords: 'how much, price, discount, size, color, receipt, cash, credit card, tax-free, fitting room',
     ),
     ConversationContextPreset(
       id: 'medical',
       name: 'Medical & Pharmacy',
       icon: '⚕️',
-      keywords:
-          'symptoms, pain, fever, allergy, prescription, medicine, dosage, pharmacy, doctor, emergency',
+      keywords: 'symptoms, pain, fever, allergy, prescription, medicine, dosage, pharmacy, doctor, emergency',
     ),
   ];
 
@@ -506,8 +514,13 @@ abstract class AppSettings with _$AppSettings {
       'pt' || 'por' || 'portuguese' || 'português' || 'portugues' => '🇵🇹',
       'ja' || 'jp' || 'jpn' || 'japanese' || '日本語' => '🇯🇵',
       'ko' || 'kr' || 'kor' || 'korean' || '한국어' => '🇰🇷',
-      'zh' || 'cn' || 'zho' || 'chi' || 'chinese' || 'mandarin' || '中文' =>
-        '🇨🇳',
+      'zh' ||
+      'cn' ||
+      'zho' ||
+      'chi' ||
+      'chinese' ||
+      'mandarin' ||
+      '中文' => '🇨🇳',
       'ar' || 'ara' || 'arabic' || 'العربية' => '🇸🇦',
       'bn' || 'ben' || 'bengali' || 'বাংলা' => '🇧🇩',
       'bg' || 'bul' || 'bulgarian' || 'български' => '🇧🇬',

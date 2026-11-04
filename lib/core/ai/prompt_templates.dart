@@ -101,8 +101,10 @@ Direction Rules (CRITICAL):
 - If the audio is spoken primarily in $baseLanguage ($baseCode), set "detected_language" to "$baseCode" and translate the speech into $targetLanguage ($targetCode) in "translated_text".
 - If the audio is spoken primarily in $targetLanguage ($targetCode), set "detected_language" to "$targetCode" and translate the speech into $baseLanguage ($baseCode) in "translated_text".
 - "translated_text" MUST ALWAYS be in the opposite language from "original_transcript". NEVER repeat or transcribe $baseLanguage as $baseLanguage or $targetLanguage as $targetLanguage in "translated_text".
-Silence & Pause Rules (CRITICAL):
-- If the audio contains only silence, a conversational pause, breathing, or background noise with no clear human speech, return empty strings: {"detected_language": "$baseCode", "translated_text": "", "original_transcript": ""}.
+Silence, Pause & Background Chatter Rules (CRITICAL):
+- Transcribe and translate ONLY clear, close-microphone foreground speech spoken in $baseLanguage ($baseCode) or $targetLanguage ($targetCode).
+- Ignore faint or distant background conversations (e.g., neighboring tables, street/café chatter, overlapping crowd voices, TV/radio audio) and ignore speech in unrelated third languages.
+- If the audio contains only silence, a conversational pause, breathing, background noise with no clear human speech, or only faint/distant background chatter with no primary foreground speaker, return empty strings: {"detected_language": "$baseCode", "translated_text": "", "original_transcript": ""}.
 - NEVER invent, guess, or hallucinate example phrases (such as going to the store to buy milk) when nothing was said, and NEVER output meta-commentary about missing or silent audio files.
 Formatting Rules:
 1. Convert any spoken times into standard 24-hour and 12-hour format (e.g., '18:00 (6PM)').
@@ -123,7 +125,7 @@ Formatting Rules:
     final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
     return '''
 Listen to the full audio clip and translate between $baseLanguage ($baseCode) and $targetLanguage ($targetCode):
-1. "original_transcript": transcribe the exact spoken words in their original language (determine the language from the MAJORITY of the full sentence; do not let an English-sounding first word or interjection make you translate the rest into $baseLanguage), or "" if no clear speech was spoken.
+1. "original_transcript": transcribe the exact spoken words of the primary foreground speaker in their original language (determine the language from the MAJORITY of the full sentence; do not let an English-sounding first word or interjection make you translate the rest into $baseLanguage; ignore faint/distant background conversations, TV/crowd chatter, or third languages), or "" if no clear speech was spoken.
 2. "detected_language": "$baseCode" if the majority of the utterance was spoken in $baseLanguage, or "$targetCode" if the majority was spoken in $targetLanguage.
 3. "translated_text": translate "original_transcript" into the OTHER language (if "$baseCode" was spoken, "translated_text" MUST be written in $targetLanguage ($targetCode); if "$targetCode" was spoken, "translated_text" MUST be written in $baseLanguage ($baseCode)), or "" if "original_transcript" is empty. NEVER output the same language in "translated_text", NEVER hallucinate example sentences on silence, and NEVER complain about missing audio.
 Output ONLY valid JSON:
@@ -147,7 +149,8 @@ Listen to the entire provided audio clip, transcribe the exact words spoken in t
 Rules (CRITICAL):
 - Do NOT translate the speech. "original_transcript" MUST be written in the exact language spoken in the audio.
 - Classify "detected_language" based on the MAJORITY language of the full utterance ("$baseCode" or "$targetCode"). Do NOT let a single leading loanword, interjection (e.g., "Okay", "OK", "No", "Yes", "Oh", "Ah", "Hey", "Wait", "Um"), cognate, or ambiguous first word trick you into classifying or transcribing the rest of the sentence as $baseLanguage.
-- If the audio contains only silence, a pause, breathing, or background noise with no clear human speech, return empty strings: {"original_transcript": "", "detected_language": "$baseCode"}.
+- Transcribe ONLY clear, close-microphone foreground speech in "$baseLanguage" ($baseCode) or "$targetLanguage" ($targetCode). Ignore faint/distant background conversations, neighboring tables, crowd/TV chatter, or unrelated third languages.
+- If the audio contains only silence, a pause, breathing, background noise with no clear human speech, or only faint/distant background chatter, return empty strings: {"original_transcript": "", "detected_language": "$baseCode"}.
 - NEVER invent, guess, or hallucinate example phrases when nothing was said, and NEVER output meta-commentary about missing or silent audio files.
 - Return ONLY a valid JSON object: {"original_transcript": "...", "detected_language": "$baseCode"}.$contextSuffix''';
   }
@@ -161,7 +164,7 @@ Rules (CRITICAL):
     final targetCode = LanguageDetector.normalizeLanguageCode(targetLanguage);
     return '''
 Transcribe the spoken audio verbatim in its original language ($baseLanguage ($baseCode) or $targetLanguage ($targetCode)) without translating:
-1. "original_transcript": exact spoken words in their original language (evaluate the whole utterance; do not let an ambiguous or English-sounding first word cause you to translate the sentence), or "" if no clear speech was spoken.
+1. "original_transcript": exact spoken words of the primary foreground speaker in their original language (evaluate the whole utterance; do not let an ambiguous or English-sounding first word cause you to translate the sentence; ignore faint/distant background chatter or unrelated third languages), or "" if no clear speech was spoken.
 2. "detected_language": "$baseCode" or "$targetCode" based on the MAJORITY of the full utterance (ignore any single leading interjection, loanword, or cognate).
 Output ONLY valid JSON:
 {"original_transcript": "...", "detected_language": "$baseCode"}''';

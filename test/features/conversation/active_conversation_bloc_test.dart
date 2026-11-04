@@ -1434,6 +1434,88 @@ void main() {
         );
       },
     );
+
+    test(
+      'discardCurrentUtteranceAndPause wipes buffered audio, clears streaming bubble, and drops into standby without saving a message',
+      () async {
+        await bloc.startNewSession();
+
+        // Feed 600ms of speech to start an active utterance + live streaming snapshot
+        fakeEngine.nextResult = const TranslationResult(
+          sourceLanguage: 'en',
+          originalText: 'Background noise conversation',
+          translatedText: 'Conversación de ruido de fondo',
+        );
+        frameStreamController.add(
+          Float32List.fromList(List<double>.filled(600, 0.25)),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(bloc.stateValue.isListening, isTrue);
+        expect(
+          bloc.stateValue.streamingTranslatedText,
+          'Conversación de ruido de fondo',
+        );
+
+        // User taps the Discard (✕) button -> wipes everything and enters Standby
+        await bloc.discardCurrentUtteranceAndPause();
+
+        expect(bloc.stateValue.isListening, isFalse);
+        expect(bloc.stateValue.isLoading, isFalse);
+        expect(bloc.stateValue.streamingTranslatedText, isNull);
+        expect(bloc.stateValue.messages, isEmpty);
+        expect(audioService.isStandby, isTrue);
+        expect(audioService.vadBuffer.bufferedSampleCount, 0);
+      },
+    );
+
+    test(
+      'starts in Standby when MicControlMode.pushToTalk is configured and promotes pre-roll on startPushToTalk',
+      () async {
+        final currentSettings = await settingsRepo.getSettings();
+        await settingsRepo.saveSettings(
+          currentSettings.copyWith(micControlMode: MicControlMode.pushToTalk),
+        );
+
+        await bloc.startNewSession();
+
+        // Launches in Standby (isListening == false) with rolling pre-roll active
+        expect(bloc.stateValue.isListening, isFalse);
+        expect(audioService.isCapturing, isTrue);
+        expect(audioService.isStandby, isTrue);
+
+        // Speaker starts talking while user hasn't pressed the button yet (0.8s in standby)
+        frameStreamController.add(
+          Float32List.fromList(List<double>.filled(800, 0.25)),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(bloc.stateValue.messages, isEmpty);
+        expect(audioService.vadBuffer.preRollSampleCount, 800);
+
+        // User presses and holds mic button -> promotes the 800ms pre-roll into active buffer!
+        await bloc.startPushToTalk();
+        expect(bloc.stateValue.isListening, isTrue);
+        expect(audioService.isStandby, isFalse);
+        expect(audioService.vadBuffer.bufferedSampleCount, 800);
+
+        // User releases mic button -> flushes the turn and translates it!
+        fakeEngine.nextResult = const TranslationResult(
+          sourceLanguage: 'en',
+          originalText: 'Two coffees, please.',
+          translatedText: 'Dos cafés, por favor.',
+        );
+        await bloc.stopListening();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(bloc.stateValue.isListening, isFalse);
+        expect(audioService.isStandby, isTrue);
+        expect(bloc.stateValue.messages, hasLength(1));
+        expect(
+          bloc.stateValue.messages.single.translatedText,
+          'Dos cafés, por favor.',
+        );
+      },
+    );
   });
 }
 

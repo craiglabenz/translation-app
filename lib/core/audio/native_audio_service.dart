@@ -45,6 +45,10 @@ class NativeAudioService {
   /// Whether microphone capture is currently active.
   bool get isCapturing => _isCapturing;
 
+  /// Whether hardware capture is running in 2.0s rolling pre-roll Standby mode
+  /// (paused between turns or waiting for Push-to-Talk).
+  bool get isStandby => _isCapturing && _vadBuffer.isStandby;
+
   /// Underlying [VadBuffer] instance.
   VadBuffer get vadBuffer => _vadBuffer;
 
@@ -70,19 +74,71 @@ class NativeAudioService {
   Stream<double> get amplitudeStream => _amplitudeController.stream;
 
   /// Starts streaming 16kHz mono `Float32List` PCM audio from the microphone.
-  Future<void> startCapture() async {
+  ///
+  /// If hardware capture is already running in Standby ([isStandby] is `true`),
+  /// calling `startCapture()` immediately promotes the 1.5–2.0s rolling
+  /// pre-roll buffer into the active utterance buffer without restarting the
+  /// hardware audio stream.
+  Future<void> startCapture() {
+    return _startOrConfigureCapture(
+      startInStandby: false,
+      bypassOnsetGate: false,
+    );
+  }
+
+  /// Starts hardware microphone capture in Standby mode (maintaining only the
+  /// 2.0s rolling pre-roll ring buffer without emitting speech chunks).
+  Future<void> startStandbyCapture() {
+    return _startOrConfigureCapture(
+      startInStandby: true,
+      bypassOnsetGate: false,
+    );
+  }
+
+  /// Starts or resumes microphone capture for an explicit Push-to-Talk turn,
+  /// promoting the 1.5–2.0s rolling pre-roll buffer and bypassing strict onset
+  /// hysteresis so even soft speech is captured immediately.
+  Future<void> startPushToTalkCapture() {
+    return _startOrConfigureCapture(
+      startInStandby: false,
+      bypassOnsetGate: true,
+    );
+  }
+
+  Future<void> _startOrConfigureCapture({
+    required bool startInStandby,
+    required bool bypassOnsetGate,
+  }) async {
     final isTestEnv = isFlutterTestEnvironment;
     _log.info(
       'startCapture() requested: isCapturing=$_isCapturing, '
+      'isStandby=${_vadBuffer.isStandby}, startInStandby=$startInStandby, '
+      'bypassOnsetGate=$bypassOnsetGate, '
       'hasCustomStream=${_customFrameStreamProvider != null}, '
       'isTestEnv=$isTestEnv, enablePlatformChannelInTests=$enablePlatformChannelInTests',
     );
 
     if (_isCapturing) {
-      _log.info('startCapture() ignored because capture is already active.');
+      if (_vadBuffer.isStandby && !startInStandby) {
+        final promotedSamples = _vadBuffer.exitStandbyAndPromotePreRoll(
+          bypassOnsetGate: bypassOnsetGate,
+        );
+        _log.info(
+          'startCapture(): Exited standby and promoted $promotedSamples pre-roll samples.',
+        );
+      } else if (!_vadBuffer.isStandby && startInStandby) {
+        _vadBuffer.enterStandby(clearPreRoll: true);
+      } else {
+        _log.info('startCapture() ignored because capture is already active.');
+      }
       return;
     }
     _vadBuffer.reset();
+    if (startInStandby) {
+      _vadBuffer.enterStandby(clearPreRoll: true);
+    } else if (bypassOnsetGate) {
+      _vadBuffer.exitStandbyAndPromotePreRoll(bypassOnsetGate: true);
+    }
     _frameCount = 0;
     _isCapturing = true;
 
@@ -234,6 +290,42 @@ class NativeAudioService {
     return flushed;
   }
 
+  /// Flushes any currently buffered speech and transitions [vadBuffer] into
+  /// Standby mode while keeping hardware capture running so the 2.0s rolling
+  /// pre-roll buffer stays ready for the next turn.
+  Future<Float32List?> pauseToStandby() async {
+    _log.info(
+      'pauseToStandby() requested: isCapturing=$_isCapturing, '
+      'isStandby=${_vadBuffer.isStandby}, '
+      'bufferedSamples=${_vadBuffer.bufferedSampleCount}',
+    );
+    if (!_isCapturing) {
+      return null;
+    }
+    final flushed = _vadBuffer.flush();
+    _vadBuffer.enterStandby(clearPreRoll: true);
+    if (!_amplitudeController.isClosed) {
+      _amplitudeController.add(0.0);
+    }
+    _log.info(
+      'pauseToStandby() complete: flushedChunk=${flushed != null ? "${flushed.length} samples" : "null"}',
+    );
+    return flushed;
+  }
+
+  /// Hard-kills any buffered audio without flushing and transitions [vadBuffer]
+  /// into Standby mode with a clean pre-roll buffer.
+  Future<void> discardAndEnterStandby() async {
+    _log.info(
+      'discardAndEnterStandby() requested: isCapturing=$_isCapturing, '
+      'bufferedSamples=${_vadBuffer.bufferedSampleCount}',
+    );
+    _vadBuffer.enterStandby(clearPreRoll: true);
+    if (!_amplitudeController.isClosed) {
+      _amplitudeController.add(0.0);
+    }
+  }
+
   /// Feeds a 16kHz mono [Float32List] frame into the capture pipeline and VAD.
   List<Float32List> pushSamples(Float32List samples) {
     if (!_isCapturing || samples.isEmpty) {
@@ -243,6 +335,14 @@ class NativeAudioService {
 
     if (!_rawFrameController.isClosed) {
       _rawFrameController.add(samples);
+    }
+
+    if (_vadBuffer.isStandby) {
+      _vadBuffer.addSamples(samples);
+      if (!_amplitudeController.isClosed) {
+        _amplitudeController.add(0.0);
+      }
+      return const <Float32List>[];
     }
 
     final rms = VadBuffer.computeRms(samples);

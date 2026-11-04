@@ -75,6 +75,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   final Queue<_QueuedAudioChunk> _pendingChunkQueue =
       Queue<_QueuedAudioChunk>();
   bool _isDrainingChunkQueue = false;
+  int _cancelEpoch = 0;
 
   final _LanguageRunningClockState _baseLanguageClock =
       _LanguageRunningClockState();
@@ -187,11 +188,15 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       ),
     );
 
-    await startListening(conversation);
+    if (settings.micControlMode == MicControlMode.pushToTalk) {
+      await startStandby(conversation);
+    } else {
+      await startListening(conversation);
+    }
     sw.stop();
     _log.info(
       '[PERF] ActiveConversationBloc.startNewSession() FINISH '
-      '(${sw.elapsedMilliseconds}ms)',
+      '(${sw.elapsedMilliseconds}ms, mode=${settings.micControlMode})',
     );
   }
 
@@ -265,11 +270,18 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   }
 
   /// Starts or resumes microphone capture and VAD speech segmentation.
-  Future<void> startListening([Conversation? targetConversation]) async {
+  ///
+  /// When [bypassOnsetGate] is `true` (e.g. during an explicit Push-to-Talk
+  /// gesture), promotes the 1.5–2.0s rolling pre-roll buffer and bypasses
+  /// strict near-field onset hysteresis for the turn.
+  Future<void> startListening([
+    Conversation? targetConversation,
+    bool bypassOnsetGate = false,
+  ]) async {
     final sw = Stopwatch()..start();
     _log.info(
       '[PERF] ActiveConversationBloc.startListening() START '
-      '(currentIsListening=${stateValue.isListening}, '
+      '(currentIsListening=${stateValue.isListening}, bypassOnsetGate=$bypassOnsetGate, '
       'targetConversationId=${targetConversation?.id ?? stateValue.conversation?.id})',
     );
     var conversation = targetConversation ?? stateValue.conversation;
@@ -295,7 +307,11 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       _log.info(
         '[PERF] startListening(): NativeAudioService.startCapture() START...',
       );
-      await _audioService.startCapture();
+      if (bypassOnsetGate) {
+        await _audioService.startPushToTalkCapture();
+      } else {
+        await _audioService.startCapture();
+      }
       audioSw.stop();
       _log.info(
         '[PERF] startListening(): NativeAudioService.startCapture() FINISH '
@@ -352,15 +368,88 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     }
   }
 
-  /// Pauses microphone capture and flushes any buffered speech.
+  /// Starts hardware microphone capture in Standby mode (maintaining only the
+  /// 2.0s rolling pre-roll buffer while `isListening` remains `false`).
+  Future<void> startStandby([Conversation? targetConversation]) async {
+    var conversation = targetConversation ?? stateValue.conversation;
+    if (conversation == null) {
+      final settings = await _settingsRepository.getSettings();
+      conversation = await _conversationRepository.createConversation(
+        baseLanguage: settings.baseLanguage,
+        targetLanguage: settings.targetLanguage,
+        activeContextIds: _pendingContextIds,
+        customKeywords: _pendingCustomKeywords,
+      );
+      if (isClosed) return;
+      emit(stateValue.copyWith(conversation: conversation));
+    }
+
+    _ensureAudioSubscriptions();
+
+    try {
+      await _audioService.startStandbyCapture();
+      if (isClosed) return;
+      emit(
+        stateValue.copyWith(
+          conversation: conversation,
+          isListening: false,
+          amplitude: 0.0,
+          error: null,
+        ),
+      );
+      await _translationEngine.initialize();
+    } on MicrophonePermissionException catch (e, st) {
+      _log.severe('MicrophonePermissionException in startStandby()', e, st);
+      await _audioService.stopCapture();
+      if (isClosed) return;
+      emit(
+        stateValue.copyWith(
+          isListening: false,
+          amplitude: 0.0,
+          error: e.message,
+        ),
+      );
+    } on AudioCaptureException catch (e, st) {
+      _log.severe('AudioCaptureException in startStandby()', e, st);
+      await _audioService.stopCapture();
+      if (isClosed) return;
+      emit(
+        stateValue.copyWith(
+          isListening: false,
+          amplitude: 0.0,
+          error: e.message,
+        ),
+      );
+    } catch (e, st) {
+      _log.severe('Unexpected error in startStandby()', e, st);
+      await _audioService.stopCapture();
+      if (isClosed) return;
+      emit(
+        stateValue.copyWith(
+          isListening: false,
+          amplitude: 0.0,
+          error: 'Microphone error: $e',
+        ),
+      );
+    }
+  }
+
+  /// Starts or resumes microphone capture for a Push-to-Talk gesture, promoting
+  /// the 1.5–2.0s rolling pre-roll buffer and bypassing strict onset gating.
+  Future<void> startPushToTalk([Conversation? targetConversation]) {
+    return startListening(targetConversation, true);
+  }
+
+  /// Pauses active microphone listening into 2.0s pre-roll Standby mode and
+  /// flushes any buffered speech so the current utterance finishes translating.
   Future<void> stopListening() async {
     _log.info(
       'stopListening() called (isListening=${stateValue.isListening})...',
     );
     _latestPendingSnapshotChunk = null;
-    await _audioService.stopCapture();
+    await _audioService.pauseToStandby();
     if (isClosed) return;
-    if (!_isFinalChunkTranslating) {
+    if (!_isFinalChunkTranslating && _pendingChunkQueue.isEmpty) {
       _resetUtteranceClauseState();
       emit(
         stateValue.copyWith(
@@ -374,7 +463,40 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     } else {
       emit(stateValue.copyWith(isListening: false, amplitude: 0.0));
     }
-    _log.info('stopListening() complete (isListening=false).');
+    _log.info('stopListening() complete (isListening=false, standby=true).');
+  }
+
+  /// Hard-kills any buffered audio and in-flight translation without saving a
+  /// message, clears the rolling pre-roll buffer, and puts the microphone into
+  /// Standby/Paused state.
+  Future<void> discardCurrentUtteranceAndPause() async {
+    _log.info(
+      'discardCurrentUtteranceAndPause() called '
+      '(isListening=${stateValue.isListening}, isLoading=${stateValue.isLoading})...',
+    );
+    _cancelEpoch++;
+    _latestPendingSnapshotChunk = null;
+    while (_pendingChunkQueue.isNotEmpty) {
+      final item = _pendingChunkQueue.removeFirst();
+      if (!item.completer.isCompleted) {
+        item.completer.complete();
+      }
+    }
+    _isFinalChunkTranslating = false;
+    _resetUtteranceClauseState();
+    await _audioService.discardAndEnterStandby();
+    if (isClosed) return;
+    emit(
+      stateValue.copyWith(
+        isListening: false,
+        isLoading: false,
+        amplitude: 0.0,
+        streamingTranslatedText: null,
+        streamingIsBaseLanguage: null,
+        error: null,
+      ),
+    );
+    _log.info('discardCurrentUtteranceAndPause() complete.');
   }
 
   /// Toggles live microphone capture on or off.
@@ -846,6 +968,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
   Future<TranslationResult?> _translateLiveSnapshot(
     Float32List snapshotChunk,
   ) async {
+    final startEpoch = _cancelEpoch;
     try {
       _ensureUtteranceContinuity(snapshotChunk);
       _maybePromoteActiveClauseBeforeSlicing(snapshotChunk);
@@ -938,7 +1061,11 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         targetCurrency: settings.targetCurrency,
         contextPromptBlock: turnContext.promptBlock,
         onPartialResult: (partial) {
-          if (isClosed || _isFinalChunkTranslating) return;
+          if (isClosed ||
+              _isFinalChunkTranslating ||
+              _cancelEpoch != startEpoch) {
+            return;
+          }
           if (!isInitialPassForClause || _activeClauseAnnotatedText != null) {
             // Keep the already-rendered clause stable on screen while refining;
             // swap atomically once this snapshot pass completes.
@@ -975,7 +1102,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           );
         },
       );
-      if (isClosed) return null;
+      if (isClosed || _cancelEpoch != startEpoch) return null;
 
       _lastCompletedSnapshotChunk = snapshotChunk;
       _lastCompletedSnapshotResult = result;
@@ -1233,6 +1360,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
 
   Future<void> _processSingleQueuedChunk(_QueuedAudioChunk item) async {
     if (isClosed) return;
+    final startEpoch = _cancelEpoch;
 
     // Prevent any queued (not yet started) snapshot from starting, and allow
     // any currently in-flight snapshot to finish recording its clause state.
@@ -1241,7 +1369,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     if (inFlightFuture != null) {
       await inFlightFuture;
     }
-    if (isClosed) return;
+    if (isClosed || _cancelEpoch != startEpoch) return;
 
     _isFinalChunkTranslating = true;
 
@@ -1272,7 +1400,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         baseCurrency: settings.baseCurrency,
         targetCurrency: settings.targetCurrency,
       );
-      if (isClosed) return;
+      if (isClosed || _cancelEpoch != startEpoch) return;
 
       final engine = _translationEngine;
       if (engine is SegmentedTranslationEngine) {
@@ -1282,6 +1410,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           conversation: conversation,
           settings: settings,
           exchangeRate: exchangeRate.rate,
+          startEpoch: startEpoch,
         );
       } else {
         await _processLegacySingleTurnChunk(
@@ -1289,9 +1418,11 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
           conversation: conversation,
           settings: settings,
           exchangeRate: exchangeRate.rate,
+          startEpoch: startEpoch,
         );
       }
     } catch (e, st) {
+      if (_cancelEpoch != startEpoch) return;
       _log.severe('Translation failed in onAudioChunkReceived()', e, st);
       if (isClosed) return;
       emit(
@@ -1314,6 +1445,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     required double exchangeRate,
     required String? contextPromptBlock,
     required String conversationId,
+    required int startEpoch,
   }) async {
     final stepSw = Stopwatch()..start();
     var engineElapsedMs = 0;
@@ -1367,7 +1499,11 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         targetCurrency: settings.targetCurrency,
         contextPromptBlock: contextPromptBlock,
         onPartialResult: (partial) {
-          if (isClosed || !stateValue.isLoading) return;
+          if (isClosed ||
+              !stateValue.isLoading ||
+              _cancelEpoch != startEpoch) {
+            return;
+          }
           if (!isInitialPassForClause || _activeClauseAnnotatedText != null) {
             return;
           }
@@ -1397,7 +1533,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         },
       );
       engineElapsedMs = stepSw.elapsedMilliseconds;
-      if (isClosed) return engineElapsedMs;
+      if (isClosed || _cancelEpoch != startEpoch) return engineElapsedMs;
 
       if (tailResult.translatedText.trim().isNotEmpty &&
           !LocalTranslationEngine.isNonSpeechOrHallucination(
@@ -1512,6 +1648,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     required Conversation conversation,
     required AppSettings settings,
     required double exchangeRate,
+    required int startEpoch,
   }) async {
     TranslationResult? matchedSnapshotResult;
 
@@ -1527,8 +1664,9 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         exchangeRate: exchangeRate,
         contextPromptBlock: turnContext.promptBlock,
         conversationId: conversation.id,
+        startEpoch: startEpoch,
       );
-      if (isClosed) return;
+      if (isClosed || _cancelEpoch != startEpoch) return;
       matchedSnapshotResult = _buildCombinedResultFromLockedClauses(
         settings: settings,
         fallbackElapsedMs: elapsedMs,
@@ -1546,7 +1684,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         matchedSnapshotResult = completedResult;
       }
     }
-    if (isClosed) return;
+    if (isClosed || _cancelEpoch != startEpoch) return;
 
     final baseLanguageName = AppSettings.languageNameFor(settings.baseLanguage);
     final targetLanguageName = AppSettings.languageNameFor(
@@ -1632,7 +1770,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         contextPromptBlock: initialContext.promptBlock,
       );
       sttSw.stop();
-      if (isClosed) return;
+      if (isClosed || _cancelEpoch != startEpoch) return;
 
       validSegments = sttResult.effectiveSegments
           .where(
@@ -1679,7 +1817,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     var currentMessages = List<Message>.of(stateValue.messages);
 
     for (var i = 0; i < validSegments.length; i++) {
-      if (isClosed) return;
+      if (isClosed || _cancelEpoch != startEpoch) return;
       final segment = validSegments[i];
       final isBaseLanguage = _matchesLanguage(
         detectedLanguage: segment.languageCode,
@@ -1743,7 +1881,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
             speechToTextModel: sttModelName,
           );
           transSw.stop();
-          if (isClosed) return;
+          if (isClosed || _cancelEpoch != startEpoch) return;
 
           final rawTranslated = translationResult.translatedText.trim();
           if (rawTranslated.isNotEmpty) {
@@ -2057,7 +2195,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         );
       }
       transSw.stop();
-      if (isClosed) return;
+      if (isClosed || _cancelEpoch != startEpoch) return;
 
       final rawTranslated = translationResult.translatedText.trim();
       if (rawTranslated.isEmpty ||
@@ -2166,6 +2304,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
     required Conversation conversation,
     required AppSettings settings,
     required double exchangeRate,
+    required int startEpoch,
   }) async {
     final audioChunk = item.samples;
     final turnContext = _buildTurnContextMetadata(
@@ -2181,8 +2320,9 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       exchangeRate: exchangeRate,
       contextPromptBlock: turnContext.promptBlock,
       conversationId: conversation.id,
+      startEpoch: startEpoch,
     );
-    if (isClosed) return;
+    if (isClosed || _cancelEpoch != startEpoch) return;
 
     if (_lockedClauses.isEmpty) {
       _log.info(

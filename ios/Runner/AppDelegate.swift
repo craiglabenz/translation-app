@@ -141,6 +141,20 @@ final class NativeAudioCaptureController: NSObject, FlutterStreamHandler {
     )] = [
       (
         .playAndRecord,
+        .voiceChat,
+        [.defaultToSpeaker, .allowBluetooth],
+        true,
+        "playAndRecord/voiceChat/defaultToSpeaker+bluetooth"
+      ),
+      (
+        .playAndRecord,
+        .voiceChat,
+        [.defaultToSpeaker],
+        false,
+        "playAndRecord/voiceChat/defaultToSpeaker"
+      ),
+      (
+        .playAndRecord,
         .default,
         [.defaultToSpeaker, .allowBluetooth],
         true,
@@ -211,6 +225,7 @@ final class NativeAudioCaptureController: NSObject, FlutterStreamHandler {
           }
           try? session.setPreferredIOBufferDuration(0.02)
           try session.setActive(true)
+          configureDirectionalMicrophoneIfSupported(session)
           NSLog(
             "[NativeAudioCapture] Activated AVAudioSession with \(config.label) (attempt \(attempt))."
           )
@@ -230,6 +245,38 @@ final class NativeAudioCaptureController: NSObject, FlutterStreamHandler {
 
     if let error = lastError {
       throw error
+    }
+  }
+
+  /// Configures a directional (.cardioid or .subcardioid) polar pattern on the
+  /// active input data source when supported by the hardware microphone to
+  /// reject off-axis background chatter.
+  private func configureDirectionalMicrophoneIfSupported(_ session: AVAudioSession) {
+    guard let dataSources = session.inputDataSources, !dataSources.isEmpty else {
+      return
+    }
+    let candidate = session.inputDataSource ?? dataSources.first
+    guard let dataSource = candidate,
+          let patterns = dataSource.supportedPolarPatterns,
+          !patterns.isEmpty else {
+      return
+    }
+    let targetPattern: AVAudioSession.PolarPattern?
+    if patterns.contains(.cardioid) {
+      targetPattern = .cardioid
+    } else if patterns.contains(.subcardioid) {
+      targetPattern = .subcardioid
+    } else {
+      targetPattern = nil
+    }
+    if let pattern = targetPattern {
+      do {
+        try dataSource.setPreferredPolarPattern(pattern)
+        try session.setInputDataSource(dataSource)
+        NSLog("[NativeAudioCapture] Configured directional polar pattern: \(pattern.rawValue) on \(dataSource.dataSourceName)")
+      } catch {
+        NSLog("[NativeAudioCapture] Could not set polar pattern (\(error.localizedDescription)); continuing with default pattern.")
+      }
     }
   }
 

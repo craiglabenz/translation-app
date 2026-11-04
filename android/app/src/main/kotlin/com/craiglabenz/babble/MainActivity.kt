@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.NoiseSuppressor
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -35,6 +36,7 @@ class MainActivity : FlutterActivity() {
     private val isRecording = AtomicBoolean(false)
     private var eventSink: EventChannel.EventSink? = null
     private var audioRecord: AudioRecord? = null
+    private var noiseSuppressor: NoiseSuppressor? = null
     private var recordingThread: Thread? = null
     private var pendingStartResult: MethodChannel.Result? = null
     private var pendingSampleRate: Int = 16000
@@ -134,13 +136,25 @@ class MainActivity : FlutterActivity() {
                     AudioFormat.ENCODING_PCM_16BIT
                 )
                 val bufferSize = maxOf(minBuffer, sampleRate / 10 * 2)
-                val recorder = AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
+                var recorder = AudioRecord(
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
                     sampleRate,
                     AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT,
                     bufferSize
                 )
+
+                if (recorder.state != AudioRecord.STATE_INITIALIZED) {
+                    Log.w(TAG, "VOICE_RECOGNITION init failed; falling back to AudioSource.MIC")
+                    recorder.release()
+                    recorder = AudioRecord(
+                        MediaRecorder.AudioSource.MIC,
+                        sampleRate,
+                        AudioFormat.CHANNEL_IN_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT,
+                        bufferSize
+                    )
+                }
 
                 if (recorder.state != AudioRecord.STATE_INITIALIZED) {
                     recorder.release()
@@ -152,6 +166,17 @@ class MainActivity : FlutterActivity() {
                         )
                     }
                     return@execute
+                }
+
+                if (NoiseSuppressor.isAvailable()) {
+                    try {
+                        noiseSuppressor = NoiseSuppressor.create(recorder.audioSessionId)?.apply {
+                            enabled = true
+                            Log.i(TAG, "Hardware NoiseSuppressor enabled for session ${recorder.audioSessionId}")
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to attach hardware NoiseSuppressor: ${e.message}")
+                    }
                 }
 
                 audioRecord = recorder
@@ -203,6 +228,14 @@ class MainActivity : FlutterActivity() {
         } catch (_: InterruptedException) {
         }
         recordingThread = null
+
+        noiseSuppressor?.let { suppressor ->
+            try {
+                suppressor.release()
+            } catch (_: Exception) {
+            }
+        }
+        noiseSuppressor = null
 
         audioRecord?.let { recorder ->
             try {

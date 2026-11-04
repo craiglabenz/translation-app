@@ -243,6 +243,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     destination:
                                         _buildCloudSttModelDestination(),
                                   ),
+                                SettingsTile.navigation(
+                                  key: const ValueKey(
+                                    'mic_control_mode_selector',
+                                  ),
+                                  leading: const Icon(Icons.touch_app_rounded),
+                                  title: const Text('Default Microphone Mode'),
+                                  value: Text(
+                                    settings.micControlMode ==
+                                            MicControlMode.pushToTalk
+                                        ? 'Push-to-Talk (Noisy)'
+                                        : 'Continuous (Auto)',
+                                  ),
+                                  description: Text(
+                                    settings.micControlMode ==
+                                            MicControlMode.pushToTalk
+                                        ? 'Starts new conversations in 2s pre-roll standby. Hold or tap mic to speak.'
+                                        : 'Starts new conversations listening continuously. Tap to pause or hold for PTT.',
+                                  ),
+                                  destination:
+                                      _buildMicControlModeDestination(),
+                                ),
                               ],
                             ),
 
@@ -706,6 +727,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onPressed: (ctx) {
                       _settingsBloc.updateSttEngineMode(
                         TranslationEngineMode.cloud,
+                      );
+                      Navigator.of(ctx).maybePop();
+                    },
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  SettingsDestination _buildMicControlModeDestination() {
+    return SettingsDestination(
+      id: 'mic_control_mode',
+      title: const Text('Default Microphone Mode'),
+      builder: (context) => BlocSignalBuilder<SettingsBloc, SettingsState>(
+        bloc: _settingsBloc,
+        builder: (context, state) {
+          final mode = state.settings.micControlMode;
+          return SettingsList(
+            sections: [
+              SettingsSection(
+                title: const Text('Conversation Launch & Noise Control'),
+                tiles: [
+                  SettingsTile(
+                    key: const ValueKey('mic_mode_continuous_tile'),
+                    leading: const Icon(Icons.hearing_rounded),
+                    title: const Text('Continuous (Auto)'),
+                    trailing: mode == MicControlMode.continuous
+                        ? _buildCheckmark(context)
+                        : null,
+                    description: const Text(
+                      'Starts new conversations listening continuously. Tap the mic to pause (keeping a 2s rolling pre-roll), quick-tap to resume, or hold for Push-to-Talk.',
+                    ),
+                    onPressed: (ctx) {
+                      _settingsBloc.updateMicControlMode(
+                        MicControlMode.continuous,
+                      );
+                      Navigator.of(ctx).maybePop();
+                    },
+                  ),
+                  SettingsTile(
+                    key: const ValueKey('mic_mode_ptt_tile'),
+                    leading: const Icon(Icons.touch_app_rounded),
+                    title: const Text('Push-to-Talk (Noisy Environments)'),
+                    trailing: mode == MicControlMode.pushToTalk
+                        ? _buildCheckmark(context)
+                        : null,
+                    description: const Text(
+                      'Starts new conversations in 2s pre-roll standby to block background chatter. Hold the mic to talk (or quick-tap to latch a turn), automatically capturing the preceding 1.5–2.0s of speech.',
+                    ),
+                    onPressed: (ctx) {
+                      _settingsBloc.updateMicControlMode(
+                        MicControlMode.pushToTalk,
                       );
                       Navigator.of(ctx).maybePop();
                     },

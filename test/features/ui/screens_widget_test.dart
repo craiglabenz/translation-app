@@ -225,6 +225,100 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets(
+      'supports Discard button, mode toggle pill, and unified Quick-Tap vs Hold-to-Talk gestures',
+      (tester) async {
+        var toggleCount = 0;
+        var pttStartCount = 0;
+        var pttEndCount = 0;
+        var discardCount = 0;
+        var modeToggleCount = 0;
+        var isListening = false;
+
+        Widget buildIndicator() {
+          return _wrapWithTheme(
+            PulsingMicIndicator(
+              isListening: isListening,
+              isLoading: false,
+              amplitude: 0.2,
+              micControlMode: MicControlMode.pushToTalk,
+              onToggleListening: () {
+                toggleCount++;
+                isListening = !isListening;
+              },
+              onStartPushToTalk: () {
+                pttStartCount++;
+                isListening = true;
+              },
+              onFinishPushToTalk: () {
+                pttEndCount++;
+                isListening = false;
+              },
+              onDiscardUtterance: () {
+                discardCount++;
+                isListening = false;
+              },
+              onToggleMicControlMode: () {
+                modeToggleCount++;
+              },
+            ),
+          );
+        }
+
+        await tester.pumpWidget(buildIndicator());
+
+        // In PTT Standby, shows "Push-to-Talk standby (2s pre-roll)" and mode toggle pill ("PTT")
+        expect(find.text('Push-to-Talk standby (2s pre-roll)'), findsOneWidget);
+        expect(find.byKey(const ValueKey('mic_mode_toggle_pill')), findsOneWidget);
+        expect(find.text('PTT'), findsOneWidget);
+        // Discard button is hidden while paused and idle
+        expect(find.byKey(const ValueKey('mic_discard_button')), findsNothing);
+
+        // Tap the mode toggle pill
+        await tester.tap(find.byKey(const ValueKey('mic_mode_toggle_pill')));
+        expect(modeToggleCount, 1);
+
+        // 1. Hold-to-Talk gesture (>= 300ms): starts PTT on press down, finishes on release
+        final micButton = find.byKey(const ValueKey('mic_toggle_button'));
+        final gesture = await tester.startGesture(tester.getCenter(micButton));
+        await tester.pump();
+        expect(pttStartCount, 1);
+        expect(isListening, isTrue);
+
+        // Advance >= 300ms while holding, then release -> triggers onFinishPushToTalk
+        await tester.pump(const Duration(milliseconds: 350));
+        await gesture.up();
+        await tester.pump();
+        expect(pttEndCount, 1);
+        expect(isListening, isFalse);
+
+        // 2. Quick-Tap gesture (< 300ms) from Standby: starts on press down and stays latched on release!
+        await tester.pumpWidget(buildIndicator());
+        final quickTap = await tester.startGesture(tester.getCenter(micButton));
+        await tester.pump(const Duration(milliseconds: 80));
+        await quickTap.up();
+        await tester.pump();
+        expect(pttStartCount, 2);
+        expect(pttEndCount, 1); // Did NOT auto-stop because tap was < 300ms!
+        expect(isListening, isTrue);
+
+        // Re-pump while listening -> Discard (✕) button is visible and invokes onDiscardUtterance
+        await tester.pumpWidget(buildIndicator());
+        expect(find.byKey(const ValueKey('mic_discard_button')), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('mic_discard_button')));
+        expect(discardCount, 1);
+        expect(isListening, isFalse);
+
+        // Tapping while already listening pauses via onToggleListening
+        isListening = true;
+        await tester.pumpWidget(buildIndicator());
+        await tester.tap(micButton);
+        await tester.pump();
+        expect(toggleCount, 1);
+        expect(isListening, isFalse);
+      },
+    );
   });
 
   group('HomeScreen widget tests', () {
