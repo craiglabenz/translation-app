@@ -1207,26 +1207,26 @@ class _ActiveChatViewState extends State<ActiveChatView> {
                                 Widget? footerBadge;
                                 if (domainMessage != null) {
                                   final isBase = domainMessage.isBaseLanguage;
-                                  leadingBadge = _DetectedLanguageFlagBadge(
+                                  leadingBadge = _TranslatedLanguageFlagBadge(
                                     key: ValueKey(
                                       'chat_message_flag_${domainMessage.id}',
                                     ),
-                                    flagEmoji: isBase ? baseFlag : targetFlag,
+                                    flagEmoji: isBase ? targetFlag : baseFlag,
                                     languageName: isBase
-                                        ? baseName
-                                        : targetName,
+                                        ? targetName
+                                        : baseName,
                                   );
                                 } else if (isStreamingTurn) {
                                   final isBase =
                                       state.streamingIsBaseLanguage ?? true;
-                                  leadingBadge = _DetectedLanguageFlagBadge(
+                                  leadingBadge = _TranslatedLanguageFlagBadge(
                                     key: const ValueKey(
                                       'chat_message_flag_streaming',
                                     ),
-                                    flagEmoji: isBase ? baseFlag : targetFlag,
+                                    flagEmoji: isBase ? targetFlag : baseFlag,
                                     languageName: isBase
-                                        ? baseName
-                                        : targetName,
+                                        ? targetName
+                                        : baseName,
                                     isInProgress: true,
                                   );
                                   footerBadge =
@@ -1301,9 +1301,9 @@ class _ActiveChatViewState extends State<ActiveChatView> {
 }
 
 /// Circular flag badge displayed beside each chat message indicating the
-/// detected (spoken) source language of that utterance.
-class _DetectedLanguageFlagBadge extends StatelessWidget {
-  const _DetectedLanguageFlagBadge({
+/// translated target language of that utterance.
+class _TranslatedLanguageFlagBadge extends StatelessWidget {
+  const _TranslatedLanguageFlagBadge({
     required this.flagEmoji,
     required this.languageName,
     this.isInProgress = false,
@@ -1321,9 +1321,9 @@ class _DetectedLanguageFlagBadge extends StatelessWidget {
 
     return SelectionContainer.disabled(
       child: Tooltip(
-        message: 'Detected language: $languageName',
+        message: 'Language: $languageName',
         child: Semantics(
-          label: 'Detected language: $languageName',
+          label: 'Language: $languageName',
           child: Container(
             width: 32,
             height: 32,

@@ -1444,7 +1444,7 @@ void main() {
     );
 
     testWidgets(
-      'ActiveChatView displays the detected source language flag by each message (e.g. American flag for English -> Korean, Korean flag for Korean -> English)',
+      'ActiveChatView displays the translated language flag by each message (e.g. Korean flag for English -> Korean, American flag for Korean -> English)',
       (tester) async {
         configureDependencies();
         final convRepo = GetIt.I<ConversationRepository>();
@@ -1466,7 +1466,7 @@ void main() {
           targetLanguage: 'ko',
           previewText: '안녕하세요',
         );
-        // 1. English message translated into Korean -> should show American flag (🇺🇸)
+        // 1. English message translated into Korean -> should show Korean flag (🇰🇷)
         await convRepo.saveMessage(
           Message(
             id: 'msg_en_to_ko',
@@ -1477,7 +1477,7 @@ void main() {
             translatedText: '지하철역이 어디에 있나요?',
           ),
         );
-        // 2. Korean message translated into English -> should show Korean flag (🇰🇷)
+        // 2. Korean message translated into English -> should show American flag (🇺🇸)
         await convRepo.saveMessage(
           Message(
             id: 'msg_ko_to_en',
@@ -1520,14 +1520,14 @@ void main() {
         expect(enBadgeFinder, findsOneWidget);
         expect(koBadgeFinder, findsOneWidget);
 
-        // Verify the English -> Korean message displays the American flag (🇺🇸)
+        // Verify the English -> Korean message displays the Korean flag (🇰🇷)
         expect(
-          find.descendant(of: enBadgeFinder, matching: find.text('🇺🇸')),
+          find.descendant(of: enBadgeFinder, matching: find.text('🇰🇷')),
           findsOneWidget,
         );
-        // Verify the Korean -> English message displays the Korean flag (🇰🇷)
+        // Verify the Korean -> English message displays the American flag (🇺🇸)
         expect(
-          find.descendant(of: koBadgeFinder, matching: find.text('🇰🇷')),
+          find.descendant(of: koBadgeFinder, matching: find.text('🇺🇸')),
           findsOneWidget,
         );
 
