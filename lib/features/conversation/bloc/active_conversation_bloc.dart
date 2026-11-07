@@ -667,6 +667,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         !VadBuffer.hasMeaningfulSpeech(
           snapshotChunk,
           sampleRate: _audioService.vadBuffer.sampleRate,
+          minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
         )) {
       _log.info(
         '[SNAPSHOT SKIPPED] onActiveSpeechSnapshotReceived(): '
@@ -992,6 +993,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
             silenceThreshold:
                 _audioService.vadBuffer.effectiveSilenceThreshold,
             sampleRate: _audioService.vadBuffer.sampleRate,
+            minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
           )) {
         _log.info(
           '[SNAPSHOT CLAUSE SILENT] _translateLiveSnapshot(): slice after offset '
@@ -1253,6 +1255,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
       slice,
       silenceThreshold: threshold,
       sampleRate: _audioService.vadBuffer.sampleRate,
+      minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
     );
   }
 
@@ -1297,6 +1300,7 @@ class ActiveConversationBloc extends CubitSignal<ActiveConversationState> {
         !VadBuffer.hasMeaningfulSpeech(
           audioChunk,
           sampleRate: _audioService.vadBuffer.sampleRate,
+          minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
         )) {
       _log.info(
         'onAudioChunkReceived(): chunk contains only pause/silence or transient noise -> ignoring gracefully.',

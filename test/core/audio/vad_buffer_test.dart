@@ -874,5 +874,78 @@ void main() {
 
       await vad.dispose();
     });
+
+    test('never discards or clips quick replies ("Yes", "That\'s okay") once speech onset is triggered in interactive mode', () async {
+      final vad = VadBuffer(
+        sampleRate: 1000,
+        silenceCutoff: const Duration(milliseconds: 500),
+        minSpeechDuration: VadBuffer.interactiveMinSpeechDuration, // 40ms
+        liveSnapshotInterval: VadBuffer.interactiveLiveSnapshotInterval,
+        livePauseSnapshotDelay: VadBuffer.interactiveLivePauseSnapshotDelay,
+        silenceThreshold: VadBuffer.interactiveSilenceThreshold, // 0.015
+        onsetMultiplier: VadBuffer.interactiveOnsetMultiplier, // 1.8 -> 0.027
+        onsetConsecutiveWindows: VadBuffer.interactiveOnsetConsecutiveWindows, // 2
+        enableRelativeSpeakerDropOff: true,
+        relativeSpeakerDropOffRatio: 0.30,
+      );
+
+      final snapshots = <Float32List>[];
+      final snapSub = vad.onActiveSpeechSnapshot.listen(snapshots.add);
+
+      // 1. Quick 120ms reply "Yes":
+      // - 20ms soft leading "Y-" (0.016 RMS, below 0.027 onset threshold)
+      // - 60ms vowel "e-" (0.15 RMS, triggers 2-window onset hysteresis)
+      // - 40ms soft trailing "-s" (0.020 RMS, below 30% of 0.15 = 0.045, but >= 0.015 base threshold)
+      // - 300ms pause -> triggers live pause snapshot!
+      final quickYesAndPause = Float32List.fromList(<double>[
+        ...List<double>.filled(20, 0.016),
+        ...List<double>.filled(60, 0.15),
+        ...List<double>.filled(40, 0.020),
+        ...List<double>.filled(300, 0.0),
+      ]);
+
+      expect(vad.addSamples(quickYesAndPause), isEmpty);
+      await Future<void>.delayed(Duration.zero);
+      // Pause snapshot was emitted with the complete 120 samples of "Yes" (not clipped at 80!)
+      expect(snapshots, hasLength(1));
+      expect(snapshots.single.length, 120);
+
+      // Remaining 200ms of silence reaches 500ms silenceCutoff -> flushes final chunk!
+      final emittedYes = vad.addSamples(Float32List(200));
+      expect(emittedYes, hasLength(1));
+      // All 120ms of "Yes" (including the 20ms pre-onset "Y-" and 40ms trailing "-s") + 500ms silence = 620 samples
+      expect(emittedYes.single.length, 620);
+      expect(
+        VadBuffer.hasMeaningfulSpeech(
+          emittedYes.single,
+          sampleRate: 1000,
+          minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
+        ),
+        isTrue,
+      );
+
+      // 2. Quick 280ms reply "That's okay":
+      // - 140ms loud "That's" (0.18 RMS)
+      // - 140ms softer "okay" (0.032 RMS < 0.18 * 0.30 = 0.054, but within first 350ms so NOT dropped!)
+      // - 300ms pause -> triggers live pause snapshot, then 200ms silence -> flushes!
+      snapshots.clear();
+      final thatsOkayAndPause = Float32List.fromList(<double>[
+        ...List<double>.filled(140, 0.18),
+        ...List<double>.filled(140, 0.032),
+        ...List<double>.filled(300, 0.0),
+      ]);
+      expect(vad.addSamples(thatsOkayAndPause), isEmpty);
+      await Future<void>.delayed(Duration.zero);
+      expect(snapshots, hasLength(1));
+      // Snapshot includes both "That's" (140) and "okay" (140) = 280 samples!
+      expect(snapshots.single.length, 280);
+
+      final emittedOkay = vad.addSamples(Float32List(200));
+      expect(emittedOkay, hasLength(1));
+      expect(emittedOkay.single.length, 780);
+
+      await snapSub.cancel();
+      await vad.dispose();
+    });
   });
 }

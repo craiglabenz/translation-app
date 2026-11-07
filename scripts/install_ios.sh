@@ -31,6 +31,8 @@
 #                                   signing / register device, then exit
 #   --setup-guide                   Print the full step-by-step iPhone + Xcode setup guide
 #   --team-id <team_id>             Apple Developer Team ID (default: KNK9SM7SLS)
+#   --build-name <version>          Override version name (defaults to pubspec.yaml)
+#   --build-number <number>         Override build number (defaults to pubspec.yaml)
 #   --dart-define <KEY=VALUE>       Pass additional --dart-define to flutter build (repeatable)
 #   --no-launch                     Install the app without launching it afterward
 #   --skip-pub-get                  Skip running `flutter pub get`
@@ -49,10 +51,12 @@ APPLE_TEAM_ID="${APPLE_TEAM_ID:-KNK9SM7SLS}"
 IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-com.craiglabenz.babble}"
 LAUNCH_AFTER_INSTALL=true
 SKIP_PUB_GET=false
+BUILD_NAME="${BUILD_NAME:-}"
+BUILD_NUMBER="${BUILD_NUMBER:-${GITHUB_RUN_NUMBER:-${BITRISE_BUILD_NUMBER:-${CM_BUILD_ID:-${CI_PIPELINE_IID:-}}}}}"
 DART_DEFINES=()
 
 usage() {
-  sed -n '2,38p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 print_ios_setup_guide() {
@@ -128,6 +132,14 @@ while [[ $# -gt 0 ]]; do
       APPLE_TEAM_ID="$2"
       shift 2
       ;;
+    --build-name)
+      BUILD_NAME="$2"
+      shift 2
+      ;;
+    --build-number)
+      BUILD_NUMBER="$2"
+      shift 2
+      ;;
     --dart-define)
       DART_DEFINES+=("--dart-define=$2")
       shift 2
@@ -172,6 +184,44 @@ if [[ -n "${GEMINI_API_KEY:-}" ]]; then
   DART_DEFINES+=("--dart-define=GEMINI_API_KEY=${GEMINI_API_KEY}")
 fi
 
+# Extract version and build number from pubspec.yaml if not explicitly set
+PUBSPEC_FILE="${PROJECT_ROOT}/pubspec.yaml"
+if [[ -f "${PUBSPEC_FILE}" ]]; then
+  RAW_VERSION="$(grep -E '^version:[[:space:]]*' "${PUBSPEC_FILE}" | sed -E 's/^version:[[:space:]]*["'"'"']?([^"'"'"' ]+)["'"'"']?/\1/' | tr -d '\r' | xargs)"
+  if [[ -n "${RAW_VERSION}" ]]; then
+    PUBSPEC_BUILD_NAME="${RAW_VERSION%%+*}"
+    if [[ "${RAW_VERSION}" == *"+"* ]]; then
+      PUBSPEC_BUILD_NUMBER="${RAW_VERSION#*+}"
+    else
+      PUBSPEC_BUILD_NUMBER="1"
+    fi
+    BUILD_NAME="${BUILD_NAME:-${PUBSPEC_BUILD_NAME}}"
+    BUILD_NUMBER="${BUILD_NUMBER:-${PUBSPEC_BUILD_NUMBER}}"
+  fi
+fi
+
+has_dart_define() {
+  local key="$1"
+  for def in "${DART_DEFINES[@]}"; do
+    if [[ "${def}" == "--dart-define=${key}="* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+if [[ -n "${BUILD_NAME:-}" ]] && ! has_dart_define "FLUTTER_BUILD_NAME"; then
+  DART_DEFINES+=("--dart-define=FLUTTER_BUILD_NAME=${BUILD_NAME}")
+fi
+
+if [[ -n "${BUILD_NUMBER:-}" ]] && ! has_dart_define "FLUTTER_BUILD_NUMBER"; then
+  DART_DEFINES+=("--dart-define=FLUTTER_BUILD_NUMBER=${BUILD_NUMBER}")
+fi
+
+if [[ -n "${BUILD_NAME:-}" && -n "${BUILD_NUMBER:-}" ]]; then
+  echo "📌 Build Version: ${BUILD_NAME}+${BUILD_NUMBER} (from pubspec.yaml)"
+fi
+
 # 1. Auto-detect a connected physical iOS device if --device was not specified
 if [[ -z "${DEVICE_ID}" ]]; then
   echo "🔍 Searching for connected physical iPhone / iPad..."
@@ -208,6 +258,12 @@ if [[ "${SKIP_PUB_GET}" != "true" ]]; then
 fi
 
 FLUTTER_BUILD_ARGS=("--release")
+if [[ -n "${BUILD_NAME:-}" ]]; then
+  FLUTTER_BUILD_ARGS+=("--build-name=${BUILD_NAME}")
+fi
+if [[ -n "${BUILD_NUMBER:-}" ]]; then
+  FLUTTER_BUILD_ARGS+=("--build-number=${BUILD_NUMBER}")
+fi
 if [[ ${#DART_DEFINES[@]} -gt 0 ]]; then
   FLUTTER_BUILD_ARGS+=("${DART_DEFINES[@]}")
 fi

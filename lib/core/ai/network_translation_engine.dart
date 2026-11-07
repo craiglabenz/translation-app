@@ -393,7 +393,10 @@ class NetworkTranslationEngine implements SegmentedTranslationEngine {
     );
 
     if (audioWavChunk.length >= 4000 &&
-        !VadBuffer.hasMeaningfulSpeech(audioWavChunk)) {
+        !VadBuffer.hasMeaningfulSpeech(
+          audioWavChunk,
+          minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
+        )) {
       _log.info(
         'translateAudioChunk(): audio chunk (${audioWavChunk.length} samples) '
         'contains no meaningful speech energy -> returning empty pause result.',
@@ -601,7 +604,10 @@ class NetworkTranslationEngine implements SegmentedTranslationEngine {
     );
 
     if (audioWavChunk.length >= 4000 &&
-        !VadBuffer.hasMeaningfulSpeech(audioWavChunk)) {
+        !VadBuffer.hasMeaningfulSpeech(
+          audioWavChunk,
+          minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
+        )) {
       _log.info(
         '[STEP 1 STT SKIP] transcribeAudioChunk() [Cloud:$effectiveSttModel]: '
         'chunk (${audioWavChunk.length} samples) has no meaningful speech energy -> returning empty transcript.',

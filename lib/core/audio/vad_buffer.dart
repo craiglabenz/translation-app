@@ -67,10 +67,14 @@ class VadBuffer {
   /// mode.
   static const Duration interactiveMaxChunkDuration = Duration(seconds: 15);
 
-  /// Minimum active speech duration required in live interactive mode so brief
-  /// clicks, taps, or breaths during a pause do not trigger hallucinated turns.
+  /// Minimum active speech duration required in live interactive mode.
+  ///
+  /// Matches the 40ms (2 × 20ms windows) onset hysteresis gate so that once a
+  /// sound passes onset hysteresis (or explicit PTT), it is treated as a valid
+  /// VAD event and quick replies ("Yes", "No", "That's okay") are never
+  /// discarded for being too short.
   static const Duration interactiveMinSpeechDuration = Duration(
-    milliseconds: 200,
+    milliseconds: 40,
   );
 
   /// RMS threshold for live microphone capture to reject quiet room hum while
@@ -165,6 +169,7 @@ class VadBuffer {
   final List<Float32List> _preRollWindows = <Float32List>[];
   final List<double> _preRollWindowRms = <double>[];
   final List<Float32List> _pendingOnsetWindows = <Float32List>[];
+  final List<Float32List> _preOnsetCushionWindows = <Float32List>[];
   int _preRollTotalSamples = 0;
   int _trailingSilenceSamples = 0;
   int _activeSpeechSamples = 0;
@@ -299,12 +304,15 @@ class VadBuffer {
 
   /// Effective RMS threshold required to sustain an already-active speech turn,
   /// raising the silence floor to [relativeSpeakerDropOffRatio] of the active
-  /// foreground speaker's peak RMS so quieter background conversations during a
-  /// pause are treated as silence.
+  /// foreground speaker's peak RMS once at least 350ms of active speech has
+  /// been accumulated so quieter background conversations during a pause are
+  /// treated as silence without clipping short answers ("Yes", "That's okay").
   double get effectiveContinuationSilenceThreshold {
     final base = effectiveSilenceThreshold;
+    final minSamplesBeforeDropOff = (sampleRate * 350) ~/ 1000;
     if (!enableRelativeSpeakerDropOff ||
         !_hasDetectedSpeech ||
+        _activeSpeechSamples < minSamplesBeforeDropOff ||
         _peakActiveWindowRms < base * 2.2) {
       return base;
     }
@@ -447,10 +455,14 @@ class VadBuffer {
     Float32List samples, {
     double silenceThreshold = 0.015,
     int sampleRate = defaultSampleRate,
-    Duration minSpeechDuration = const Duration(milliseconds: 250),
+    Duration minSpeechDuration = const Duration(milliseconds: 65),
   }) {
     if (samples.isEmpty) return false;
-    final minWindowLength = sampleRate ~/ 4; // 250ms
+    final minWindowLength = math.max(
+      1,
+      (sampleRate * minSpeechDuration.inMicroseconds) ~/
+          Duration.microsecondsPerSecond,
+    );
     if (samples.length < minWindowLength) {
       return computeRms(samples) >= silenceThreshold;
     }
@@ -543,12 +555,21 @@ class VadBuffer {
             if (_pendingOnsetWindows.length < requiredOnset) {
               continue;
             }
-            // Sustained near-field speech onset confirmed! Seed the preceding
-            // onset windows into _buffer so the leading consonant is preserved.
+            // Sustained near-field speech onset confirmed! Seed any soft
+            // pre-onset consonant windows plus the preceding onset windows into
+            // _buffer so the leading consonant ("Y-", "Th-", "S-") is preserved.
             final now = _now();
             _utteranceSpeechStartTime = now;
             _utteranceLastSpeechTime = now;
             _hasDetectedSpeech = true;
+            for (final cushionWin in _preOnsetCushionWindows) {
+              _buffer.addAll(cushionWin);
+              if (computeRms(cushionWin) >= effectiveSilenceThreshold) {
+                _activeSpeechSamples += cushionWin.length;
+                _lastActiveSampleEndIndex = _buffer.length;
+              }
+            }
+            _preOnsetCushionWindows.clear();
             for (var p = 0; p < _pendingOnsetWindows.length - 1; p++) {
               final priorWin = _pendingOnsetWindows[p];
               final priorRms = computeRms(priorWin);
@@ -562,6 +583,14 @@ class VadBuffer {
             _pendingOnsetWindows.clear();
           } else {
             _pendingOnsetWindows.clear();
+            if (windowRms >= effectiveSilenceThreshold * 0.5) {
+              _preOnsetCushionWindows.add(Float32List.fromList(windowView));
+              while (_preOnsetCushionWindows.length > 4) {
+                _preOnsetCushionWindows.removeAt(0);
+              }
+            } else {
+              _preOnsetCushionWindows.clear();
+            }
             continue;
           }
         }
@@ -836,6 +865,7 @@ class VadBuffer {
   void _clearUtteranceBuffer() {
     _buffer.clear();
     _pendingOnsetWindows.clear();
+    _preOnsetCushionWindows.clear();
     _trailingSilenceSamples = 0;
     _activeSpeechSamples = 0;
     _lastActiveSampleEndIndex = 0;

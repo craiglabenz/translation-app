@@ -18,6 +18,8 @@
 #   --setup-guide                   Print the full step-by-step Android phone setup guide
 #   --uninstall-first               Uninstall existing app first (useful if switching
 #                                   signing certificates / `INSTALL_FAILED_UPDATE_INCOMPATIBLE`)
+#   --build-name <version>          Override version name (defaults to pubspec.yaml)
+#   --build-number <number>         Override build number (defaults to pubspec.yaml)
 #   --dart-define <KEY=VALUE>       Pass additional --dart-define to flutter build (repeatable)
 #   --no-launch                     Install the APK without launching it afterward
 #   --skip-pub-get                  Skip running `flutter pub get`
@@ -35,10 +37,12 @@ ANDROID_APP_ID="${ANDROID_APP_ID:-com.craiglabenz.babble}"
 UNINSTALL_FIRST=false
 LAUNCH_AFTER_INSTALL=true
 SKIP_PUB_GET=false
+BUILD_NAME="${BUILD_NAME:-}"
+BUILD_NUMBER="${BUILD_NUMBER:-${GITHUB_RUN_NUMBER:-${BITRISE_BUILD_NUMBER:-${CM_BUILD_ID:-${CI_PIPELINE_IID:-}}}}}"
 DART_DEFINES=()
 
 usage() {
-  sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 print_android_setup_guide() {
@@ -93,6 +97,14 @@ while [[ $# -gt 0 ]]; do
       UNINSTALL_FIRST=true
       shift
       ;;
+    --build-name)
+      BUILD_NAME="$2"
+      shift 2
+      ;;
+    --build-number)
+      BUILD_NUMBER="$2"
+      shift 2
+      ;;
     --dart-define)
       DART_DEFINES+=("--dart-define=$2")
       shift 2
@@ -144,6 +156,44 @@ if [[ -n "${GEMINI_API_KEY:-}" ]]; then
   DART_DEFINES+=("--dart-define=GEMINI_API_KEY=${GEMINI_API_KEY}")
 fi
 
+# Extract version and build number from pubspec.yaml if not explicitly set
+PUBSPEC_FILE="${PROJECT_ROOT}/pubspec.yaml"
+if [[ -f "${PUBSPEC_FILE}" ]]; then
+  RAW_VERSION="$(grep -E '^version:[[:space:]]*' "${PUBSPEC_FILE}" | sed -E 's/^version:[[:space:]]*["'"'"']?([^"'"'"' ]+)["'"'"']?/\1/' | tr -d '\r' | xargs)"
+  if [[ -n "${RAW_VERSION}" ]]; then
+    PUBSPEC_BUILD_NAME="${RAW_VERSION%%+*}"
+    if [[ "${RAW_VERSION}" == *"+"* ]]; then
+      PUBSPEC_BUILD_NUMBER="${RAW_VERSION#*+}"
+    else
+      PUBSPEC_BUILD_NUMBER="1"
+    fi
+    BUILD_NAME="${BUILD_NAME:-${PUBSPEC_BUILD_NAME}}"
+    BUILD_NUMBER="${BUILD_NUMBER:-${PUBSPEC_BUILD_NUMBER}}"
+  fi
+fi
+
+has_dart_define() {
+  local key="$1"
+  for def in "${DART_DEFINES[@]}"; do
+    if [[ "${def}" == "--dart-define=${key}="* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+if [[ -n "${BUILD_NAME:-}" ]] && ! has_dart_define "FLUTTER_BUILD_NAME"; then
+  DART_DEFINES+=("--dart-define=FLUTTER_BUILD_NAME=${BUILD_NAME}")
+fi
+
+if [[ -n "${BUILD_NUMBER:-}" ]] && ! has_dart_define "FLUTTER_BUILD_NUMBER"; then
+  DART_DEFINES+=("--dart-define=FLUTTER_BUILD_NUMBER=${BUILD_NUMBER}")
+fi
+
+if [[ -n "${BUILD_NAME:-}" && -n "${BUILD_NUMBER:-}" ]]; then
+  echo "📌 Build Version: ${BUILD_NAME}+${BUILD_NUMBER} (from pubspec.yaml)"
+fi
+
 # Check if a device is plugged in but still awaiting the "Allow USB debugging?" prompt
 if [[ -z "${DEVICE_ID}" && -n "${ADB_BIN}" ]]; then
   UNAUTHORIZED_DEV="$("${ADB_BIN}" devices | awk 'NR>1 && $2=="unauthorized" {print $1; exit}' || true)"
@@ -193,6 +243,12 @@ fi
 
 # 2. Build the AOT Release APK via scripts/build_android.sh
 BUILD_ARGS=("--apk" "--skip-pub-get")
+if [[ -n "${BUILD_NAME:-}" ]]; then
+  BUILD_ARGS+=("--build-name" "${BUILD_NAME}")
+fi
+if [[ -n "${BUILD_NUMBER:-}" ]]; then
+  BUILD_ARGS+=("--build-number" "${BUILD_NUMBER}")
+fi
 if [[ ${#DART_DEFINES[@]} -gt 0 ]]; then
   for def in "${DART_DEFINES[@]}"; do
     BUILD_ARGS+=("--dart-define" "${def#--dart-define=}")

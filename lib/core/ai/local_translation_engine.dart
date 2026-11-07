@@ -229,7 +229,10 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
     // Pre-check real-length audio chunks (>= 250ms at 16kHz) so silent or
     // near-silent pauses never get sent to the LLM to trigger hallucinations.
     if (audioWavChunk.length >= 4000 &&
-        !VadBuffer.hasMeaningfulSpeech(audioWavChunk)) {
+        !VadBuffer.hasMeaningfulSpeech(
+          audioWavChunk,
+          minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
+        )) {
       _log.info(
         'translateAudioChunk(): audio chunk (${audioWavChunk.length} samples) '
         'contains no meaningful speech energy -> returning empty pause result.',
@@ -507,7 +510,10 @@ class LocalTranslationEngine implements SegmentedTranslationEngine {
     final rawDurationSec = (audioWavChunk.length / 16000.0).toStringAsFixed(2);
 
     if (audioWavChunk.length >= 4000 &&
-        !VadBuffer.hasMeaningfulSpeech(audioWavChunk)) {
+        !VadBuffer.hasMeaningfulSpeech(
+          audioWavChunk,
+          minSpeechDuration: VadBuffer.interactiveMinSpeechDuration,
+        )) {
       _log.info(
         '[STEP 1 STT SKIP] transcribeAudioChunk() [Gemma4Audio]: '
         'chunk (${audioWavChunk.length} samples / ~${rawDurationSec}s, rms=${chunkRms.toStringAsFixed(4)}) '

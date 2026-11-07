@@ -114,6 +114,44 @@ if [[ "${SKIP_PUB_GET}" != "true" ]]; then
   flutter pub get
 fi
 
+# Extract version and build number from pubspec.yaml if not explicitly set
+PUBSPEC_FILE="${PROJECT_ROOT}/pubspec.yaml"
+if [[ -f "${PUBSPEC_FILE}" ]]; then
+  RAW_VERSION="$(grep -E '^version:[[:space:]]*' "${PUBSPEC_FILE}" | sed -E 's/^version:[[:space:]]*["'"'"']?([^"'"'"' ]+)["'"'"']?/\1/' | tr -d '\r' | xargs)"
+  if [[ -n "${RAW_VERSION}" ]]; then
+    PUBSPEC_BUILD_NAME="${RAW_VERSION%%+*}"
+    if [[ "${RAW_VERSION}" == *"+"* ]]; then
+      PUBSPEC_BUILD_NUMBER="${RAW_VERSION#*+}"
+    else
+      PUBSPEC_BUILD_NUMBER="1"
+    fi
+    BUILD_NAME="${BUILD_NAME:-${PUBSPEC_BUILD_NAME}}"
+    BUILD_NUMBER="${BUILD_NUMBER:-${PUBSPEC_BUILD_NUMBER}}"
+  fi
+fi
+
+has_dart_define() {
+  local key="$1"
+  for def in "${DART_DEFINES[@]}"; do
+    if [[ "${def}" == "--dart-define=${key}="* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+if [[ -n "${BUILD_NAME:-}" ]] && ! has_dart_define "FLUTTER_BUILD_NAME"; then
+  DART_DEFINES+=("--dart-define=FLUTTER_BUILD_NAME=${BUILD_NAME}")
+fi
+
+if [[ -n "${BUILD_NUMBER:-}" ]] && ! has_dart_define "FLUTTER_BUILD_NUMBER"; then
+  DART_DEFINES+=("--dart-define=FLUTTER_BUILD_NUMBER=${BUILD_NUMBER}")
+fi
+
+if [[ -n "${BUILD_NAME:-}" && -n "${BUILD_NUMBER:-}" ]]; then
+  echo "📌 Build Version: ${BUILD_NAME}+${BUILD_NUMBER} (from pubspec.yaml)"
+fi
+
 FLUTTER_BUILD_ARGS=("--release")
 
 if [[ "${BUILD_WASM}" == "true" ]]; then
@@ -124,11 +162,11 @@ if [[ -n "${BASE_HREF}" ]]; then
   FLUTTER_BUILD_ARGS+=("--base-href=${BASE_HREF}")
 fi
 
-if [[ -n "${BUILD_NAME}" ]]; then
+if [[ -n "${BUILD_NAME:-}" ]]; then
   FLUTTER_BUILD_ARGS+=("--build-name=${BUILD_NAME}")
 fi
 
-if [[ -n "${BUILD_NUMBER}" ]]; then
+if [[ -n "${BUILD_NUMBER:-}" ]]; then
   FLUTTER_BUILD_ARGS+=("--build-number=${BUILD_NUMBER}")
 fi
 
